@@ -324,22 +324,43 @@ async function loadLibrarySnapshot(libraryId = "default") {
 /** ===========================
  *  Directory index + path resolver
  *  =========================== */
-async function buildDirectoryIndex(rootDirHandle) {
+async function buildDirectoryIndex(rootDirHandle, onProgress = null) {
   // Returns Map<relativePath, FileSystemDirectoryHandle>
   const map = new Map();
   map.set("", rootDirHandle);
+
+  let discovered = 1;
+  let sinceYield = 0;
+  const report = async (lastPath = "", done = false) => {
+    if (!onProgress) return;
+    await onProgress({ count: discovered, lastPath, done });
+  };
+
+  await report("", false);
 
   async function walk(dirHandle, rel) {
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind === "directory") {
         const childRel = rel ? `${rel}/${name}` : name;
         map.set(childRel, handle);
+        discovered += 1;
+        sinceYield += 1;
+
+        if (discovered <= 25 || discovered % 25 === 0) {
+          await report(childRel, false);
+        }
+        if (sinceYield >= 25) {
+          sinceYield = 0;
+          await new Promise((r) => setTimeout(r, 0));
+        }
+
         await walk(handle, childRel);
       }
     }
   }
 
   await walk(rootDirHandle, "");
+  await report("", true);
   return map;
 }
 
@@ -1020,7 +1041,10 @@ el.btnPick.onclick = async () => {
     setAsideState("Library folder selected", "ok");
 
     setStatus("Indexing directories… (first time can take a bit)", "warn");
-    state.dirIndex = await buildDirectoryIndex(state.libraryRoot);
+    state.dirIndex = await buildDirectoryIndex(state.libraryRoot, ({ count, lastPath }) => {
+      const suffix = lastPath ? ` (latest: ${lastPath})` : "";
+      setStatus(`Indexing directories… ${count} folders${suffix}`, "warn");
+    });
     state.picasaByFolder.clear();
     const hasPmp = !!state.pmpRoot;
     if (hasPmp) {
@@ -1069,7 +1093,10 @@ el.btnReload.onclick = async () => {
     clearGrid();
     state.activeListIndex = -1;
     setStatus("Rebuilding directory index…", "warn");
-    state.dirIndex = await buildDirectoryIndex(state.libraryRoot);
+    state.dirIndex = await buildDirectoryIndex(state.libraryRoot, ({ count, lastPath }) => {
+      const suffix = lastPath ? ` (latest: ${lastPath})` : "";
+      setStatus(`Rebuilding directory index… ${count} folders${suffix}`, "warn");
+    });
     state.picasaByFolder.clear();
     setStatus("Reloading PMP…", "warn");
     await loadAlbumsFromPMP();
