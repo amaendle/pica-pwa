@@ -418,6 +418,7 @@ const state = {
   folderItems: [],            // Folder[]
   folderNavItems: [],         // Folder browser entries for current folder path
   folderBrowserPath: "",      // Current relative path when in folder view
+  picasaByFolder: new Map(),  // Map<pathRel, parsed .picasa.ini metadata>
   currentImages: [],          // ImageItem[]
   currentTitle: "",
   currentResolved: "",
@@ -473,6 +474,121 @@ function clearGrid() {
   el.grid.innerHTML = "";
   el.countPill.textContent = "";
   el.resolvePill.textContent = "";
+}
+
+/** ===========================
+ *  .picasa.ini parsing
+ *  =========================== */
+function parseCaptionText(textValue) {
+  const parts = String(textValue || "").split(";");
+  return (parts[3] || "").trim();
+}
+
+function parseFacesValue(facesValue, contacts) {
+  const out = [];
+  for (const chunk of String(facesValue || "").split(";")) {
+    const part = chunk.trim();
+    if (!part) continue;
+    const m = part.match(/^rect64\(([^)]+)\),(.+)$/i);
+    if (!m) continue;
+    const contactId = m[2].trim();
+    out.push({
+      rect64: m[1],
+      contactId,
+      label: contacts.get(contactId) || contactId
+    });
+  }
+  return out;
+}
+
+function parsePicasaIni(content) {
+  const contacts = new Map();
+  const albumNamesByToken = new Map();
+  const membersByToken = new Map();
+  const imageMeta = new Map();
+
+  const sections = new Map();
+  let sectionName = "";
+  sections.set(sectionName, []);
+  for (const rawLine of String(content || "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith(";") || line.startsWith("#")) continue;
+    const sec = line.match(/^\[(.+)\]$/);
+    if (sec) {
+      sectionName = sec[1].trim();
+      if (!sections.has(sectionName)) sections.set(sectionName, []);
+      continue;
+    }
+    sections.get(sectionName).push(line);
+  }
+
+  for (const [sec, lines] of sections) {
+    if (sec === "Contacts2") {
+      for (const line of lines) {
+        const idx = line.indexOf("=");
+        if (idx <= 0) continue;
+        const id = line.slice(0, idx).trim();
+        const val = line.slice(idx + 1).trim();
+        const label = val.split(";")[0].trim();
+        if (id) contacts.set(id, label || id);
+      }
+    }
+  }
+
+  for (const [sec, lines] of sections) {
+    if (!sec || sec === "Contacts2") continue;
+    if (sec.startsWith(".album:")) {
+      let token = sec.slice(".album:".length).trim();
+      let name = "";
+      for (const line of lines) {
+        const idx = line.indexOf("=");
+        if (idx <= 0) continue;
+        const key = line.slice(0, idx).trim().toLowerCase();
+        const val = line.slice(idx + 1).trim();
+        if (key === "token" && val) token = val;
+        if (key === "name") name = val;
+      }
+      if (token) albumNamesByToken.set(token, name || token);
+      continue;
+    }
+
+    const meta = { caption: "", faces: [] };
+    for (const line of lines) {
+      const idx = line.indexOf("=");
+      if (idx <= 0) continue;
+      const key = line.slice(0, idx).trim().toLowerCase();
+      const val = line.slice(idx + 1).trim();
+
+      if (key === "albums") {
+        for (const token of val.split(",").map((x) => x.trim()).filter(Boolean)) {
+          if (!membersByToken.has(token)) membersByToken.set(token, new Set());
+          membersByToken.get(token).add(sec);
+        }
+      } else if (key === "faces") {
+        meta.faces = parseFacesValue(val, contacts);
+      } else if (key === "text") {
+        meta.caption = parseCaptionText(val);
+      }
+    }
+    imageMeta.set(sec, meta);
+  }
+
+  return { contacts, albumNamesByToken, membersByToken, imageMeta };
+}
+
+async function getPicasaMetaForFolder(pathRel, dirHandle) {
+  if (state.picasaByFolder.has(pathRel)) return state.picasaByFolder.get(pathRel);
+  try {
+    const fh = await dirHandle.getFileHandle(".picasa.ini");
+    const text = await (await fh.getFile()).text();
+    const parsed = parsePicasaIni(text);
+    state.picasaByFolder.set(pathRel, parsed);
+    return parsed;
+  } catch {
+    const empty = { contacts: new Map(), albumNamesByToken: new Map(), membersByToken: new Map(), imageMeta: new Map() };
+    state.picasaByFolder.set(pathRel, empty);
+    return empty;
+  }
 }
 
 /** ===========================
@@ -659,7 +775,7 @@ async function selectAlbum(idx) {
     return;
   }
 
-  await showImagesForResolvedPath(album.pathRel, `Resolved: ${album.pathRel}`);
+  await showImagesForResolvedPath(album.pathRel, `Resolved: ${album.pathRel}`, { album });
 }
 
 async function selectFolder(idx) {
@@ -732,7 +848,7 @@ async function openFolderPath(pathRel) {
   await showImagesForResolvedPath(pathRel, `Folder: ${folderLabel}`);
 }
 
-async function showImagesForResolvedPath(pathRel, pillText) {
+async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
   el.resolvePill.textContent = pillText;
   setStatus("Loading images…", "warn");
 
@@ -742,24 +858,32 @@ async function showImagesForResolvedPath(pathRel, pillText) {
     return;
   }
 
-  const images = await listImagesInDirectory(dirHandle, pathRel);
+  const images = await listImagesInDirectory(dirHandle, pathRel, options);
   await renderTiles(images);
   setStatus(images.length ? "Ready." : "No images found in this folder.", images.length ? "ok" : "warn");
 }
 
 /** List image files in a directory (non-recursive, like your Kivy folder scan) */
-async function listImagesInDirectory(dirHandle, relDir) {
+async function listImagesInDirectory(dirHandle, relDir, options = {}) {
   const out = [];
+  const picasa = await getPicasaMetaForFolder(relDir, dirHandle);
+  const albumToken = options.album?.token ? String(options.album.token) : "";
+  const members = albumToken ? (picasa.membersByToken.get(albumToken) || null) : null;
+
   for await (const [name, handle] of dirHandle.entries()) {
     if (handle.kind === "file" && isImageName(name)) {
+      if (members && !members.has(name)) continue;
       const file = await handle.getFile();
+      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [] };
       out.push({
         id: `${relDir}/${name}::${file.lastModified}`,
         file,
         relPath: relDir ? `${relDir}/${name}` : name,
         url: null,
         thumbUrl: null,
-        name
+        name,
+        caption: meta.caption || "",
+        faces: meta.faces || []
       });
     }
   }
@@ -797,7 +921,9 @@ async function renderTiles(images) {
 
       const cap = document.createElement("div");
       cap.className = "caption";
-      cap.textContent = it.name;
+      const faceNames = (it.faces || []).map((f) => f.label).filter(Boolean);
+      cap.textContent = it.caption || it.name;
+      if (faceNames.length) cap.title = `Faces: ${faceNames.join(", ")}`;
 
       tile.appendChild(img);
       tile.appendChild(cap);
@@ -842,7 +968,10 @@ function updateSlide() {
   if (!it.url) it.url = URL.createObjectURL(it.file);
 
   el.slideImg.src = it.url;
-  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}`;
+  const faces = (it.faces || []).map((f) => f.label).filter(Boolean);
+  const caption = it.caption ? ` | caption: ${it.caption}` : "";
+  const faceText = faces.length ? ` | faces: ${faces.join(", ")}` : "";
+  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}`;
 
   // Prefetch next/prev (browser cache will handle blob URLs fine)
   const prev = state.currentImages[state.slideshow.index - 1];
@@ -892,10 +1021,12 @@ el.btnPick.onclick = async () => {
 
     setStatus("Indexing directories… (first time can take a bit)", "warn");
     state.dirIndex = await buildDirectoryIndex(state.libraryRoot);
+    state.picasaByFolder.clear();
     const hasPmp = !!state.pmpRoot;
     if (hasPmp) {
       el.btnReload.disabled = false;
       setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
+      state.picasaByFolder.clear();
       await loadAlbumsFromPMP();
       setStatus("Select an item on the left.", "ok");
     } else {
@@ -921,6 +1052,7 @@ el.btnPickPmp.onclick = async () => {
     el.btnReload.disabled = false;
     clearGrid();
     setStatus("Loading PMP from selected import folder…", "warn");
+    state.picasaByFolder.clear();
     await loadAlbumsFromPMP();
     setStatus("Select an item on the left.", "ok");
   } catch (e) {
@@ -938,6 +1070,7 @@ el.btnReload.onclick = async () => {
     state.activeListIndex = -1;
     setStatus("Rebuilding directory index…", "warn");
     state.dirIndex = await buildDirectoryIndex(state.libraryRoot);
+    state.picasaByFolder.clear();
     setStatus("Reloading PMP…", "warn");
     await loadAlbumsFromPMP();
     setStatus("Reloaded. Select an item.", "ok");
