@@ -543,4 +543,164 @@ async function renderTiles(images) {
         img.src = it.url;
       }
 
-      const cap = 
+      const cap = document.createElement("div");
+      cap.className = "caption";
+      cap.textContent = it.name;
+
+      tile.appendChild(img);
+      tile.appendChild(cap);
+
+      const absoluteIndex = i + localIndex;
+      tile.onclick = () => openSlideshow(absoluteIndex);
+
+      return tile;
+    }));
+
+    for (const n of nodes) el.grid.appendChild(n);
+
+    // Yield to UI
+    await new Promise(r => setTimeout(r, 0));
+  }
+}
+
+/** ===========================
+ *  Slideshow
+ *  =========================== */
+function openSlideshow(index) {
+  if (!state.currentImages.length) return;
+  state.slideshow.index = Math.max(0, Math.min(index, state.currentImages.length - 1));
+  state.slideshow.open = true;
+  el.overlay.classList.add("show");
+  el.overlay.setAttribute("aria-hidden", "false");
+  updateSlide();
+}
+
+function closeSlideshow() {
+  stopPlaying();
+  state.slideshow.open = false;
+  el.overlay.classList.remove("show");
+  el.overlay.setAttribute("aria-hidden", "true");
+}
+
+function updateSlide() {
+  const it = state.currentImages[state.slideshow.index];
+  if (!it) return;
+
+  // Ensure full-size url
+  if (!it.url) it.url = URL.createObjectURL(it.file);
+
+  el.slideImg.src = it.url;
+  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}`;
+
+  // Prefetch next/prev (browser cache will handle blob URLs fine)
+  const prev = state.currentImages[state.slideshow.index - 1];
+  const next = state.currentImages[state.slideshow.index + 1];
+  if (prev && !prev.url) prev.url = URL.createObjectURL(prev.file);
+  if (next && !next.url) next.url = URL.createObjectURL(next.file);
+
+  el.btnPlay.textContent = state.slideshow.playing ? "⏸ Pause" : "▶ Play";
+}
+
+function prevSlide() {
+  if (!state.currentImages.length) return;
+  state.slideshow.index = (state.slideshow.index - 1 + state.currentImages.length) % state.currentImages.length;
+  updateSlide();
+}
+function nextSlide() {
+  if (!state.currentImages.length) return;
+  state.slideshow.index = (state.slideshow.index + 1) % state.currentImages.length;
+  updateSlide();
+}
+function startPlaying() {
+  if (state.slideshow.playing) return;
+  state.slideshow.playing = true;
+  el.btnPlay.textContent = "⏸ Pause";
+  state.slideshow.timer = setInterval(nextSlide, state.slideshow.intervalMs);
+}
+function stopPlaying() {
+  state.slideshow.playing = false;
+  el.btnPlay.textContent = "▶ Play";
+  if (state.slideshow.timer) clearInterval(state.slideshow.timer);
+  state.slideshow.timer = null;
+}
+function togglePlay() {
+  state.slideshow.playing ? stopPlaying() : startPlaying();
+}
+
+/** ===========================
+ *  App init + events
+ *  =========================== */
+el.btnPick.onclick = async () => {
+  try {
+    // Secure context required (https or localhost)
+    const dir = await window.showDirectoryPicker({ mode: "read" });
+    state.root = dir;
+    setAsideState("Library selected", "ok");
+    el.btnReload.disabled = false;
+
+    setStatus("Indexing directories… (first time can take a bit)", "warn");
+    state.dirIndex = await buildDirectoryIndex(state.root);
+    setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
+
+    await loadAlbumsFromPMP();
+    setStatus("Select an album on the left.", "ok");
+  } catch (e) {
+    setAsideState("No library selected");
+    setStatus(String(e?.message || e), "err");
+  }
+};
+
+el.btnReload.onclick = async () => {
+  try {
+    if (!state.root) return;
+    clearGrid();
+    setStatus("Rebuilding directory index…", "warn");
+    state.dirIndex = await buildDirectoryIndex(state.root);
+    setStatus("Reloading PMP…", "warn");
+    await loadAlbumsFromPMP();
+    setStatus("Reloaded. Select an album.", "ok");
+  } catch (e) {
+    setStatus(String(e?.message || e), "err");
+  }
+};
+
+el.btnClose.onclick = closeSlideshow;
+el.btnPrev.onclick = prevSlide;
+el.btnNext.onclick = nextSlide;
+el.btnPlay.onclick = togglePlay;
+
+// Keyboard controls
+window.addEventListener("keydown", (ev) => {
+  if (!state.slideshow.open) return;
+  if (ev.key === "Escape") { ev.preventDefault(); closeSlideshow(); }
+  else if (ev.key === "ArrowLeft") { ev.preventDefault(); prevSlide(); }
+  else if (ev.key === "ArrowRight") { ev.preventDefault(); nextSlide(); }
+  else if (ev.key === " ") { ev.preventDefault(); togglePlay(); }
+});
+
+// Click outside image to close (optional)
+el.overlay.addEventListener("click", (ev) => {
+  if (ev.target === el.overlay) closeSlideshow();
+});
+
+// Initial hint
+setStatus(
+  "Run this file from a local server (e.g. `python -m http.server`) then open in Chrome/Edge and click “Open Library Folder”.",
+  "warn"
+);
+</script>
+
+<!--
+How to run:
+1) Save as index.html
+2) In the folder containing index.html, run:
+   python -m http.server 8000
+3) Open http://localhost:8000 in Chrome/Edge
+4) Click “Open Library Folder” and pick your library root (the folder that contains db/ and your pictures)
+
+Notes:
+- This prototype resolves absolute PMP paths by suffix-matching them under the chosen library root.
+- If multiple folders share the same suffix, the first match wins (prototype behavior).
+-->
+</body>
+</html>
