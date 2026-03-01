@@ -416,6 +416,8 @@ const state = {
   dirIndex: null,             // Map<relPath, dirHandle> from libraryRoot
   albums: [],                 // Album[]
   folderItems: [],            // Folder[]
+  folderNavItems: [],         // Folder browser entries for current folder path
+  folderBrowserPath: "",      // Current relative path when in folder view
   currentImages: [],          // ImageItem[]
   currentTitle: "",
   currentResolved: "",
@@ -614,7 +616,7 @@ function renderFolderList(activeIdx = -1) {
   el.albumList.innerHTML = "";
   const frag = document.createDocumentFragment();
 
-  state.folderItems.forEach((f, idx) => {
+  state.folderNavItems.forEach((f, idx) => {
     const div = document.createElement("div");
     div.className = "item" + (idx === activeIdx ? " active" : "");
     const title = document.createElement("div");
@@ -660,16 +662,66 @@ async function selectAlbum(idx) {
 }
 
 async function selectFolder(idx) {
-  const folder = state.folderItems[idx];
+  const folder = state.folderNavItems[idx];
   if (!folder) return;
   state.currentViewMode = "folders";
   state.activeListIndex = idx;
-  renderNavigation();
-  clearGrid();
 
-  state.currentTitle = folder.name || "(folder)";
-  el.viewTitle.textContent = `Folder: ${state.currentTitle}`;
-  await showImagesForResolvedPath(folder.pathRel, `Folder: ${folder.pathRel}`);
+  if (folder.kind === "parent") {
+    state.folderBrowserPath = parentPath(state.folderBrowserPath);
+  } else {
+    state.folderBrowserPath = folder.pathRel;
+  }
+
+  await openFolderPath(state.folderBrowserPath);
+}
+
+function parentPath(relPath) {
+  const segs = (relPath || "").split("/").filter(Boolean);
+  segs.pop();
+  return segs.join("/");
+}
+
+function listSubdirectories(relPath) {
+  const prefix = relPath ? `${relPath}/` : "";
+  const children = [];
+  for (const key of state.dirIndex.keys()) {
+    if (key === relPath) continue;
+    if (!key.startsWith(prefix)) continue;
+    const rest = key.slice(prefix.length);
+    if (!rest || rest.includes("/")) continue; // direct children only
+    children.push({
+      kind: "folder",
+      name: rest,
+      pathRel: key
+    });
+  }
+  children.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  return children;
+}
+
+async function openFolderPath(pathRel) {
+  if (!state.dirIndex || !state.dirIndex.has(pathRel)) {
+    setStatus("Folder path could not be resolved in the selected library.", "err");
+    return;
+  }
+
+  clearGrid();
+  state.currentViewMode = "folders";
+
+  const navItems = [];
+  if (pathRel) {
+    navItems.push({ kind: "parent", name: "..", pathRel: parentPath(pathRel) });
+  }
+  navItems.push(...listSubdirectories(pathRel));
+  state.folderNavItems = navItems;
+  state.activeListIndex = -1;
+  renderNavigation();
+
+  const folderLabel = pathRel || "/";
+  state.currentTitle = folderLabel;
+  el.viewTitle.textContent = `Folder: ${folderLabel}`;
+  await showImagesForResolvedPath(pathRel, `Folder: ${folderLabel}`);
 }
 
 async function showImagesForResolvedPath(pathRel, pillText) {
@@ -904,12 +956,13 @@ el.btnViewAlbums.onclick = () => {
 };
 
 el.btnViewFolders.onclick = () => {
+  if (!state.libraryRoot || !state.dirIndex) {
+    setStatus("Choose a Library folder first to browse subfolders.", "warn");
+    return;
+  }
   state.currentViewMode = "folders";
-  state.activeListIndex = -1;
-  clearGrid();
-  el.viewTitle.textContent = "Folder navigation";
-  renderNavigation();
-  setStatus("Switched to folder view.", "ok");
+  state.folderBrowserPath = "";
+  openFolderPath(state.folderBrowserPath);
 };
 
 el.btnClose.onclick = closeSlideshow;
