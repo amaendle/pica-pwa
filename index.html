@@ -60,6 +60,7 @@
 <body>
   <header>
     <button id="btnPick">Open Library Folder</button>
+    <button id="btnPickPmp">Open PMP Import Folder</button>
     <button id="btnExport" disabled>Export IndexedDB Library</button>
     <button id="btnReload" disabled>Reload PMP</button>
     <span class="pill" id="pillState">No library selected</span>
@@ -410,8 +411,9 @@ async function makeThumbURL(file, size = 320) {
  *  App state
  *  =========================== */
 const state = {
-  root: null,                 // FileSystemDirectoryHandle
-  dirIndex: null,             // Map<relPath, dirHandle>
+  libraryRoot: null,          // FileSystemDirectoryHandle for image browsing
+  pmpRoot: null,              // FileSystemDirectoryHandle for db/*.pmp import
+  dirIndex: null,             // Map<relPath, dirHandle> from libraryRoot
   albums: [],                 // Album[]
   folderItems: [],            // Folder[]
   currentImages: [],          // ImageItem[]
@@ -428,6 +430,7 @@ const state = {
  *  =========================== */
 const el = {
   btnPick: document.getElementById("btnPick"),
+  btnPickPmp: document.getElementById("btnPickPmp"),
   btnExport: document.getElementById("btnExport"),
   btnReload: document.getElementById("btnReload"),
   btnViewAlbums: document.getElementById("btnViewAlbums"),
@@ -474,7 +477,8 @@ function clearGrid() {
  *  Load PMP albums from db/
  *  =========================== */
 async function loadAlbumsFromPMP() {
-  if (!state.root) throw new Error("No library selected");
+  if (!state.pmpRoot) throw new Error("No PMP import folder selected");
+  if (!state.libraryRoot || !state.dirIndex) throw new Error("No library folder selected");
 
   const required = [
     "db/albumdata_name.pmp",
@@ -488,7 +492,7 @@ async function loadAlbumsFromPMP() {
   const buffers = {};
   for (const rel of required) {
     try {
-      const fh = await getFileHandleByPath(state.root, rel);
+      const fh = await getFileHandleByPath(state.pmpRoot, rel);
       buffers[rel] = await readFileAsArrayBuffer(fh);
     } catch (e) {
       if (rel.endsWith("albumdata_albumcontactids.pmp")) {
@@ -535,8 +539,8 @@ async function loadAlbumsFromPMP() {
 
   await saveLibrarySnapshot({
     libraryId: state.libraryId,
-    rootName: state.root.name || "",
-    label: state.root.name || "Imported library",
+    rootName: state.libraryRoot.name || "",
+    label: state.libraryRoot.name || "Imported library",
     stats: { albums: state.albums.length, folders: state.folderItems.length },
     albums: state.albums,
     folders: state.folderItems
@@ -822,30 +826,58 @@ el.btnPick.onclick = async () => {
   try {
     // Secure context required (https or localhost)
     const dir = await window.showDirectoryPicker({ mode: "read" });
-    state.root = dir;
+    state.libraryRoot = dir;
     state.activeListIndex = -1;
-    setAsideState("Library selected", "ok");
-    el.btnReload.disabled = false;
+    setAsideState("Library folder selected", "ok");
 
     setStatus("Indexing directories… (first time can take a bit)", "warn");
-    state.dirIndex = await buildDirectoryIndex(state.root);
-    setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
+    state.dirIndex = await buildDirectoryIndex(state.libraryRoot);
+    const hasPmp = !!state.pmpRoot;
+    if (hasPmp) {
+      el.btnReload.disabled = false;
+      setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
+      await loadAlbumsFromPMP();
+      setStatus("Select an item on the left.", "ok");
+    } else {
+      setStatus(`Indexed ${state.dirIndex.size} folders. Now choose “Open PMP Import Folder”.`, "warn");
+    }
+  } catch (e) {
+    setAsideState("No library folder selected");
+    setStatus(String(e?.message || e), "err");
+  }
+};
 
+el.btnPickPmp.onclick = async () => {
+  try {
+    // Secure context required (https or localhost)
+    const dir = await window.showDirectoryPicker({ mode: "read" });
+    state.pmpRoot = dir;
+    state.activeListIndex = -1;
+    if (!state.libraryRoot || !state.dirIndex) {
+      setStatus("PMP folder selected. Now choose “Open Library Folder” to resolve image paths.", "warn");
+      return;
+    }
+
+    el.btnReload.disabled = false;
+    clearGrid();
+    setStatus("Loading PMP from selected import folder…", "warn");
     await loadAlbumsFromPMP();
     setStatus("Select an item on the left.", "ok");
   } catch (e) {
-    setAsideState("No library selected");
     setStatus(String(e?.message || e), "err");
   }
 };
 
 el.btnReload.onclick = async () => {
   try {
-    if (!state.root) return;
+    if (!state.libraryRoot || !state.pmpRoot) {
+      setStatus("Select both a library folder and a PMP import folder before reloading.", "warn");
+      return;
+    }
     clearGrid();
     state.activeListIndex = -1;
     setStatus("Rebuilding directory index…", "warn");
-    state.dirIndex = await buildDirectoryIndex(state.root);
+    state.dirIndex = await buildDirectoryIndex(state.libraryRoot);
     setStatus("Reloading PMP…", "warn");
     await loadAlbumsFromPMP();
     setStatus("Reloaded. Select an item.", "ok");
@@ -938,7 +970,7 @@ async function hydrateFromIndexedDb() {
   setAsideState(`IndexedDB: ${snapshot.library.label || "Library loaded"}`, "ok");
   el.pillInfo.textContent = `${state.albums.length} albums`;
   renderNavigation();
-  setStatus("Loaded album/folder navigation from IndexedDB snapshot. Open the library folder to browse images.", "ok");
+  setStatus("Loaded album/folder navigation from IndexedDB snapshot. Open both Library and PMP folders to browse images with live handles.", "ok");
   return true;
 }
 
@@ -948,7 +980,7 @@ async function hydrateFromIndexedDb() {
     const hasSnapshot = await hydrateFromIndexedDb();
     if (!hasSnapshot) {
       setStatus(
-        "Run this file from a local server (e.g. `python -m http.server`) then open in Chrome/Edge and click “Open Library Folder”.",
+        "Run this file from a local server (e.g. `python -m http.server`) then open in Chrome/Edge and choose both “Open Library Folder” and “Open PMP Import Folder”.",
         "warn"
       );
     }
