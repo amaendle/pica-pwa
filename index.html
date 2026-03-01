@@ -618,14 +618,15 @@ function renderFolderList(activeIdx = -1) {
 
   state.folderNavItems.forEach((f, idx) => {
     const div = document.createElement("div");
-    div.className = "item" + (idx === activeIdx ? " active" : "");
+    const isCurrent = f.kind === "current";
+    div.className = "item" + (idx === activeIdx || isCurrent ? " active" : "");
     const title = document.createElement("div");
     title.textContent = f.name || "(folder)";
     const small = document.createElement("small");
     small.innerHTML = `<span class="mono">${escapeHtml(f.pathRel || "")}</span>`;
     div.appendChild(title);
     div.appendChild(small);
-    div.onclick = () => selectFolder(idx);
+    if (!isCurrent) div.onclick = () => selectFolder(idx);
     frag.appendChild(div);
   });
 
@@ -682,6 +683,11 @@ function parentPath(relPath) {
   return segs.join("/");
 }
 
+function baseName(relPath) {
+  const segs = (relPath || "").split("/").filter(Boolean);
+  return segs.length ? segs[segs.length - 1] : "/";
+}
+
 function listSubdirectories(relPath) {
   const prefix = relPath ? `${relPath}/` : "";
   const children = [];
@@ -710,8 +716,10 @@ async function openFolderPath(pathRel) {
   state.currentViewMode = "folders";
 
   const navItems = [];
+  navItems.push({ kind: "current", name: `[current] ${baseName(pathRel)}`, pathRel: pathRel || "/" });
   if (pathRel) {
-    navItems.push({ kind: "parent", name: "..", pathRel: parentPath(pathRel) });
+    const parent = parentPath(pathRel);
+    navItems.push({ kind: "parent", name: `... [${baseName(parent)}]`, pathRel: parent });
   }
   navItems.push(...listSubdirectories(pathRel));
   state.folderNavItems = navItems;
