@@ -10,6 +10,7 @@
     header { display: flex; gap: 10px; align-items: center; padding: 10px 12px; background: #1b1b1b; position: sticky; top: 0; z-index: 10; }
     button { background: #2b2b2b; color: #eee; border: 1px solid #3a3a3a; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
     button:hover { background: #333; }
+    button.active { background: #3a3a3a; border-color: #5a5a5a; }
     button:disabled { opacity: .5; cursor: not-allowed; }
     .pill { font-size: 12px; padding: 4px 8px; border: 1px solid #3a3a3a; border-radius: 999px; color: #bbb; }
     .layout { display: grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 52px); }
@@ -59,6 +60,7 @@
 <body>
   <header>
     <button id="btnPick">Open Library Folder</button>
+    <button id="btnExport" disabled>Export IndexedDB Library</button>
     <button id="btnReload" disabled>Reload PMP</button>
     <span class="pill" id="pillState">No library selected</span>
     <span class="pill mono" id="pillInfo"></span>
@@ -66,7 +68,11 @@
 
   <div class="layout">
     <aside>
-      <div class="sectionTitle">Albums (from db/*.pmp)</div>
+      <div class="sectionTitle">Navigation (from db/*.pmp)</div>
+      <div class="toolbar" style="position:static; border-bottom:1px solid #222;">
+        <button id="btnViewAlbums">Album view</button>
+        <button id="btnViewFolders">Folder view</button>
+      </div>
       <div class="list" id="albumList"></div>
       <div class="status" id="asideStatus">
         <div class="warn">Notes:</div>
@@ -227,6 +233,93 @@ async function readFileAsArrayBuffer(fileHandle) {
   return await file.arrayBuffer();
 }
 
+
+/** ===========================
+ *  IndexedDB persistence
+ *  =========================== */
+const DB_NAME = "pica-library";
+const DB_VERSION = 1;
+const STORES = {
+  libraries: "libraries",
+  albums: "albums",
+  folders: "folders"
+};
+
+function openLibraryDB() {
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(DB_NAME, DB_VERSION);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(STORES.libraries)) {
+        db.createObjectStore(STORES.libraries, { keyPath: "id" });
+      }
+      if (!db.objectStoreNames.contains(STORES.albums)) {
+        const albums = db.createObjectStore(STORES.albums, { keyPath: "id" });
+        albums.createIndex("libraryId", "libraryId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORES.folders)) {
+        const folders = db.createObjectStore(STORES.folders, { keyPath: "id" });
+        folders.createIndex("libraryId", "libraryId", { unique: false });
+      }
+    };
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error || new Error("Failed to open IndexedDB"));
+  });
+}
+
+function txDone(tx) {
+  return new Promise((resolve, reject) => {
+    tx.oncomplete = () => resolve();
+    tx.onerror = () => reject(tx.error || new Error("IndexedDB transaction failed"));
+    tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
+  });
+}
+
+async function saveLibrarySnapshot(snapshot) {
+  const db = await openLibraryDB();
+  const tx = db.transaction([STORES.libraries, STORES.albums, STORES.folders], "readwrite");
+  const libraries = tx.objectStore(STORES.libraries);
+  const albums = tx.objectStore(STORES.albums);
+  const folders = tx.objectStore(STORES.folders);
+
+  libraries.put({
+    id: snapshot.libraryId,
+    label: snapshot.label,
+    savedAt: Date.now(),
+    rootName: snapshot.rootName,
+    stats: snapshot.stats
+  });
+
+  for (const album of snapshot.albums) albums.put(album);
+  for (const folder of snapshot.folders) folders.put(folder);
+
+  await txDone(tx);
+  db.close();
+}
+
+async function loadLibrarySnapshot(libraryId = "default") {
+  const db = await openLibraryDB();
+  try {
+    const tx = db.transaction([STORES.libraries, STORES.albums, STORES.folders], "readonly");
+    const libraryReq = tx.objectStore(STORES.libraries).get(libraryId);
+    const albumsReq = tx.objectStore(STORES.albums).index("libraryId").getAll(libraryId);
+    const foldersReq = tx.objectStore(STORES.folders).index("libraryId").getAll(libraryId);
+
+    const out = await new Promise((resolve, reject) => {
+      tx.oncomplete = () => resolve({
+        library: libraryReq.result || null,
+        albums: albumsReq.result || [],
+        folders: foldersReq.result || []
+      });
+      tx.onerror = () => reject(tx.error || new Error("IndexedDB read failed"));
+      tx.onabort = () => reject(tx.error || new Error("IndexedDB read aborted"));
+    });
+    return out;
+  } finally {
+    db.close();
+  }
+}
+
 /** ===========================
  *  Directory index + path resolver
  *  =========================== */
@@ -320,9 +413,13 @@ const state = {
   root: null,                 // FileSystemDirectoryHandle
   dirIndex: null,             // Map<relPath, dirHandle>
   albums: [],                 // Album[]
+  folderItems: [],            // Folder[]
   currentImages: [],          // ImageItem[]
   currentTitle: "",
   currentResolved: "",
+  currentViewMode: "albums",
+  activeListIndex: -1,
+  libraryId: "default",
   slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500 }
 };
 
@@ -331,7 +428,10 @@ const state = {
  *  =========================== */
 const el = {
   btnPick: document.getElementById("btnPick"),
+  btnExport: document.getElementById("btnExport"),
   btnReload: document.getElementById("btnReload"),
+  btnViewAlbums: document.getElementById("btnViewAlbums"),
+  btnViewFolders: document.getElementById("btnViewFolders"),
   pillState: document.getElementById("pillState"),
   pillInfo: document.getElementById("pillInfo"),
   albumList: document.getElementById("albumList"),
@@ -418,6 +518,8 @@ async function loadAlbumsFromPMP() {
     // Resolve absolute path to relative under root (suffix match)
     const rel = absPath ? resolveAbsoluteToRelative(absPath, state.dirIndex) : null;
     albums.push({
+      id: `${state.libraryId}:album:${uid || i}`,
+      libraryId: state.libraryId,
       name,
       absPath,
       pathRel: rel,      // relative path under chosen root (or null if not found)
@@ -429,13 +531,59 @@ async function loadAlbumsFromPMP() {
   }
 
   state.albums = albums;
-  renderAlbumList();
+  state.folderItems = buildFolderItems(albums);
+
+  await saveLibrarySnapshot({
+    libraryId: state.libraryId,
+    rootName: state.root.name || "",
+    label: state.root.name || "Imported library",
+    stats: { albums: state.albums.length, folders: state.folderItems.length },
+    albums: state.albums,
+    folders: state.folderItems
+  });
+
+  el.btnExport.disabled = false;
   el.pillInfo.textContent = `${albums.length} albums`;
+  renderNavigation();
+}
+
+function buildFolderItems(albums) {
+  const folders = albums
+    .filter((a) => a.pathRel)
+    .map((a, idx) => ({
+      id: `${state.libraryId}:folder:${a.pathRel}:${idx}`,
+      libraryId: state.libraryId,
+      name: a.pathRel.split("/").pop() || a.pathRel,
+      pathRel: a.pathRel,
+      absPath: a.absPath,
+      albumName: a.name,
+      broken: false
+    }));
+
+  const uniq = new Map();
+  for (const f of folders) {
+    if (!uniq.has(f.pathRel)) uniq.set(f.pathRel, f);
+  }
+  return Array.from(uniq.values()).sort((a,b) => a.pathRel.localeCompare(b.pathRel, undefined, { sensitivity: "base" }));
 }
 
 /** ===========================
- *  Render album list
+ *  Render navigation list
  *  =========================== */
+function renderNavigation() {
+  if (state.currentViewMode === "folders") {
+    renderFolderList(state.activeListIndex);
+  } else {
+    renderAlbumList(state.activeListIndex);
+  }
+  updateViewButtons();
+}
+
+function updateViewButtons() {
+  el.btnViewAlbums.classList.toggle("active", state.currentViewMode === "albums");
+  el.btnViewFolders.classList.toggle("active", state.currentViewMode === "folders");
+}
+
 function renderAlbumList(activeIdx = -1) {
   el.albumList.innerHTML = "";
   const frag = document.createDocumentFragment();
@@ -458,6 +606,26 @@ function renderAlbumList(activeIdx = -1) {
   el.albumList.appendChild(frag);
 }
 
+function renderFolderList(activeIdx = -1) {
+  el.albumList.innerHTML = "";
+  const frag = document.createDocumentFragment();
+
+  state.folderItems.forEach((f, idx) => {
+    const div = document.createElement("div");
+    div.className = "item" + (idx === activeIdx ? " active" : "");
+    const title = document.createElement("div");
+    title.textContent = f.name || "(folder)";
+    const small = document.createElement("small");
+    small.innerHTML = `<span class="mono">${escapeHtml(f.pathRel || "")}</span>`;
+    div.appendChild(title);
+    div.appendChild(small);
+    div.onclick = () => selectFolder(idx);
+    frag.appendChild(div);
+  });
+
+  el.albumList.appendChild(frag);
+}
+
 function escapeHtml(s) {
   return (s ?? "").replace(/[&<>"']/g, (m) => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
@@ -465,11 +633,14 @@ function escapeHtml(s) {
 }
 
 /** ===========================
- *  Select album -> show tiles
+ *  Select item -> show tiles
  *  =========================== */
 async function selectAlbum(idx) {
   const album = state.albums[idx];
-  renderAlbumList(idx);
+  if (!album) return;
+  state.currentViewMode = "albums";
+  state.activeListIndex = idx;
+  renderNavigation();
   clearGrid();
 
   state.currentTitle = album.name || "(unnamed album)";
@@ -481,18 +652,35 @@ async function selectAlbum(idx) {
     return;
   }
 
-  el.resolvePill.textContent = `Resolved: ${album.pathRel}`;
+  await showImagesForResolvedPath(album.pathRel, `Resolved: ${album.pathRel}`);
+}
+
+async function selectFolder(idx) {
+  const folder = state.folderItems[idx];
+  if (!folder) return;
+  state.currentViewMode = "folders";
+  state.activeListIndex = idx;
+  renderNavigation();
+  clearGrid();
+
+  state.currentTitle = folder.name || "(folder)";
+  el.viewTitle.textContent = `Folder: ${state.currentTitle}`;
+  await showImagesForResolvedPath(folder.pathRel, `Folder: ${folder.pathRel}`);
+}
+
+async function showImagesForResolvedPath(pathRel, pillText) {
+  el.resolvePill.textContent = pillText;
   setStatus("Loading images…", "warn");
 
-  const dirHandle = state.dirIndex.get(album.pathRel);
+  const dirHandle = state.dirIndex.get(pathRel);
   if (!dirHandle) {
     setStatus("Resolved directory handle missing (index issue).", "err");
     return;
   }
 
-  const images = await listImagesInDirectory(dirHandle, album.pathRel);
+  const images = await listImagesInDirectory(dirHandle, pathRel);
   await renderTiles(images);
-  setStatus(images.length ? "Ready." : "No images found in this album folder.", images.length ? "ok" : "warn");
+  setStatus(images.length ? "Ready." : "No images found in this folder.", images.length ? "ok" : "warn");
 }
 
 /** List image files in a directory (non-recursive, like your Kivy folder scan) */
@@ -635,6 +823,7 @@ el.btnPick.onclick = async () => {
     // Secure context required (https or localhost)
     const dir = await window.showDirectoryPicker({ mode: "read" });
     state.root = dir;
+    state.activeListIndex = -1;
     setAsideState("Library selected", "ok");
     el.btnReload.disabled = false;
 
@@ -643,7 +832,7 @@ el.btnPick.onclick = async () => {
     setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
 
     await loadAlbumsFromPMP();
-    setStatus("Select an album on the left.", "ok");
+    setStatus("Select an item on the left.", "ok");
   } catch (e) {
     setAsideState("No library selected");
     setStatus(String(e?.message || e), "err");
@@ -654,14 +843,41 @@ el.btnReload.onclick = async () => {
   try {
     if (!state.root) return;
     clearGrid();
+    state.activeListIndex = -1;
     setStatus("Rebuilding directory index…", "warn");
     state.dirIndex = await buildDirectoryIndex(state.root);
     setStatus("Reloading PMP…", "warn");
     await loadAlbumsFromPMP();
-    setStatus("Reloaded. Select an album.", "ok");
+    setStatus("Reloaded. Select an item.", "ok");
   } catch (e) {
     setStatus(String(e?.message || e), "err");
   }
+};
+
+el.btnExport.onclick = async () => {
+  try {
+    await exportIndexedDbLibrary();
+  } catch (e) {
+    setStatus(String(e?.message || e), "err");
+  }
+};
+
+el.btnViewAlbums.onclick = () => {
+  state.currentViewMode = "albums";
+  state.activeListIndex = -1;
+  clearGrid();
+  el.viewTitle.textContent = "Album navigation";
+  renderNavigation();
+  setStatus("Switched to album view.", "ok");
+};
+
+el.btnViewFolders.onclick = () => {
+  state.currentViewMode = "folders";
+  state.activeListIndex = -1;
+  clearGrid();
+  el.viewTitle.textContent = "Folder navigation";
+  renderNavigation();
+  setStatus("Switched to folder view.", "ok");
 };
 
 el.btnClose.onclick = closeSlideshow;
@@ -683,11 +899,63 @@ el.overlay.addEventListener("click", (ev) => {
   if (ev.target === el.overlay) closeSlideshow();
 });
 
+
+function downloadJson(filename, data) {
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function exportIndexedDbLibrary() {
+  const snapshot = await loadLibrarySnapshot(state.libraryId);
+  if (!snapshot.library) {
+    setStatus("No IndexedDB library snapshot found to export yet.", "warn");
+    return;
+  }
+
+  downloadJson(`pica-library-${state.libraryId}.json`, {
+    exportedAt: new Date().toISOString(),
+    library: snapshot.library,
+    albums: snapshot.albums,
+    folders: snapshot.folders
+  });
+  setStatus("Exported IndexedDB snapshot as JSON.", "ok");
+}
+
+async function hydrateFromIndexedDb() {
+  const snapshot = await loadLibrarySnapshot(state.libraryId);
+  if (!snapshot.library) return false;
+
+  state.albums = snapshot.albums || [];
+  state.folderItems = snapshot.folders || [];
+  el.btnExport.disabled = false;
+  setAsideState(`IndexedDB: ${snapshot.library.label || "Library loaded"}`, "ok");
+  el.pillInfo.textContent = `${state.albums.length} albums`;
+  renderNavigation();
+  setStatus("Loaded album/folder navigation from IndexedDB snapshot. Open the library folder to browse images.", "ok");
+  return true;
+}
+
 // Initial hint
-setStatus(
-  "Run this file from a local server (e.g. `python -m http.server`) then open in Chrome/Edge and click “Open Library Folder”.",
-  "warn"
-);
+(async () => {
+  try {
+    const hasSnapshot = await hydrateFromIndexedDb();
+    if (!hasSnapshot) {
+      setStatus(
+        "Run this file from a local server (e.g. `python -m http.server`) then open in Chrome/Edge and click “Open Library Folder”.",
+        "warn"
+      );
+    }
+  } catch (e) {
+    setStatus(`Failed loading IndexedDB snapshot: ${String(e?.message || e)}`, "err");
+  }
+})();
 </script>
 
 <!--
