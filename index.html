@@ -25,6 +25,31 @@
     .item .broken { color: #ffb4b4; }
     .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #222; background: #141414; position: sticky; top: 0; z-index: 5; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 12px; }
+    .logPanel {
+      margin: 0 12px 12px;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      background: #151515;
+      overflow: hidden;
+    }
+    .logTitle {
+      padding: 8px 10px;
+      border-bottom: 1px solid #222;
+      color: #cfcfcf;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .logBody {
+      margin: 0;
+      padding: 10px;
+      color: #aeb7c2;
+      font-size: 12px;
+      line-height: 1.45;
+      max-height: 220px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
     .tile { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; cursor: pointer; }
     .tile:hover { border-color: #3a3a3a; }
     .thumb { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #0f0f0f; }
@@ -92,6 +117,10 @@
       </div>
 
       <div class="grid" id="grid"></div>
+      <div class="logPanel" id="picasaLogPanel" hidden>
+        <div class="logTitle">.picasa.ini log</div>
+        <pre class="logBody mono" id="picasaLog"></pre>
+      </div>
       <div class="status" id="mainStatus"></div>
     </main>
   </div>
@@ -467,6 +496,8 @@ const el = {
   countPill: document.getElementById("countPill"),
   resolvePill: document.getElementById("resolvePill"),
   mainStatus: document.getElementById("mainStatus"),
+  picasaLogPanel: document.getElementById("picasaLogPanel"),
+  picasaLog: document.getElementById("picasaLog"),
 
   overlay: document.getElementById("overlay"),
   slideImg: document.getElementById("slideImg"),
@@ -495,6 +526,55 @@ function clearGrid() {
   el.grid.innerHTML = "";
   el.countPill.textContent = "";
   el.resolvePill.textContent = "";
+  setPicasaLog("");
+}
+
+function setPicasaLog(text) {
+  const body = String(text || "").trim();
+  if (!body) {
+    el.picasaLog.textContent = "";
+    el.picasaLogPanel.hidden = true;
+    return;
+  }
+  el.picasaLog.textContent = body;
+  el.picasaLogPanel.hidden = false;
+}
+
+function formatPicasaLog(pathRel, picasa, albumToken = "") {
+  const folderLabel = pathRel || "/";
+  const lines = [`folder=${folderLabel}`];
+
+  const contactLines = Array.from(picasa.contacts.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
+    .map(([id, label]) => `  ${id}=${label}`);
+  lines.push(`[Contacts2] (${contactLines.length})`);
+  lines.push(...(contactLines.length ? contactLines : ["  (none)"]));
+
+  const albumLines = Array.from(picasa.membersByToken.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
+    .map(([token, members]) => {
+      const sortedMembers = Array.from(members).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+      const albumName = picasa.albumNamesByToken.get(token) || "";
+      const nameSuffix = albumName ? ` (${albumName})` : "";
+      const selected = albumToken && token === albumToken ? " [selected]" : "";
+      return `  ${token}${nameSuffix}${selected}: ${sortedMembers.join(", ")}`;
+    });
+  lines.push(`[albums token->images] (${albumLines.length})`);
+  lines.push(...(albumLines.length ? albumLines : ["  (none)"]));
+
+  const imageLines = Array.from(picasa.imageMeta.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" }))
+    .map(([name, meta]) => {
+      const caption = meta.caption ? `caption=${meta.caption}` : "caption=(none)";
+      const faceText = (meta.faces || []).length
+        ? `faces=${meta.faces.map((f) => `${f.label}#${f.contactId}@${f.rect64}`).join("; ")}`
+        : "faces=(none)";
+      return `  ${name}: ${caption}; ${faceText}`;
+    });
+  lines.push(`[image metadata] (${imageLines.length})`);
+  lines.push(...(imageLines.length ? imageLines : ["  (none)"]));
+
+  return lines.join("\n");
 }
 
 /** ===========================
@@ -879,7 +959,8 @@ async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
     return;
   }
 
-  const images = await listImagesInDirectory(dirHandle, pathRel, options);
+  const { images, picasa } = await listImagesInDirectory(dirHandle, pathRel, options);
+  setPicasaLog(formatPicasaLog(pathRel, picasa, options.album?.token ? String(options.album.token) : ""));
   await renderTiles(images);
   setStatus(images.length ? "Ready." : "No images found in this folder.", images.length ? "ok" : "warn");
 }
@@ -910,7 +991,7 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
   }
   // Sort by name (simple v1)
   out.sort((a,b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-  return out;
+  return { images: out, picasa };
 }
 
 /** Render tiles with thumbnails */
