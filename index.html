@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pixasa Web Prototype (Frontend-only, PMP + Folder Picker)</title>
+  <style>
+    :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+    body { margin: 0; background: #111; color: #eee; }
+    header { display: flex; gap: 10px; align-items: center; padding: 10px 12px; background: #1b1b1b; position: sticky; top: 0; z-index: 10; }
+    button { background: #2b2b2b; color: #eee; border: 1px solid #3a3a3a; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
+    button:hover { background: #333; }
+    button:disabled { opacity: .5; cursor: not-allowed; }
+    .pill { font-size: 12px; padding: 4px 8px; border: 1px solid #3a3a3a; border-radius: 999px; color: #bbb; }
+    .layout { display: grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 52px); }
+    aside { border-right: 1px solid #2a2a2a; overflow: auto; }
+    main { overflow: auto; }
+    .sectionTitle { padding: 10px 12px; font-weight: 600; color: #ddd; border-bottom: 1px solid #222; }
+    .list { display: flex; flex-direction: column; }
+    .item { padding: 10px 12px; border-bottom: 1px solid #222; cursor: pointer; }
+    .item:hover { background: #1a1a1a; }
+    .item.active { background: #202020; }
+    .item small { display: block; color: #aaa; margin-top: 4px; word-break: break-all; }
+    .item .broken { color: #ffb4b4; }
+    .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #222; background: #141414; position: sticky; top: 0; z-index: 5; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 12px; }
+    .tile { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; cursor: pointer; }
+    .tile:hover { border-color: #3a3a3a; }
+    .thumb { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #0f0f0f; }
+    .caption { padding: 8px 10px; font-size: 12px; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
+    .warn { color: #ffda9e; }
+    .ok { color: #a9f7c5; }
+    .err { color: #ffb4b4; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+
+    /* Slideshow overlay */
+    .overlay {
+      position: fixed; inset: 0; background: rgba(0,0,0,.92);
+      display: none; align-items: center; justify-content: center; z-index: 999;
+    }
+    .overlay.show { display: flex; }
+    .slideWrap { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
+    .slideImg { max-width: 100%; max-height: 100%; object-fit: contain; }
+    .overlayBar {
+      position: absolute; left: 0; right: 0; bottom: 0;
+      display: flex; gap: 10px; align-items: center; justify-content: center;
+      padding: 12px; background: linear-gradient(to top, rgba(0,0,0,.75), rgba(0,0,0,0));
+    }
+    .overlayTop {
+      position: absolute; left: 0; right: 0; top: 0;
+      padding: 10px 12px; display: flex; justify-content: space-between; align-items: center;
+      background: linear-gradient(to bottom, rgba(0,0,0,.75), rgba(0,0,0,0));
+      color: #ddd; font-size: 12px;
+    }
+    .kbd { border: 1px solid #444; padding: 2px 6px; border-radius: 6px; font-size: 11px; color: #ccc; }
+  </style>
+</head>
+<body>
+  <header>
+    <button id="btnPick">Open Library Folder</button>
+    <button id="btnReload" disabled>Reload PMP</button>
+    <span class="pill" id="pillState">No library selected</span>
+    <span class="pill mono" id="pillInfo"></span>
+  </header>
+
+  <div class="layout">
+    <aside>
+      <div class="sectionTitle">Albums (from db/*.pmp)</div>
+      <div class="list" id="albumList"></div>
+      <div class="status" id="asideStatus">
+        <div class="warn">Notes:</div>
+        <div>• This is a frontend-only prototype using the File System Access API (Chrome/Edge).</div>
+        <div>• Your PMP contains absolute paths — this prototype resolves them by matching the <b>deepest suffix</b> under the chosen library root.</div>
+        <div>• Run from a local server (secure context) for <span class="mono">showDirectoryPicker()</span> to work.</div>
+      </div>
+    </aside>
+
+    <main>
+      <div class="toolbar">
+        <span id="viewTitle">No selection</span>
+        <span class="pill" id="countPill"></span>
+        <span class="pill" id="resolvePill"></span>
+        <span style="margin-left:auto" class="pill">Slideshow: <span class="kbd">←</span>/<span class="kbd">→</span> <span class="kbd">Space</span> <span class="kbd">Esc</span></span>
+      </div>
+
+      <div class="grid" id="grid"></div>
+      <div class="status" id="mainStatus"></div>
+    </main>
+  </div>
+
+  <!-- Slideshow -->
+  <div class="overlay" id="overlay" aria-hidden="true">
+    <div class="slideWrap">
+      <img id="slideImg" class="slideImg" alt="">
+      <div class="overlayTop">
+        <div id="slideMeta" class="mono"></div>
+        <button id="btnClose">Close (Esc)</button>
+      </div>
+      <div class="overlayBar">
+        <button id="btnPrev">◀ Prev</button>
+        <button id="btnPlay">▶ Play</button>
+        <button id="btnNext">Next ▶</button>
+      </div>
+    </div>
+  </div>
+
+<script>
+/** ===========================
+ *  Helpers: path + file types
+ *  =========================== */
+const IMG_EXTS = new Set(["jpg","jpeg","png","bmp","gif","webp"]);
+function normPath(p) {
+  return (p || "")
+    .replaceAll("\\", "/")
+    .replaceAll("//", "/")
+    .replace(/^([A-Za-z]:)/, "") // strip "C:" etc for suffix matching
+    .replace(/^\/+/, "");        // strip leading slashes
+}
+function splitSegs(p) {
+  return normPath(p).split("/").filter(Boolean);
+}
+function isImageName(name) {
+  const idx = name.lastIndexOf(".");
+  if (idx < 0) return false;
+  return IMG_EXTS.has(name.slice(idx+1).toLowerCase());
+}
+
+/** ===========================
+ *  Minimal PMP Reader (JS)
+ *  Mirrors your Python PMPReader
+ *  =========================== */
+class PMPReaderJS {
+  static MAGIC = 0x3fcccccd;
+  static C1332 = 0x1332;
+  static C2 = 0x00000002;
+
+  /** @param {ArrayBuffer} buf */
+  static read(buf) {
+    const dv = new DataView(buf);
+    let off = 0;
+
+    const u32 = () => { const v = dv.getUint32(off, true); off += 4; return v; };
+    const u16 = () => { const v = dv.getUint16(off, true); off += 2; return v; };
+    const u8  = () => { const v = dv.getUint8(off); off += 1; return v; };
+    const u64 = () => {
+      // safe as BigInt
+      const lo = dv.getUint32(off, true);
+      const hi = dv.getUint32(off+4, true);
+      off += 8;
+      return (BigInt(hi) << 32n) | BigInt(lo);
+    };
+
+    const magic = u32();
+    if (magic !== PMPReaderJS.MAGIC) throw new Error(`Invalid PMP magic: 0x${magic.toString(16)}`);
+
+    const fieldType = u16();
+
+    if (u16() !== PMPReaderJS.C1332) throw new Error("Invalid constant after type");
+    if (u32() !== PMPReaderJS.C2)    throw new Error("Invalid second constant");
+    if (u16() !== fieldType)         throw new Error("Type mismatch");
+    if (u16() !== PMPReaderJS.C1332) throw new Error("Invalid second 0x1332 constant");
+
+    const n = u32();
+
+    const entries = [];
+    if (fieldType === 0x0 || fieldType === 0x6) {
+      // null-terminated utf-8 strings
+      while (entries.length < n) {
+        const bytes = [];
+        while (off < dv.byteLength) {
+          const b = u8();
+          if (b === 0) break;
+          bytes.push(b);
+        }
+        entries.push(new TextDecoder("utf-8").decode(new Uint8Array(bytes)));
+      }
+    } else if (fieldType === 0x1 || fieldType === 0x7) {
+      for (let i=0;i<n;i++) entries.push(u32());
+    } else if (fieldType === 0x3) {
+      for (let i=0;i<n;i++) entries.push(u8());
+    } else if (fieldType === 0x5) {
+      for (let i=0;i<n;i++) entries.push(u16());
+    } else if (fieldType === 0x4) {
+      for (let i=0;i<n;i++) entries.push(u64());
+    } else if (fieldType === 0x2) {
+      // date stored in 8 bytes: raw bits -> float64 Excel date
+      for (let i=0;i<n;i++) {
+        const raw = u64(); // BigInt bits
+        // Convert bits -> float64
+        const tmp = new ArrayBuffer(8);
+        const dv2 = new DataView(tmp);
+        // write as uint64 little-endian
+        dv2.setUint32(0, Number(raw & 0xFFFFFFFFn), true);
+        dv2.setUint32(4, Number((raw >> 32n) & 0xFFFFFFFFn), true);
+        const excel = dv2.getFloat64(0, true);
+        const unixMs = Math.round((excel - 25569.0) * 86400 * 1000);
+        const d = new Date(unixMs);
+        entries.push(isFinite(d.getTime()) ? d : null);
+      }
+    } else {
+      throw new Error(`Unknown PMP field type: ${fieldType}`);
+    }
+
+    return { type: fieldType, n_entries: n, entries };
+  }
+}
+
+/** ===========================
+ *  File System Access helpers
+ *  =========================== */
+async function getFileHandleByPath(rootDirHandle, relPath) {
+  // relPath like "db/albumdata_name.pmp"
+  const segs = relPath.split("/").filter(Boolean);
+  let cur = rootDirHandle;
+  for (let i=0;i<segs.length;i++) {
+    const name = segs[i];
+    const isLast = i === segs.length - 1;
+    if (isLast) return await cur.getFileHandle(name);
+    cur = await cur.getDirectoryHandle(name);
+  }
+  throw new Error("Invalid path");
+}
+
+async function readFileAsArrayBuffer(fileHandle) {
+  const file = await fileHandle.getFile();
+  return await file.arrayBuffer();
+}
+
+/** ===========================
+ *  Directory index + path resolver
+ *  =========================== */
+async function buildDirectoryIndex(rootDirHandle) {
+  // Returns Map<relativePath, FileSystemDirectoryHandle>
+  const map = new Map();
+  map.set("", rootDirHandle);
+
+  async function walk(dirHandle, rel) {
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind === "directory") {
+        const childRel = rel ? `${rel}/${name}` : name;
+        map.set(childRel, handle);
+        await walk(handle, childRel);
+      }
+    }
+  }
+
+  await walk(rootDirHandle, "");
+  return map;
+}
+
+function resolveAbsoluteToRelative(absPath, dirIndex) {
+  // absPath like "C:\Users\...\Pictures\Trips\Berlin"
+  // We match the deepest suffix that exists under the chosen library root
+  const segs = splitSegs(absPath);
+  // Try longest suffix first
+  for (let k = segs.length; k >= 1; k--) {
+    const suffix = segs.slice(segs.length - k).join("/");
+    if (dirIndex.has(suffix)) return suffix;
+  }
+  // Sometimes the album path is itself the root-like folder; try just basename
+  if (segs.length) {
+    const base = segs[segs.length - 1];
+    // find first directory with that basename (cheap scan)
+    for (const key of dirIndex.keys()) {
+      if (key.split("/").pop() === base) return key;
+    }
+  }
+  return null;
+}
+
+/** ===========================
+ *  Thumbnail generation (in-memory)
+ *  =========================== */
+async function makeThumbURL(file, size = 320) {
+  // fast path: createImageBitmap resize
+  let bmp = null;
+  try {
+    bmp = await createImageBitmap(file);
+  } catch {
+    // fallback later
+  }
+  const canvas = document.createElement("canvas");
+  const ctx = canvas.getContext("2d", { alpha: false });
+
+  if (bmp) {
+    const w = bmp.width, h = bmp.height;
+    const scale = Math.min(size / w, size / h);
+    const tw = Math.max(1, Math.round(w * scale));
+    const th = Math.max(1, Math.round(h * scale));
+    canvas.width = tw; canvas.height = th;
+    ctx.drawImage(bmp, 0, 0, tw, th);
+    bmp.close?.();
+  } else {
+    // fallback: load via object URL
+    const url = URL.createObjectURL(file);
+    const img = await new Promise((res, rej) => {
+      const im = new Image();
+      im.onload = () => res(im);
+      im.onerror = rej;
+      im.src = url;
+    });
+    URL.revokeObjectURL(url);
+    const w = img.naturalWidth, h = img.naturalHeight;
+    const scale = Math.min(size / w, size / h);
+    const tw = Math.max(1, Math.round(w * scale));
+    const th = Math.max(1, Math.round(h * scale));
+    canvas.width = tw; canvas.height = th;
+    ctx.drawImage(img, 0, 0, tw, th);
+  }
+
+  const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.82));
+  return URL.createObjectURL(blob);
+}
+
+/** ===========================
+ *  App state
+ *  =========================== */
+const state = {
+  root: null,                 // FileSystemDirectoryHandle
+  dirIndex: null,             // Map<relPath, dirHandle>
+  albums: [],                 // Album[]
+  currentImages: [],          // ImageItem[]
+  currentTitle: "",
+  currentResolved: "",
+  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500 }
+};
+
+/** ===========================
+ *  UI elements
+ *  =========================== */
+const el = {
+  btnPick: document.getElementById("btnPick"),
+  btnReload: document.getElementById("btnReload"),
+  pillState: document.getElementById("pillState"),
+  pillInfo: document.getElementById("pillInfo"),
+  albumList: document.getElementById("albumList"),
+  grid: document.getElementById("grid"),
+  viewTitle: document.getElementById("viewTitle"),
+  countPill: document.getElementById("countPill"),
+  resolvePill: document.getElementById("resolvePill"),
+  mainStatus: document.getElementById("mainStatus"),
+
+  overlay: document.getElementById("overlay"),
+  slideImg: document.getElementById("slideImg"),
+  slideMeta: document.getElementById("slideMeta"),
+  btnClose: document.getElementById("btnClose"),
+  btnPrev: document.getElementById("btnPrev"),
+  btnNext: document.getElementById("btnNext"),
+  btnPlay: document.getElementById("btnPlay"),
+};
+
+function setStatus(msg, cls = "") {
+  el.mainStatus.className = "status " + cls;
+  el.mainStatus.textContent = msg || "";
+}
+function setAsideState(text, cls="") {
+  el.pillState.textContent = text;
+  el.pillState.className = "pill " + cls;
+}
+function clearGrid() {
+  // revoke thumb URLs to avoid leaks
+  for (const it of state.currentImages) {
+    if (it.thumbUrl?.startsWith("blob:")) URL.revokeObjectURL(it.thumbUrl);
+    if (it.url?.startsWith("blob:")) URL.revokeObjectURL(it.url);
+  }
+  state.currentImages = [];
+  el.grid.innerHTML = "";
+  el.countPill.textContent = "";
+  el.resolvePill.textContent = "";
+}
+
+/** ===========================
+ *  Load PMP albums from db/
+ *  =========================== */
+async function loadAlbumsFromPMP() {
+  if (!state.root) throw new Error("No library selected");
+
+  const required = [
+    "db/albumdata_name.pmp",
+    "db/albumdata_filename.pmp",
+    "db/albumdata_category.pmp",
+    "db/albumdata_token.pmp",
+    "db/albumdata_uid.pmp",
+    "db/albumdata_albumcontactids.pmp", // optional but present in your app; we’ll try
+  ];
+
+  const buffers = {};
+  for (const rel of required) {
+    try {
+      const fh = await getFileHandleByPath(state.root, rel);
+      buffers[rel] = await readFileAsArrayBuffer(fh);
+    } catch (e) {
+      if (rel.endsWith("albumdata_albumcontactids.pmp")) {
+        buffers[rel] = null;
+      } else {
+        throw new Error(`Missing required file: ${rel}`);
+      }
+    }
+  }
+
+  const names = PMPReaderJS.read(buffers["db/albumdata_name.pmp"]).entries;
+  const fns   = PMPReaderJS.read(buffers["db/albumdata_filename.pmp"]).entries;
+  const cats  = PMPReaderJS.read(buffers["db/albumdata_category.pmp"]).entries;
+  const toks  = PMPReaderJS.read(buffers["db/albumdata_token.pmp"]).entries;
+  const uids  = PMPReaderJS.read(buffers["db/albumdata_uid.pmp"]).entries;
+
+  const n = Math.min(names.length, fns.length, cats.length, toks.length, uids.length);
+  const albums = [];
+  for (let i=0;i<n;i++) {
+    const name = String(names[i] ?? "");
+    const absPath = String(fns[i] ?? "");
+    const token = String(toks[i] ?? "");
+    const uidVal = uids[i];
+    const uid = (typeof uidVal === "bigint") ? uidVal.toString() : String(uidVal ?? "");
+    const category = Number(cats[i] ?? 0);
+
+    // Resolve absolute path to relative under root (suffix match)
+    const rel = absPath ? resolveAbsoluteToRelative(absPath, state.dirIndex) : null;
+    albums.push({
+      name,
+      absPath,
+      pathRel: rel,      // relative path under chosen root (or null if not found)
+      token,
+      uid,
+      category,
+      broken: !rel
+    });
+  }
+
+  state.albums = albums;
+  renderAlbumList();
+  el.pillInfo.textContent = `${albums.length} albums`;
+}
+
+/** ===========================
+ *  Render album list
+ *  =========================== */
+function renderAlbumList(activeIdx = -1) {
+  el.albumList.innerHTML = "";
+  const frag = document.createDocumentFragment();
+
+  state.albums.forEach((a, idx) => {
+    const div = document.createElement("div");
+    div.className = "item" + (idx === activeIdx ? " active" : "");
+    const title = document.createElement("div");
+    title.textContent = a.name || "(unnamed)";
+    const small = document.createElement("small");
+    small.innerHTML =
+      `<span class="mono">${escapeHtml(a.absPath || "")}</span>` +
+      (a.broken ? ` <span class="broken">(unresolved)</span>` : "");
+    div.appendChild(title);
+    div.appendChild(small);
+    div.onclick = () => selectAlbum(idx);
+    frag.appendChild(div);
+  });
+
+  el.albumList.appendChild(frag);
+}
+
+function escapeHtml(s) {
+  return (s ?? "").replace(/[&<>"']/g, (m) => ({
+    "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
+  }[m]));
+}
+
+/** ===========================
+ *  Select album -> show tiles
+ *  =========================== */
+async function selectAlbum(idx) {
+  const album = state.albums[idx];
+  renderAlbumList(idx);
+  clearGrid();
+
+  state.currentTitle = album.name || "(unnamed album)";
+  el.viewTitle.textContent = `Album: ${state.currentTitle}`;
+
+  if (album.broken || !album.pathRel) {
+    el.resolvePill.textContent = "Path unresolved";
+    setStatus("This album path could not be resolved under the selected library root. (Absolute path mismatch)", "err");
+    return;
+  }
+
+  el.resolvePill.textContent = `Resolved: ${album.pathRel}`;
+  setStatus("Loading images…", "warn");
+
+  const dirHandle = state.dirIndex.get(album.pathRel);
+  if (!dirHandle) {
+    setStatus("Resolved directory handle missing (index issue).", "err");
+    return;
+  }
+
+  const images = await listImagesInDirectory(dirHandle, album.pathRel);
+  await renderTiles(images);
+  setStatus(images.length ? "Ready." : "No images found in this album folder.", images.length ? "ok" : "warn");
+}
+
+/** List image files in a directory (non-recursive, like your Kivy folder scan) */
+async function listImagesInDirectory(dirHandle, relDir) {
+  const out = [];
+  for await (const [name, handle] of dirHandle.entries()) {
+    if (handle.kind === "file" && isImageName(name)) {
+      const file = await handle.getFile();
+      out.push({
+        id: `${relDir}/${name}::${file.lastModified}`,
+        file,
+        relPath: relDir ? `${relDir}/${name}` : name,
+        url: null,
+        thumbUrl: null,
+        name
+      });
+    }
+  }
+  // Sort by name (simple v1)
+  out.sort((a,b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  return out;
+}
+
+/** Render tiles with thumbnails */
+async function renderTiles(images) {
+  state.currentImages = images;
+  el.countPill.textContent = `${images.length} images`;
+  el.grid.innerHTML = "";
+
+  // Render progressively for responsiveness
+  const batch = 24;
+  for (let i=0; i<images.length; i+=batch) {
+    const slice = images.slice(i, i+batch);
+    const nodes = await Promise.all(slice.map(async (it, localIndex) => {
+      const tile = document.createElement("div");
+      tile.className = "tile";
+      const img = document.createElement("img");
+      img.className = "thumb";
+      img.alt = it.name;
+
+      // thumb
+      try {
+        it.thumbUrl = await makeThumbURL(it.file, 320);
+        img.src = it.thumbUrl;
+      } catch {
+        // fallback: full url (still ok for prototype)
+        it.url = URL.createObjectURL(it.file);
+        img.src = it.url;
+      }
+
+      const cap = 
