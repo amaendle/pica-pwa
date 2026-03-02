@@ -553,6 +553,38 @@ function buildContactIdFromLabel(label) {
   return "manual_" + String(label || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
 
+function parseFaceEntriesInput(rawInput, existingFaces = []) {
+  const defaults = (existingFaces || []).map((f) => ({
+    label: String(f.label || "").trim(),
+    rect64: String(f.rect64 || "0").trim() || "0"
+  })).filter((x) => x.label);
+
+  const out = [];
+  const src = String(rawInput || "").trim();
+  if (!src) return out;
+
+  for (const part of src.split(",")) {
+    const chunk = part.trim();
+    if (!chunk) continue;
+    const [labelPart, rectPart] = chunk.split("@");
+    const label = String(labelPart || "").trim();
+    if (!label) continue;
+    const existing = defaults.find((x) => x.label.toLowerCase() === label.toLowerCase());
+    const rect64 = String(rectPart || existing?.rect64 || "0").trim() || "0";
+    out.push({ label, rect64 });
+  }
+  return out;
+}
+
+function albumTokensForImage(picasa, imageName) {
+  const tokens = [];
+  for (const [token, members] of picasa.membersByToken.entries()) {
+    if (members.has(imageName)) tokens.push(token);
+  }
+  tokens.sort((a,b)=>a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+  return tokens;
+}
+
 function serializePicasaInfo(picasa) {
   const lines = [];
   const imageNames = Array.from(picasa.imageMeta.keys()).sort((a,b)=>a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
@@ -597,20 +629,28 @@ function serializePicasaInfo(picasa) {
   return lines.join("\n");
 }
 
-async function savePicasaInfoForImage(imageItem, caption, faceLabels) {
+async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens) {
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   if (!dirHandle) throw new Error("Missing directory handle for metadata save");
 
   const picasa = await getPicasaMetaForFolder(relDir, dirHandle);
-  const faces = faceLabels.map((label) => {
+  const faces = faceEntries.map((entry) => {
+    const label = String(entry.label || "").trim();
     const existing = Array.from(picasa.contacts.entries()).find(([, v]) => v.toLowerCase() === label.toLowerCase());
     const contactId = existing ? existing[0] : buildContactIdFromLabel(label);
     picasa.contacts.set(contactId, label);
-    return { rect64: "0", contactId, label };
+    return { rect64: String(entry.rect64 || "0"), contactId, label };
   });
 
   picasa.imageMeta.set(imageItem.name, { caption, faces });
+
+  for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
+  for (const token of albumTokens) {
+    if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
+    picasa.membersByToken.get(token).add(imageItem.name);
+    if (!picasa.albumNamesByToken.has(token)) picasa.albumNamesByToken.set(token, token);
+  }
 
   const fileHandle = await dirHandle.getFileHandle(".picasa.info", { create: true });
   const writable = await fileHandle.createWritable();
@@ -627,13 +667,24 @@ async function savePicasaInfoForImage(imageItem, caption, faceLabels) {
 async function editImageMetadata(imageItem) {
   const captionInput = window.prompt("Caption", imageItem.caption || "");
   if (captionInput === null) return;
-  const facesInput = window.prompt("Face tags (comma-separated)", (imageItem.faces || []).map((f) => f.label).join(", "));
-  if (facesInput === null) return;
-  const faceLabels = facesInput.split(",").map((x) => x.trim()).filter(Boolean);
 
-  await savePicasaInfoForImage(imageItem, captionInput.trim(), faceLabels);
+  const faceDefault = (imageItem.faces || []).map((f) => `${f.label}${f.rect64 ? `@${f.rect64}` : ""}`).join(", ");
+  const facesInput = window.prompt("Face tags (use label@rect64, comma-separated)", faceDefault);
+  if (facesInput === null) return;
+
+  const relDir = folderOfRelPath(imageItem.relPath);
+  const dirHandle = state.dirIndex?.get(relDir);
+  const picasa = dirHandle ? await getPicasaMetaForFolder(relDir, dirHandle) : null;
+  const albumDefaultTokens = picasa ? albumTokensForImage(picasa, imageItem.name) : [];
+  const albumInput = window.prompt("Album tokens (comma-separated)", albumDefaultTokens.join(","));
+  if (albumInput === null) return;
+
+  const faceEntries = parseFaceEntriesInput(facesInput, imageItem.faces || []);
+  const albumTokens = albumInput.split(",").map((x) => x.trim()).filter(Boolean);
+
+  await savePicasaInfoForImage(imageItem, captionInput.trim(), faceEntries, albumTokens);
   await showImagesForResolvedPath(folderOfRelPath(imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
-  setStatus("Saved caption/face tags to .picasa.info", "ok");
+  setStatus("Saved caption/face tags/albums to .picasa.info", "ok");
 }
 
 function formatPicasaLog(pathRel, picasa, albumToken = "") {
