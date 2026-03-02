@@ -543,7 +543,11 @@ function setPicasaLog(text) {
 function formatPicasaLog(pathRel, picasa, albumToken = "") {
   const folderLabel = pathRel || "/";
   const lines = [`folder=${folderLabel}`];
+  lines.push(`folderName=${picasa.folderName || "(unknown)"}`);
   lines.push(`source=${picasa.sourceFile || "(not found)"}`);
+  const files = Array.isArray(picasa.scannedFileNames) ? picasa.scannedFileNames : [];
+  lines.push(`[folder files] (${files.length})`);
+  lines.push(...(files.length ? files.map((name) => `  ${name}`) : ["  (none)"]));
 
   const contactLines = Array.from(picasa.contacts.entries())
     .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
@@ -683,14 +687,22 @@ function parsePicasaIni(content) {
 }
 
 async function findPicasaIniFileHandle(dirHandle) {
+  const scannedFileNames = [];
+  let found = null;
   for await (const [name, handle] of dirHandle.entries()) {
     if (handle.kind !== "file") continue;
+    scannedFileNames.push(name);
     const lower = String(name || "").toLowerCase();
-    if (lower === ".picasa.ini" || lower === "picasa.ini") {
-      return { fileHandle: handle, fileName: name };
+    if (!found && (lower === ".picasa.ini" || lower === "picasa.ini")) {
+      found = { fileHandle: handle, fileName: name };
     }
   }
-  return null;
+  scannedFileNames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+  return {
+    found,
+    scannedFileNames,
+    folderName: dirHandle?.name || ""
+  };
 }
 
 async function getPicasaMetaForFolder(pathRel, dirHandle) {
@@ -701,17 +713,23 @@ async function getPicasaMetaForFolder(pathRel, dirHandle) {
     membersByToken: new Map(),
     imageMeta: new Map(),
     sourceFile: "",
+    scannedFileNames: [],
+    folderName: dirHandle?.name || "",
     missing: true
   };
   try {
-    const found = await findPicasaIniFileHandle(dirHandle);
-    if (!found) {
+    const scanResult = await findPicasaIniFileHandle(dirHandle);
+    empty.scannedFileNames = scanResult.scannedFileNames;
+    empty.folderName = scanResult.folderName || empty.folderName;
+    if (!scanResult.found) {
       state.picasaByFolder.set(pathRel, empty);
       return empty;
     }
-    const text = await (await found.fileHandle.getFile()).text();
+    const text = await (await scanResult.found.fileHandle.getFile()).text();
     const parsed = parsePicasaIni(text);
-    parsed.sourceFile = found.fileName;
+    parsed.sourceFile = scanResult.found.fileName;
+    parsed.scannedFileNames = scanResult.scannedFileNames;
+    parsed.folderName = scanResult.folderName || "";
     parsed.missing = false;
     state.picasaByFolder.set(pathRel, parsed);
     return parsed;
