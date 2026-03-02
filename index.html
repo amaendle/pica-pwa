@@ -56,6 +56,13 @@
     .caption { padding: 8px 10px; font-size: 12px; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tileMetaRow { display:flex; gap:8px; align-items:center; padding: 0 8px 8px; }
     .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
+    .faceEditorBox { background:#1a1a1a; border:1px solid #333; border-radius:10px; padding:10px; width:min(90vw,1000px); height:min(90vh,760px); display:grid; grid-template-columns: 1fr 280px; gap:10px; }
+    .faceCanvasWrap { position:relative; background:#000; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; }
+    .faceCanvasImg { max-width:100%; max-height:100%; user-select:none; }
+    .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; }
+    .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
+    .faceEditorSide { display:flex; flex-direction:column; gap:8px; }
+    .faceEditorSide input, .faceEditorSide textarea { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
     .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
     .warn { color: #ffda9e; }
     .ok { color: #a9f7c5; }
@@ -140,6 +147,27 @@
         <button id="btnPrev">◀ Prev</button>
         <button id="btnPlay">▶ Play</button>
         <button id="btnNext">Next ▶</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Face editor -->
+  <div class="overlay" id="faceEditorOverlay" aria-hidden="true">
+    <div class="faceEditorBox">
+      <div class="faceCanvasWrap" id="faceCanvasWrap">
+        <img id="faceCanvasImg" class="faceCanvasImg" alt="">
+      </div>
+      <div class="faceEditorSide">
+        <div><b>Edit image metadata</b></div>
+        <label>Caption<input id="faceCaptionInput" type="text"></label>
+        <label>Album tokens (comma)<input id="faceAlbumsInput" type="text"></label>
+        <label>Faces (label@rect64, comma)<textarea id="faceFacesInput" rows="6"></textarea></label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnFaceAdd">Add face rectangle</button>
+          <button id="btnFaceSave">Save</button>
+          <button id="btnFaceCancel">Cancel</button>
+        </div>
+        <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
   </div>
@@ -509,6 +537,17 @@ const el = {
   btnPrev: document.getElementById("btnPrev"),
   btnNext: document.getElementById("btnNext"),
   btnPlay: document.getElementById("btnPlay"),
+
+  faceEditorOverlay: document.getElementById("faceEditorOverlay"),
+  faceCanvasWrap: document.getElementById("faceCanvasWrap"),
+  faceCanvasImg: document.getElementById("faceCanvasImg"),
+  faceCaptionInput: document.getElementById("faceCaptionInput"),
+  faceAlbumsInput: document.getElementById("faceAlbumsInput"),
+  faceFacesInput: document.getElementById("faceFacesInput"),
+  faceEditorStatus: document.getElementById("faceEditorStatus"),
+  btnFaceAdd: document.getElementById("btnFaceAdd"),
+  btnFaceSave: document.getElementById("btnFaceSave"),
+  btnFaceCancel: document.getElementById("btnFaceCancel"),
 };
 
 function setStatus(msg, cls = "") {
@@ -662,6 +701,94 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
   picasa.missing = false;
   if (!Array.isArray(picasa.scannedFileNames)) picasa.scannedFileNames = [];
   if (!picasa.scannedFileNames.includes(".picasa.info")) picasa.scannedFileNames.push(".picasa.info");
+}
+
+
+const faceEditor = {
+  imageItem: null,
+  faces: [],
+  draggingIdx: -1,
+  dragOffsetX: 0,
+  dragOffsetY: 0,
+  naturalW: 1,
+  naturalH: 1,
+  displayW: 1,
+  displayH: 1
+};
+
+function rect64ToBox(rect64) {
+  const s = String(rect64 || "");
+  if (s.startsWith("gui:")) {
+    const nums = s.slice(4).split(",").map((x) => Number(x.trim()));
+    if (nums.length === 4 && nums.every((n) => Number.isFinite(n))) return { x: nums[0], y: nums[1], w: nums[2], h: nums[3] };
+  }
+  return { x: 0.1, y: 0.1, w: 0.2, h: 0.2 };
+}
+function boxToRect64(box) {
+  const clamp = (n) => Math.max(0, Math.min(1, n));
+  return `gui:${clamp(box.x).toFixed(6)},${clamp(box.y).toFixed(6)},${clamp(box.w).toFixed(6)},${clamp(box.h).toFixed(6)}`;
+}
+
+function syncFaceTextareaFromState() {
+  el.faceFacesInput.value = faceEditor.faces.map((f) => `${f.label}@${f.rect64}`).join(", ");
+}
+
+function renderFaceRects() {
+  el.faceCanvasWrap.querySelectorAll('.faceRect').forEach((n) => n.remove());
+  const r = el.faceCanvasImg.getBoundingClientRect();
+  const p = el.faceCanvasWrap.getBoundingClientRect();
+  faceEditor.displayW = r.width; faceEditor.displayH = r.height;
+  const offsetX = r.left - p.left; const offsetY = r.top - p.top;
+
+  faceEditor.faces.forEach((face, idx) => {
+    const b = rect64ToBox(face.rect64);
+    const div = document.createElement('div');
+    div.className = 'faceRect';
+    div.style.left = `${offsetX + b.x * r.width}px`;
+    div.style.top = `${offsetY + b.y * r.height}px`;
+    div.style.width = `${Math.max(12, b.w * r.width)}px`;
+    div.style.height = `${Math.max(12, b.h * r.height)}px`;
+    div.title = `${face.label} (${face.rect64})`;
+    div.onmousedown = (ev) => {
+      ev.preventDefault();
+      faceEditor.draggingIdx = idx;
+      faceEditor.dragOffsetX = ev.offsetX;
+      faceEditor.dragOffsetY = ev.offsetY;
+      el.faceEditorStatus.textContent = `Dragging ${face.label}`;
+    };
+    el.faceCanvasWrap.appendChild(div);
+  });
+  syncFaceTextareaFromState();
+}
+
+function openFaceEditor(imageItem) {
+  faceEditor.imageItem = imageItem;
+  faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1,0.1,0.2,0.2' }));
+  el.faceCaptionInput.value = imageItem.caption || '';
+  const relDir = folderOfRelPath(imageItem.relPath);
+  const dirHandle = state.dirIndex?.get(relDir);
+  Promise.resolve(dirHandle ? getPicasaMetaForFolder(relDir, dirHandle) : null).then((picasa) => {
+    const toks = picasa ? albumTokensForImage(picasa, imageItem.name) : [];
+    el.faceAlbumsInput.value = toks.join(',');
+  });
+
+  if (!imageItem.url) imageItem.url = URL.createObjectURL(imageItem.file);
+  el.faceCanvasImg.src = imageItem.url;
+  el.faceCanvasImg.onload = () => {
+    faceEditor.naturalW = el.faceCanvasImg.naturalWidth || 1;
+    faceEditor.naturalH = el.faceCanvasImg.naturalHeight || 1;
+    renderFaceRects();
+  };
+
+  el.faceEditorOverlay.classList.add('show');
+  el.faceEditorOverlay.setAttribute('aria-hidden', 'false');
+  el.faceEditorStatus.textContent = 'Drag rectangles. Add new faces with button.';
+}
+
+function closeFaceEditor() {
+  el.faceEditorOverlay.classList.remove('show');
+  el.faceEditorOverlay.setAttribute('aria-hidden', 'true');
+  faceEditor.draggingIdx = -1;
 }
 
 async function editImageMetadata(imageItem) {
@@ -1265,7 +1392,7 @@ async function renderTiles(images) {
       editBtn.onclick = async (ev) => {
         ev.stopPropagation();
         try {
-          await editImageMetadata(it);
+          openFaceEditor(it);
         } catch (e) {
           setStatus(`Failed to save .picasa.info: ${String(e?.message || e)}`, "err");
         }
@@ -1478,6 +1605,45 @@ window.addEventListener("keydown", (ev) => {
 el.overlay.addEventListener("click", (ev) => {
   if (ev.target === el.overlay) closeSlideshow();
 });
+
+el.btnFaceCancel.onclick = closeFaceEditor;
+el.faceEditorOverlay.addEventListener("click", (ev) => {
+  if (ev.target === el.faceEditorOverlay) closeFaceEditor();
+});
+el.btnFaceAdd.onclick = () => {
+  const label = window.prompt("Face label", "New person");
+  if (!label) return;
+  faceEditor.faces.push({ label: label.trim(), rect64: "gui:0.1,0.1,0.2,0.2" });
+  renderFaceRects();
+};
+el.faceCanvasWrap.addEventListener('mousemove', (ev) => {
+  if (faceEditor.draggingIdx < 0) return;
+  const r = el.faceCanvasImg.getBoundingClientRect();
+  const p = el.faceCanvasWrap.getBoundingClientRect();
+  const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.dragOffsetX;
+  const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.dragOffsetY;
+  const cur = faceEditor.faces[faceEditor.draggingIdx];
+  const b = rect64ToBox(cur.rect64);
+  const x = Math.max(0, Math.min(r.width - b.w * r.width, xPx)) / Math.max(1, r.width);
+  const y = Math.max(0, Math.min(r.height - b.h * r.height, yPx)) / Math.max(1, r.height);
+  cur.rect64 = boxToRect64({ x, y, w: b.w, h: b.h });
+  renderFaceRects();
+});
+window.addEventListener('mouseup', () => { faceEditor.draggingIdx = -1; });
+el.btnFaceSave.onclick = async () => {
+  if (!faceEditor.imageItem) return;
+  try {
+    const caption = el.faceCaptionInput.value.trim();
+    const albumTokens = el.faceAlbumsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
+    const faceEntries = parseFaceEntriesInput(el.faceFacesInput.value, faceEditor.faces);
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens);
+    await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
+    closeFaceEditor();
+    setStatus('Saved caption/face rectangles/albums to .picasa.info', 'ok');
+  } catch (e) {
+    el.faceEditorStatus.textContent = `Save failed: ${String(e?.message || e)}`;
+  }
+};
 
 
 function downloadJson(filename, data) {
