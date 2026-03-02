@@ -545,6 +545,7 @@ function formatPicasaLog(pathRel, picasa, albumToken = "") {
   const lines = [`folder=${folderLabel}`];
   lines.push(`folderName=${picasa.folderName || "(unknown)"}`);
   lines.push(`source=${picasa.sourceFile || "(not found)"}`);
+  lines.push(`detection=${picasa.detection || "none"}`);
   const files = Array.isArray(picasa.scannedFileNames) ? picasa.scannedFileNames : [];
   lines.push(`[folder files] (${files.length})`);
   lines.push(...(files.length ? files.map((name) => `  ${name}`) : ["  (none)"]));
@@ -581,6 +582,7 @@ function formatPicasaLog(pathRel, picasa, albumToken = "") {
 
   if (picasa.missing) {
     lines.push("hint=no .picasa.ini / picasa.ini file found in this folder");
+    lines.push("hint=some providers hide dotfiles or .ini files; fallback checks picasa* files by content");
   }
 
   return lines.join("\n");
@@ -609,6 +611,14 @@ function parseFacesValue(facesValue, contacts) {
     });
   }
   return out;
+}
+
+function looksLikePicasaIniText(text) {
+  const src = String(text || "");
+  if (!src.trim()) return false;
+  const markers = ["[contacts2]", "albums=", "faces=rect64(", "text=", "[.album:"];
+  const lower = src.toLowerCase();
+  return markers.some((m) => lower.includes(m));
 }
 
 function parsePicasaIni(content) {
@@ -688,20 +698,43 @@ function parsePicasaIni(content) {
 
 async function findPicasaIniFileHandle(dirHandle) {
   const scannedFileNames = [];
-  let found = null;
+  const fileEntries = [];
   for await (const [name, handle] of dirHandle.entries()) {
     if (handle.kind !== "file") continue;
     scannedFileNames.push(name);
-    const lower = String(name || "").toLowerCase();
-    if (!found && (lower === ".picasa.ini" || lower === "picasa.ini")) {
-      found = { fileHandle: handle, fileName: name };
+    fileEntries.push({ fileName: name, fileHandle: handle });
+  }
+
+  scannedFileNames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+
+  const exactNames = new Set([".picasa.ini", "picasa.ini"]);
+  let found = fileEntries.find((e) => exactNames.has(String(e.fileName || "").toLowerCase())) || null;
+  let detection = found ? "exact-name" : "none";
+
+  if (!found) {
+    const picasaNamed = fileEntries
+      .filter((e) => { const lower = String(e.fileName || "").toLowerCase(); return lower.startsWith("picasa") || lower.startsWith(".picasa"); })
+      .sort((a, b) => a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: "base" }));
+
+    for (const candidate of picasaNamed) {
+      try {
+        const text = await (await candidate.fileHandle.getFile()).text();
+        if (looksLikePicasaIniText(text)) {
+          found = candidate;
+          detection = "content-fallback";
+          break;
+        }
+      } catch {
+        // ignore unreadable candidates
+      }
     }
   }
-  scannedFileNames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+
   return {
     found,
     scannedFileNames,
-    folderName: dirHandle?.name || ""
+    folderName: dirHandle?.name || "",
+    detection
   };
 }
 
@@ -715,12 +748,14 @@ async function getPicasaMetaForFolder(pathRel, dirHandle) {
     sourceFile: "",
     scannedFileNames: [],
     folderName: dirHandle?.name || "",
+    detection: "none",
     missing: true
   };
   try {
     const scanResult = await findPicasaIniFileHandle(dirHandle);
     empty.scannedFileNames = scanResult.scannedFileNames;
     empty.folderName = scanResult.folderName || empty.folderName;
+    empty.detection = scanResult.detection || "none";
     if (!scanResult.found) {
       state.picasaByFolder.set(pathRel, empty);
       return empty;
@@ -730,6 +765,7 @@ async function getPicasaMetaForFolder(pathRel, dirHandle) {
     parsed.sourceFile = scanResult.found.fileName;
     parsed.scannedFileNames = scanResult.scannedFileNames;
     parsed.folderName = scanResult.folderName || "";
+    parsed.detection = scanResult.detection || "none";
     parsed.missing = false;
     state.picasaByFolder.set(pathRel, parsed);
     return parsed;
