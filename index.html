@@ -54,6 +54,8 @@
     .tile:hover { border-color: #3a3a3a; }
     .thumb { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #0f0f0f; }
     .caption { padding: 8px 10px; font-size: 12px; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tileMetaRow { display:flex; gap:8px; align-items:center; padding: 0 8px 8px; }
+    .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
     .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
     .warn { color: #ffda9e; }
     .ok { color: #a9f7c5; }
@@ -105,6 +107,7 @@
         <div>• This is a frontend-only prototype using the File System Access API (Chrome/Edge).</div>
         <div>• Your PMP contains absolute paths — this prototype resolves them by matching the <b>deepest suffix</b> under the chosen library root.</div>
         <div>• Run from a local server (secure context) for <span class="mono">showDirectoryPicker()</span> to work.</div>
+        <div>• Metadata can be read from <span class="mono">.picasa.info</span> / <span class="mono">.picasa.ini</span>; edits are saved to <span class="mono">.picasa.info</span>.</div>
       </div>
     </aside>
 
@@ -540,6 +543,99 @@ function setPicasaLog(text) {
   el.picasaLogPanel.hidden = false;
 }
 
+function folderOfRelPath(relPath) {
+  const s = String(relPath || "");
+  const idx = s.lastIndexOf("/");
+  return idx >= 0 ? s.slice(0, idx) : "";
+}
+
+function buildContactIdFromLabel(label) {
+  return "manual_" + String(label || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+
+function serializePicasaInfo(picasa) {
+  const lines = [];
+  const imageNames = Array.from(picasa.imageMeta.keys()).sort((a,b)=>a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+
+  const tokensByImage = new Map();
+  for (const [token, members] of picasa.membersByToken.entries()) {
+    for (const img of members) {
+      if (!tokensByImage.has(img)) tokensByImage.set(img, []);
+      tokensByImage.get(img).push(token);
+    }
+  }
+
+  for (const name of imageNames) {
+    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [] };
+    lines.push(`[${name}]`);
+    if (meta.caption) lines.push(`text=1;128;8;${meta.caption};Arial;`);
+    if ((meta.faces || []).length) {
+      const parts = meta.faces.map((f) => `rect64(${f.rect64 || "0"}),${f.contactId || buildContactIdFromLabel(f.label || "unknown")}`);
+      lines.push(`faces=${parts.join(";")}`);
+    }
+    const toks = (tokensByImage.get(name) || []).filter(Boolean);
+    if (toks.length) lines.push(`albums=${toks.join(",")}`);
+    lines.push("");
+  }
+
+  const albumTokens = Array.from(picasa.membersByToken.keys()).sort((a,b)=>a.localeCompare(b));
+  for (const token of albumTokens) {
+    lines.push(`[.album:${token}]`);
+    const nm = picasa.albumNamesByToken.get(token);
+    if (nm) lines.push(`name=${nm}`);
+    lines.push(`token=${token}`);
+    lines.push("");
+  }
+
+  const contacts = Array.from(picasa.contacts.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+  if (contacts.length) {
+    lines.push("[Contacts2]");
+    for (const [id, label] of contacts) lines.push(`${id}=${label};;`);
+    lines.push("");
+  }
+
+  return lines.join("\n");
+}
+
+async function savePicasaInfoForImage(imageItem, caption, faceLabels) {
+  const relDir = folderOfRelPath(imageItem.relPath);
+  const dirHandle = state.dirIndex?.get(relDir);
+  if (!dirHandle) throw new Error("Missing directory handle for metadata save");
+
+  const picasa = await getPicasaMetaForFolder(relDir, dirHandle);
+  const faces = faceLabels.map((label) => {
+    const existing = Array.from(picasa.contacts.entries()).find(([, v]) => v.toLowerCase() === label.toLowerCase());
+    const contactId = existing ? existing[0] : buildContactIdFromLabel(label);
+    picasa.contacts.set(contactId, label);
+    return { rect64: "0", contactId, label };
+  });
+
+  picasa.imageMeta.set(imageItem.name, { caption, faces });
+
+  const fileHandle = await dirHandle.getFileHandle(".picasa.info", { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(serializePicasaInfo(picasa));
+  await writable.close();
+
+  picasa.sourceFile = ".picasa.info";
+  picasa.detection = "manual-write";
+  picasa.missing = false;
+  if (!Array.isArray(picasa.scannedFileNames)) picasa.scannedFileNames = [];
+  if (!picasa.scannedFileNames.includes(".picasa.info")) picasa.scannedFileNames.push(".picasa.info");
+}
+
+async function editImageMetadata(imageItem) {
+  const captionInput = window.prompt("Caption", imageItem.caption || "");
+  if (captionInput === null) return;
+  const facesInput = window.prompt("Face tags (comma-separated)", (imageItem.faces || []).map((f) => f.label).join(", "));
+  if (facesInput === null) return;
+  const faceLabels = facesInput.split(",").map((x) => x.trim()).filter(Boolean);
+
+  await savePicasaInfoForImage(imageItem, captionInput.trim(), faceLabels);
+  await showImagesForResolvedPath(folderOfRelPath(imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
+  setStatus("Saved caption/face tags to .picasa.info", "ok");
+}
+
 function formatPicasaLog(pathRel, picasa, albumToken = "") {
   const folderLabel = pathRel || "/";
   const lines = [`folder=${folderLabel}`];
@@ -707,7 +803,7 @@ async function findPicasaIniFileHandle(dirHandle) {
 
   scannedFileNames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
 
-  const exactNames = new Set([".picasa.ini", "picasa.ini"]);
+  const exactNames = new Set([".picasa.ini", "picasa.ini", ".picasa.info", "picasa.info"]);
   let found = fileEntries.find((e) => exactNames.has(String(e.fileName || "").toLowerCase())) || null;
   let detection = found ? "exact-name" : "none";
 
@@ -1110,8 +1206,24 @@ async function renderTiles(images) {
       cap.textContent = it.caption || it.name;
       if (faceNames.length) cap.title = `Faces: ${faceNames.join(", ")}`;
 
+      const row = document.createElement("div");
+      row.className = "tileMetaRow";
+      const editBtn = document.createElement("button");
+      editBtn.className = "miniBtn";
+      editBtn.textContent = "Edit tags";
+      editBtn.onclick = async (ev) => {
+        ev.stopPropagation();
+        try {
+          await editImageMetadata(it);
+        } catch (e) {
+          setStatus(`Failed to save .picasa.info: ${String(e?.message || e)}`, "err");
+        }
+      };
+      row.appendChild(editBtn);
+
       tile.appendChild(img);
       tile.appendChild(cap);
+      tile.appendChild(row);
 
       const absoluteIndex = i + localIndex;
       tile.onclick = () => openSlideshow(absoluteIndex);
@@ -1199,7 +1311,7 @@ function togglePlay() {
 el.btnPick.onclick = async () => {
   try {
     // Secure context required (https or localhost)
-    const dir = await window.showDirectoryPicker({ mode: "read" });
+    const dir = await window.showDirectoryPicker({ mode: "readwrite" });
     state.libraryRoot = dir;
     state.activeListIndex = -1;
     setAsideState("Library folder selected", "ok");
