@@ -60,6 +60,9 @@
     .faceCanvasWrap { position:relative; background:#000; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; }
     .faceCanvasImg { max-width:100%; max-height:100%; user-select:none; }
     .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; }
+    .faceRectHandle { position:absolute; width:12px; height:12px; right:-7px; bottom:-7px; background:#fff; border:1px solid #111; border-radius:50%; cursor:nwse-resize; }
+    .slideFaceLayer { position:absolute; inset:0; pointer-events:none; }
+    .slideFaceRect { position:absolute; border:2px solid #ffd166; background:rgba(255,209,102,.18); }
     .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
     .faceEditorSide { display:flex; flex-direction:column; gap:8px; }
     .faceEditorSide input, .faceEditorSide textarea { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
@@ -68,7 +71,6 @@
     .ok { color: #a9f7c5; }
     .err { color: #ffb4b4; }
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
-
     /* Slideshow overlay */
     .overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,.92);
@@ -100,7 +102,6 @@
     <span class="pill" id="pillState">No library selected</span>
     <span class="pill mono" id="pillInfo"></span>
   </header>
-
   <div class="layout">
     <aside>
       <div class="sectionTitle">Navigation (from db/*.pmp)</div>
@@ -117,7 +118,6 @@
         <div>• Metadata can be read from <span class="mono">.picasa.info</span> / <span class="mono">.picasa.ini</span>; edits are saved to <span class="mono">.picasa.info</span>.</div>
       </div>
     </aside>
-
     <main>
       <div class="toolbar">
         <span id="viewTitle">No selection</span>
@@ -125,7 +125,6 @@
         <span class="pill" id="resolvePill"></span>
         <span style="margin-left:auto" class="pill">Slideshow: <span class="kbd">←</span>/<span class="kbd">→</span> <span class="kbd">Space</span> <span class="kbd">Esc</span></span>
       </div>
-
       <div class="grid" id="grid"></div>
       <div class="logPanel" id="picasaLogPanel" hidden>
         <div class="logTitle">.picasa.ini log</div>
@@ -134,14 +133,17 @@
       <div class="status" id="mainStatus"></div>
     </main>
   </div>
-
   <!-- Slideshow -->
   <div class="overlay" id="overlay" aria-hidden="true">
     <div class="slideWrap">
       <img id="slideImg" class="slideImg" alt="">
+      <div id="slideFaceLayer" class="slideFaceLayer"></div>
       <div class="overlayTop">
         <div id="slideMeta" class="mono"></div>
-        <button id="btnClose">Close (Esc)</button>
+        <div style="display:flex; gap:8px;">
+          <button id="btnToggleFaces">Faces: On</button>
+          <button id="btnClose">Close (Esc)</button>
+        </div>
       </div>
       <div class="overlayBar">
         <button id="btnPrev">◀ Prev</button>
@@ -150,7 +152,6 @@
       </div>
     </div>
   </div>
-
   <!-- Face editor -->
   <div class="overlay" id="faceEditorOverlay" aria-hidden="true">
     <div class="faceEditorBox">
@@ -161,7 +162,7 @@
         <div><b>Edit image metadata</b></div>
         <label>Caption<input id="faceCaptionInput" type="text"></label>
         <label>Album tokens (comma)<input id="faceAlbumsInput" type="text"></label>
-        <label>Faces (label@rect64, comma)<textarea id="faceFacesInput" rows="6"></textarea></label>
+        <label>Faces (one per line: label@rect64)<textarea id="faceFacesInput" rows="6"></textarea></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnFaceAdd">Add face rectangle</button>
           <button id="btnFaceSave">Save</button>
@@ -171,7 +172,6 @@
       </div>
     </div>
   </div>
-
 <script>
 /** ===========================
  *  Helpers: path + file types
@@ -192,7 +192,6 @@ function isImageName(name) {
   if (idx < 0) return false;
   return IMG_EXTS.has(name.slice(idx+1).toLowerCase());
 }
-
 /** ===========================
  *  Minimal PMP Reader (JS)
  *  Mirrors your Python PMPReader
@@ -201,12 +200,10 @@ class PMPReaderJS {
   static MAGIC = 0x3fcccccd;
   static C1332 = 0x1332;
   static C2 = 0x00000002;
-
   /** @param {ArrayBuffer} buf */
   static read(buf) {
     const dv = new DataView(buf);
     let off = 0;
-
     const u32 = () => { const v = dv.getUint32(off, true); off += 4; return v; };
     const u16 = () => { const v = dv.getUint16(off, true); off += 2; return v; };
     const u8  = () => { const v = dv.getUint8(off); off += 1; return v; };
@@ -217,19 +214,14 @@ class PMPReaderJS {
       off += 8;
       return (BigInt(hi) << 32n) | BigInt(lo);
     };
-
     const magic = u32();
     if (magic !== PMPReaderJS.MAGIC) throw new Error(`Invalid PMP magic: 0x${magic.toString(16)}`);
-
     const fieldType = u16();
-
     if (u16() !== PMPReaderJS.C1332) throw new Error("Invalid constant after type");
     if (u32() !== PMPReaderJS.C2)    throw new Error("Invalid second constant");
     if (u16() !== fieldType)         throw new Error("Type mismatch");
     if (u16() !== PMPReaderJS.C1332) throw new Error("Invalid second 0x1332 constant");
-
     const n = u32();
-
     const entries = [];
     if (fieldType === 0x0 || fieldType === 0x6) {
       // null-terminated utf-8 strings
@@ -268,11 +260,9 @@ class PMPReaderJS {
     } else {
       throw new Error(`Unknown PMP field type: ${fieldType}`);
     }
-
     return { type: fieldType, n_entries: n, entries };
   }
 }
-
 /** ===========================
  *  File System Access helpers
  *  =========================== */
@@ -288,13 +278,10 @@ async function getFileHandleByPath(rootDirHandle, relPath) {
   }
   throw new Error("Invalid path");
 }
-
 async function readFileAsArrayBuffer(fileHandle) {
   const file = await fileHandle.getFile();
   return await file.arrayBuffer();
 }
-
-
 /** ===========================
  *  IndexedDB persistence
  *  =========================== */
@@ -305,7 +292,6 @@ const STORES = {
   albums: "albums",
   folders: "folders"
 };
-
 function openLibraryDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -327,7 +313,6 @@ function openLibraryDB() {
     req.onerror = () => reject(req.error || new Error("Failed to open IndexedDB"));
   });
 }
-
 function txDone(tx) {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
@@ -335,14 +320,12 @@ function txDone(tx) {
     tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
   });
 }
-
 async function saveLibrarySnapshot(snapshot) {
   const db = await openLibraryDB();
   const tx = db.transaction([STORES.libraries, STORES.albums, STORES.folders], "readwrite");
   const libraries = tx.objectStore(STORES.libraries);
   const albums = tx.objectStore(STORES.albums);
   const folders = tx.objectStore(STORES.folders);
-
   libraries.put({
     id: snapshot.libraryId,
     label: snapshot.label,
@@ -350,14 +333,11 @@ async function saveLibrarySnapshot(snapshot) {
     rootName: snapshot.rootName,
     stats: snapshot.stats
   });
-
   for (const album of snapshot.albums) albums.put(album);
   for (const folder of snapshot.folders) folders.put(folder);
-
   await txDone(tx);
   db.close();
 }
-
 async function loadLibrarySnapshot(libraryId = "default") {
   const db = await openLibraryDB();
   try {
@@ -365,7 +345,6 @@ async function loadLibrarySnapshot(libraryId = "default") {
     const libraryReq = tx.objectStore(STORES.libraries).get(libraryId);
     const albumsReq = tx.objectStore(STORES.albums).index("libraryId").getAll(libraryId);
     const foldersReq = tx.objectStore(STORES.folders).index("libraryId").getAll(libraryId);
-
     const out = await new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve({
         library: libraryReq.result || null,
@@ -380,7 +359,6 @@ async function loadLibrarySnapshot(libraryId = "default") {
     db.close();
   }
 }
-
 /** ===========================
  *  Directory index + path resolver
  *  =========================== */
@@ -388,16 +366,13 @@ async function buildDirectoryIndex(rootDirHandle, onProgress = null) {
   // Returns Map<relativePath, FileSystemDirectoryHandle>
   const map = new Map();
   map.set("", rootDirHandle);
-
   let discovered = 1;
   let sinceYield = 0;
   const report = async (lastPath = "", done = false) => {
     if (!onProgress) return;
     await onProgress({ count: discovered, lastPath, done });
   };
-
   await report("", false);
-
   async function walk(dirHandle, rel) {
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind === "directory") {
@@ -405,7 +380,6 @@ async function buildDirectoryIndex(rootDirHandle, onProgress = null) {
         map.set(childRel, handle);
         discovered += 1;
         sinceYield += 1;
-
         if (discovered <= 25 || discovered % 25 === 0) {
           await report(childRel, false);
         }
@@ -413,17 +387,14 @@ async function buildDirectoryIndex(rootDirHandle, onProgress = null) {
           sinceYield = 0;
           await new Promise((r) => setTimeout(r, 0));
         }
-
         await walk(handle, childRel);
       }
     }
   }
-
   await walk(rootDirHandle, "");
   await report("", true);
   return map;
 }
-
 function resolveAbsoluteToRelative(absPath, dirIndex) {
   // absPath like "C:\Users\...\Pictures\Trips\Berlin"
   // We match the deepest suffix that exists under the chosen library root
@@ -443,7 +414,6 @@ function resolveAbsoluteToRelative(absPath, dirIndex) {
   }
   return null;
 }
-
 /** ===========================
  *  Thumbnail generation (in-memory)
  *  =========================== */
@@ -457,7 +427,6 @@ async function makeThumbURL(file, size = 320) {
   }
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { alpha: false });
-
   if (bmp) {
     const w = bmp.width, h = bmp.height;
     const scale = Math.min(size / w, size / h);
@@ -483,11 +452,9 @@ async function makeThumbURL(file, size = 320) {
     canvas.width = tw; canvas.height = th;
     ctx.drawImage(img, 0, 0, tw, th);
   }
-
   const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.82));
   return URL.createObjectURL(blob);
 }
-
 /** ===========================
  *  App state
  *  =========================== */
@@ -506,9 +473,8 @@ const state = {
   currentViewMode: "albums",
   activeListIndex: -1,
   libraryId: "default",
-  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500 }
+  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true }
 };
-
 /** ===========================
  *  UI elements
  *  =========================== */
@@ -529,7 +495,6 @@ const el = {
   mainStatus: document.getElementById("mainStatus"),
   picasaLogPanel: document.getElementById("picasaLogPanel"),
   picasaLog: document.getElementById("picasaLog"),
-
   overlay: document.getElementById("overlay"),
   slideImg: document.getElementById("slideImg"),
   slideMeta: document.getElementById("slideMeta"),
@@ -537,7 +502,8 @@ const el = {
   btnPrev: document.getElementById("btnPrev"),
   btnNext: document.getElementById("btnNext"),
   btnPlay: document.getElementById("btnPlay"),
-
+  btnToggleFaces: document.getElementById("btnToggleFaces"),
+  slideFaceLayer: document.getElementById("slideFaceLayer"),
   faceEditorOverlay: document.getElementById("faceEditorOverlay"),
   faceCanvasWrap: document.getElementById("faceCanvasWrap"),
   faceCanvasImg: document.getElementById("faceCanvasImg"),
@@ -549,7 +515,6 @@ const el = {
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
 };
-
 function setStatus(msg, cls = "") {
   el.mainStatus.className = "status " + cls;
   el.mainStatus.textContent = msg || "";
@@ -570,7 +535,6 @@ function clearGrid() {
   el.resolvePill.textContent = "";
   setPicasaLog("");
 }
-
 function setPicasaLog(text) {
   const body = String(text || "").trim();
   if (!body) {
@@ -581,40 +545,35 @@ function setPicasaLog(text) {
   el.picasaLog.textContent = body;
   el.picasaLogPanel.hidden = false;
 }
-
 function folderOfRelPath(relPath) {
   const s = String(relPath || "");
   const idx = s.lastIndexOf("/");
   return idx >= 0 ? s.slice(0, idx) : "";
 }
-
 function buildContactIdFromLabel(label) {
   return "manual_" + String(label || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
 }
-
 function parseFaceEntriesInput(rawInput, existingFaces = []) {
   const defaults = (existingFaces || []).map((f) => ({
     label: String(f.label || "").trim(),
     rect64: String(f.rect64 || "0").trim() || "0"
   })).filter((x) => x.label);
-
   const out = [];
   const src = String(rawInput || "").trim();
   if (!src) return out;
-
-  for (const part of src.split(",")) {
-    const chunk = part.trim();
-    if (!chunk) continue;
-    const [labelPart, rectPart] = chunk.split("@");
-    const label = String(labelPart || "").trim();
+  for (const rawLine of src.split(/\n|;/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const sep = line.indexOf("@");
+    const label = (sep >= 0 ? line.slice(0, sep) : line).trim();
     if (!label) continue;
+    const rectPart = sep >= 0 ? line.slice(sep + 1).trim() : "";
     const existing = defaults.find((x) => x.label.toLowerCase() === label.toLowerCase());
     const rect64 = String(rectPart || existing?.rect64 || "0").trim() || "0";
     out.push({ label, rect64 });
   }
   return out;
 }
-
 function albumTokensForImage(picasa, imageName) {
   const tokens = [];
   for (const [token, members] of picasa.membersByToken.entries()) {
@@ -623,11 +582,9 @@ function albumTokensForImage(picasa, imageName) {
   tokens.sort((a,b)=>a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
   return tokens;
 }
-
 function serializePicasaInfo(picasa) {
   const lines = [];
   const imageNames = Array.from(picasa.imageMeta.keys()).sort((a,b)=>a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
-
   const tokensByImage = new Map();
   for (const [token, members] of picasa.membersByToken.entries()) {
     for (const img of members) {
@@ -635,7 +592,6 @@ function serializePicasaInfo(picasa) {
       tokensByImage.get(img).push(token);
     }
   }
-
   for (const name of imageNames) {
     const meta = picasa.imageMeta.get(name) || { caption: "", faces: [] };
     lines.push(`[${name}]`);
@@ -648,7 +604,6 @@ function serializePicasaInfo(picasa) {
     if (toks.length) lines.push(`albums=${toks.join(",")}`);
     lines.push("");
   }
-
   const albumTokens = Array.from(picasa.membersByToken.keys()).sort((a,b)=>a.localeCompare(b));
   for (const token of albumTokens) {
     lines.push(`[.album:${token}]`);
@@ -657,22 +612,18 @@ function serializePicasaInfo(picasa) {
     lines.push(`token=${token}`);
     lines.push("");
   }
-
   const contacts = Array.from(picasa.contacts.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
   if (contacts.length) {
     lines.push("[Contacts2]");
     for (const [id, label] of contacts) lines.push(`${id}=${label};;`);
     lines.push("");
   }
-
   return lines.join("\n");
 }
-
 async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens) {
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   if (!dirHandle) throw new Error("Missing directory handle for metadata save");
-
   const picasa = await getPicasaMetaForFolder(relDir, dirHandle);
   const faces = faceEntries.map((entry) => {
     const label = String(entry.label || "").trim();
@@ -681,33 +632,28 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
     picasa.contacts.set(contactId, label);
     return { rect64: String(entry.rect64 || "0"), contactId, label };
   });
-
   picasa.imageMeta.set(imageItem.name, { caption, faces });
-
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
     picasa.membersByToken.get(token).add(imageItem.name);
     if (!picasa.albumNamesByToken.has(token)) picasa.albumNamesByToken.set(token, token);
   }
-
   const fileHandle = await dirHandle.getFileHandle(".picasa.info", { create: true });
   const writable = await fileHandle.createWritable();
   await writable.write(serializePicasaInfo(picasa));
   await writable.close();
-
   picasa.sourceFile = ".picasa.info";
   picasa.detection = "manual-write";
   picasa.missing = false;
   if (!Array.isArray(picasa.scannedFileNames)) picasa.scannedFileNames = [];
   if (!picasa.scannedFileNames.includes(".picasa.info")) picasa.scannedFileNames.push(".picasa.info");
 }
-
-
 const faceEditor = {
   imageItem: null,
   faces: [],
   draggingIdx: -1,
+  dragMode: "move",
   dragOffsetX: 0,
   dragOffsetY: 0,
   naturalW: 1,
@@ -715,22 +661,20 @@ const faceEditor = {
   displayW: 1,
   displayH: 1
 };
-
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
   if (s.startsWith("gui:")) {
-    const nums = s.slice(4).split(",").map((x) => Number(x.trim()));
+    const nums = s.slice(4).split("|").map((x) => Number(x.trim()));
     if (nums.length === 4 && nums.every((n) => Number.isFinite(n))) return { x: nums[0], y: nums[1], w: nums[2], h: nums[3] };
   }
   return { x: 0.1, y: 0.1, w: 0.2, h: 0.2 };
 }
 function boxToRect64(box) {
   const clamp = (n) => Math.max(0, Math.min(1, n));
-  return `gui:${clamp(box.x).toFixed(6)},${clamp(box.y).toFixed(6)},${clamp(box.w).toFixed(6)},${clamp(box.h).toFixed(6)}`;
+  return `gui:${clamp(box.x).toFixed(6)}|${clamp(box.y).toFixed(6)}|${clamp(box.w).toFixed(6)}|${clamp(box.h).toFixed(6)}`;
 }
-
 function syncFaceTextareaFromState() {
-  el.faceFacesInput.value = faceEditor.faces.map((f) => `${f.label}@${f.rect64}`).join(", ");
+  el.faceFacesInput.value = faceEditor.faces.map((f) => `${f.label}@${f.rect64}`).join("\n");
 }
 
 function renderFaceRects() {
@@ -739,7 +683,6 @@ function renderFaceRects() {
   const p = el.faceCanvasWrap.getBoundingClientRect();
   faceEditor.displayW = r.width; faceEditor.displayH = r.height;
   const offsetX = r.left - p.left; const offsetY = r.top - p.top;
-
   faceEditor.faces.forEach((face, idx) => {
     const b = rect64ToBox(face.rect64);
     const div = document.createElement('div');
@@ -752,18 +695,28 @@ function renderFaceRects() {
     div.onmousedown = (ev) => {
       ev.preventDefault();
       faceEditor.draggingIdx = idx;
+      faceEditor.dragMode = "move";
       faceEditor.dragOffsetX = ev.offsetX;
       faceEditor.dragOffsetY = ev.offsetY;
       el.faceEditorStatus.textContent = `Dragging ${face.label}`;
     };
+    const h = document.createElement('div');
+    h.className = 'faceRectHandle';
+    h.onmousedown = (ev) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      faceEditor.draggingIdx = idx;
+      faceEditor.dragMode = "resize";
+      el.faceEditorStatus.textContent = `Resizing ${face.label}`;
+    };
+    div.appendChild(h);
     el.faceCanvasWrap.appendChild(div);
   });
   syncFaceTextareaFromState();
 }
-
 function openFaceEditor(imageItem) {
   faceEditor.imageItem = imageItem;
-  faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1,0.1,0.2,0.2' }));
+  faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
   el.faceCaptionInput.value = imageItem.caption || '';
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
@@ -771,7 +724,6 @@ function openFaceEditor(imageItem) {
     const toks = picasa ? albumTokensForImage(picasa, imageItem.name) : [];
     el.faceAlbumsInput.value = toks.join(',');
   });
-
   if (!imageItem.url) imageItem.url = URL.createObjectURL(imageItem.file);
   el.faceCanvasImg.src = imageItem.url;
   el.faceCanvasImg.onload = () => {
@@ -779,41 +731,34 @@ function openFaceEditor(imageItem) {
     faceEditor.naturalH = el.faceCanvasImg.naturalHeight || 1;
     renderFaceRects();
   };
-
   el.faceEditorOverlay.classList.add('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'false');
   el.faceEditorStatus.textContent = 'Drag rectangles. Add new faces with button.';
 }
-
 function closeFaceEditor() {
   el.faceEditorOverlay.classList.remove('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'true');
   faceEditor.draggingIdx = -1;
+  faceEditor.dragMode = "move";
 }
-
 async function editImageMetadata(imageItem) {
   const captionInput = window.prompt("Caption", imageItem.caption || "");
   if (captionInput === null) return;
-
   const faceDefault = (imageItem.faces || []).map((f) => `${f.label}${f.rect64 ? `@${f.rect64}` : ""}`).join(", ");
   const facesInput = window.prompt("Face tags (use label@rect64, comma-separated)", faceDefault);
   if (facesInput === null) return;
-
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   const picasa = dirHandle ? await getPicasaMetaForFolder(relDir, dirHandle) : null;
   const albumDefaultTokens = picasa ? albumTokensForImage(picasa, imageItem.name) : [];
   const albumInput = window.prompt("Album tokens (comma-separated)", albumDefaultTokens.join(","));
   if (albumInput === null) return;
-
   const faceEntries = parseFaceEntriesInput(facesInput, imageItem.faces || []);
   const albumTokens = albumInput.split(",").map((x) => x.trim()).filter(Boolean);
-
   await savePicasaInfoForImage(imageItem, captionInput.trim(), faceEntries, albumTokens);
   await showImagesForResolvedPath(folderOfRelPath(imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
   setStatus("Saved caption/face tags/albums to .picasa.info", "ok");
 }
-
 function formatPicasaLog(pathRel, picasa, albumToken = "") {
   const folderLabel = pathRel || "/";
   const lines = [`folder=${folderLabel}`];
@@ -823,13 +768,11 @@ function formatPicasaLog(pathRel, picasa, albumToken = "") {
   const files = Array.isArray(picasa.scannedFileNames) ? picasa.scannedFileNames : [];
   lines.push(`[folder files] (${files.length})`);
   lines.push(...(files.length ? files.map((name) => `  ${name}`) : ["  (none)"]));
-
   const contactLines = Array.from(picasa.contacts.entries())
     .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
     .map(([id, label]) => `  ${id}=${label}`);
   lines.push(`[Contacts2] (${contactLines.length})`);
   lines.push(...(contactLines.length ? contactLines : ["  (none)"]));
-
   const albumLines = Array.from(picasa.membersByToken.entries())
     .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
     .map(([token, members]) => {
@@ -841,7 +784,6 @@ function formatPicasaLog(pathRel, picasa, albumToken = "") {
     });
   lines.push(`[albums token->images] (${albumLines.length})`);
   lines.push(...(albumLines.length ? albumLines : ["  (none)"]));
-
   const imageLines = Array.from(picasa.imageMeta.entries())
     .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" }))
     .map(([name, meta]) => {
@@ -853,15 +795,12 @@ function formatPicasaLog(pathRel, picasa, albumToken = "") {
     });
   lines.push(`[image metadata] (${imageLines.length})`);
   lines.push(...(imageLines.length ? imageLines : ["  (none)"]));
-
   if (picasa.missing) {
     lines.push("hint=no .picasa.ini / picasa.ini file found in this folder");
     lines.push("hint=some providers hide dotfiles or .ini files; fallback checks picasa* files by content");
   }
-
   return lines.join("\n");
 }
-
 /** ===========================
  *  .picasa.ini parsing
  *  =========================== */
@@ -869,7 +808,6 @@ function parseCaptionText(textValue) {
   const parts = String(textValue || "").split(";");
   return (parts[3] || "").trim();
 }
-
 function parseFacesValue(facesValue, contacts) {
   const out = [];
   for (const chunk of String(facesValue || "").split(";")) {
@@ -886,7 +824,6 @@ function parseFacesValue(facesValue, contacts) {
   }
   return out;
 }
-
 function looksLikePicasaIniText(text) {
   const src = String(text || "");
   if (!src.trim()) return false;
@@ -894,13 +831,11 @@ function looksLikePicasaIniText(text) {
   const lower = src.toLowerCase();
   return markers.some((m) => lower.includes(m));
 }
-
 function parsePicasaIni(content) {
   const contacts = new Map();
   const albumNamesByToken = new Map();
   const membersByToken = new Map();
   const imageMeta = new Map();
-
   const sections = new Map();
   let sectionName = "";
   sections.set(sectionName, []);
@@ -915,7 +850,6 @@ function parsePicasaIni(content) {
     }
     sections.get(sectionName).push(line);
   }
-
   for (const [sec, lines] of sections) {
     if (sec.toLowerCase() === "contacts2") {
       for (const line of lines) {
@@ -928,7 +862,6 @@ function parsePicasaIni(content) {
       }
     }
   }
-
   for (const [sec, lines] of sections) {
     if (!sec || sec.toLowerCase() === "contacts2") continue;
     if (sec.startsWith(".album:")) {
@@ -945,14 +878,12 @@ function parsePicasaIni(content) {
       if (token) albumNamesByToken.set(token, name || token);
       continue;
     }
-
     const meta = { caption: "", faces: [] };
     for (const line of lines) {
       const idx = line.indexOf("=");
       if (idx <= 0) continue;
       const key = line.slice(0, idx).trim().toLowerCase();
       const val = line.slice(idx + 1).trim();
-
       if (key === "albums") {
         for (const token of val.split(",").map((x) => x.trim()).filter(Boolean)) {
           if (!membersByToken.has(token)) membersByToken.set(token, new Set());
@@ -966,10 +897,8 @@ function parsePicasaIni(content) {
     }
     imageMeta.set(sec, meta);
   }
-
   return { contacts, albumNamesByToken, membersByToken, imageMeta };
 }
-
 async function findPicasaIniFileHandle(dirHandle) {
   const scannedFileNames = [];
   const fileEntries = [];
@@ -978,18 +907,14 @@ async function findPicasaIniFileHandle(dirHandle) {
     scannedFileNames.push(name);
     fileEntries.push({ fileName: name, fileHandle: handle });
   }
-
   scannedFileNames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
-
   const exactNames = new Set([".picasa.ini", "picasa.ini", ".picasa.info", "picasa.info"]);
   let found = fileEntries.find((e) => exactNames.has(String(e.fileName || "").toLowerCase())) || null;
   let detection = found ? "exact-name" : "none";
-
   if (!found) {
     const picasaNamed = fileEntries
       .filter((e) => { const lower = String(e.fileName || "").toLowerCase(); return lower.startsWith("picasa") || lower.startsWith(".picasa"); })
       .sort((a, b) => a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: "base" }));
-
     for (const candidate of picasaNamed) {
       try {
         const text = await (await candidate.fileHandle.getFile()).text();
@@ -1003,7 +928,6 @@ async function findPicasaIniFileHandle(dirHandle) {
       }
     }
   }
-
   return {
     found,
     scannedFileNames,
@@ -1011,7 +935,6 @@ async function findPicasaIniFileHandle(dirHandle) {
     detection
   };
 }
-
 async function getPicasaMetaForFolder(pathRel, dirHandle) {
   if (state.picasaByFolder.has(pathRel)) return state.picasaByFolder.get(pathRel);
   const empty = {
@@ -1048,14 +971,12 @@ async function getPicasaMetaForFolder(pathRel, dirHandle) {
     return empty;
   }
 }
-
 /** ===========================
  *  Load PMP albums from db/
  *  =========================== */
 async function loadAlbumsFromPMP() {
   if (!state.pmpRoot) throw new Error("No PMP import folder selected");
   if (!state.libraryRoot || !state.dirIndex) throw new Error("No library folder selected");
-
   const required = [
     "db/albumdata_name.pmp",
     "db/albumdata_filename.pmp",
@@ -1064,7 +985,6 @@ async function loadAlbumsFromPMP() {
     "db/albumdata_uid.pmp",
     "db/albumdata_albumcontactids.pmp", // optional but present in your app; we’ll try
   ];
-
   const buffers = {};
   for (const rel of required) {
     try {
@@ -1078,13 +998,11 @@ async function loadAlbumsFromPMP() {
       }
     }
   }
-
   const names = PMPReaderJS.read(buffers["db/albumdata_name.pmp"]).entries;
   const fns   = PMPReaderJS.read(buffers["db/albumdata_filename.pmp"]).entries;
   const cats  = PMPReaderJS.read(buffers["db/albumdata_category.pmp"]).entries;
   const toks  = PMPReaderJS.read(buffers["db/albumdata_token.pmp"]).entries;
   const uids  = PMPReaderJS.read(buffers["db/albumdata_uid.pmp"]).entries;
-
   const n = Math.min(names.length, fns.length, cats.length, toks.length, uids.length);
   const albums = [];
   for (let i=0;i<n;i++) {
@@ -1094,7 +1012,6 @@ async function loadAlbumsFromPMP() {
     const uidVal = uids[i];
     const uid = (typeof uidVal === "bigint") ? uidVal.toString() : String(uidVal ?? "");
     const category = Number(cats[i] ?? 0);
-
     // Resolve absolute path to relative under root (suffix match)
     const rel = absPath ? resolveAbsoluteToRelative(absPath, state.dirIndex) : null;
     albums.push({
@@ -1109,10 +1026,8 @@ async function loadAlbumsFromPMP() {
       broken: !rel
     });
   }
-
   state.albums = albums;
   state.folderItems = buildFolderItems(albums);
-
   await saveLibrarySnapshot({
     libraryId: state.libraryId,
     rootName: state.libraryRoot.name || "",
@@ -1121,12 +1036,10 @@ async function loadAlbumsFromPMP() {
     albums: state.albums,
     folders: state.folderItems
   });
-
   el.btnExport.disabled = false;
   el.pillInfo.textContent = `${albums.length} albums`;
   renderNavigation();
 }
-
 function buildFolderItems(albums) {
   const folders = albums
     .filter((a) => a.pathRel)
@@ -1139,14 +1052,12 @@ function buildFolderItems(albums) {
       albumName: a.name,
       broken: false
     }));
-
   const uniq = new Map();
   for (const f of folders) {
     if (!uniq.has(f.pathRel)) uniq.set(f.pathRel, f);
   }
   return Array.from(uniq.values()).sort((a,b) => a.pathRel.localeCompare(b.pathRel, undefined, { sensitivity: "base" }));
 }
-
 /** ===========================
  *  Render navigation list
  *  =========================== */
@@ -1158,16 +1069,13 @@ function renderNavigation() {
   }
   updateViewButtons();
 }
-
 function updateViewButtons() {
   el.btnViewAlbums.classList.toggle("active", state.currentViewMode === "albums");
   el.btnViewFolders.classList.toggle("active", state.currentViewMode === "folders");
 }
-
 function renderAlbumList(activeIdx = -1) {
   el.albumList.innerHTML = "";
   const frag = document.createDocumentFragment();
-
   state.albums.forEach((a, idx) => {
     const div = document.createElement("div");
     div.className = "item" + (idx === activeIdx ? " active" : "");
@@ -1182,14 +1090,11 @@ function renderAlbumList(activeIdx = -1) {
     div.onclick = () => selectAlbum(idx);
     frag.appendChild(div);
   });
-
   el.albumList.appendChild(frag);
 }
-
 function renderFolderList(activeIdx = -1) {
   el.albumList.innerHTML = "";
   const frag = document.createDocumentFragment();
-
   state.folderNavItems.forEach((f, idx) => {
     const div = document.createElement("div");
     const isCurrent = f.kind === "current";
@@ -1203,16 +1108,13 @@ function renderFolderList(activeIdx = -1) {
     if (!isCurrent) div.onclick = () => selectFolder(idx);
     frag.appendChild(div);
   });
-
   el.albumList.appendChild(frag);
 }
-
 function escapeHtml(s) {
   return (s ?? "").replace(/[&<>"']/g, (m) => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
   }[m]));
 }
-
 /** ===========================
  *  Select item -> show tiles
  *  =========================== */
@@ -1223,45 +1125,36 @@ async function selectAlbum(idx) {
   state.activeListIndex = idx;
   renderNavigation();
   clearGrid();
-
   state.currentTitle = album.name || "(unnamed album)";
   el.viewTitle.textContent = `Album: ${state.currentTitle}`;
-
   if (album.broken || !album.pathRel) {
     el.resolvePill.textContent = "Path unresolved";
     setStatus("This album path could not be resolved under the selected library root. (Absolute path mismatch)", "err");
     return;
   }
-
   await showImagesForResolvedPath(album.pathRel, `Resolved: ${album.pathRel}`, { album });
 }
-
 async function selectFolder(idx) {
   const folder = state.folderNavItems[idx];
   if (!folder) return;
   state.currentViewMode = "folders";
   state.activeListIndex = idx;
-
   if (folder.kind === "parent") {
     state.folderBrowserPath = parentPath(state.folderBrowserPath);
   } else {
     state.folderBrowserPath = folder.pathRel;
   }
-
   await openFolderPath(state.folderBrowserPath);
 }
-
 function parentPath(relPath) {
   const segs = (relPath || "").split("/").filter(Boolean);
   segs.pop();
   return segs.join("/");
 }
-
 function baseName(relPath) {
   const segs = (relPath || "").split("/").filter(Boolean);
   return segs.length ? segs[segs.length - 1] : "/";
 }
-
 function listSubdirectories(relPath) {
   const prefix = relPath ? `${relPath}/` : "";
   const children = [];
@@ -1279,16 +1172,13 @@ function listSubdirectories(relPath) {
   children.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
   return children;
 }
-
 async function openFolderPath(pathRel) {
   if (!state.dirIndex || !state.dirIndex.has(pathRel)) {
     setStatus("Folder path could not be resolved in the selected library.", "err");
     return;
   }
-
   clearGrid();
   state.currentViewMode = "folders";
-
   const navItems = [];
   navItems.push({ kind: "current", name: `[current] ${baseName(pathRel)}`, pathRel: pathRel || "/" });
   if (pathRel) {
@@ -1299,36 +1189,30 @@ async function openFolderPath(pathRel) {
   state.folderNavItems = navItems;
   state.activeListIndex = -1;
   renderNavigation();
-
   const folderLabel = pathRel || "/";
   state.currentTitle = folderLabel;
   el.viewTitle.textContent = `Folder: ${folderLabel}`;
   await showImagesForResolvedPath(pathRel, `Folder: ${folderLabel}`);
 }
-
 async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
   el.resolvePill.textContent = pillText;
   setStatus("Loading images…", "warn");
-
   const dirHandle = state.dirIndex.get(pathRel);
   if (!dirHandle) {
     setStatus("Resolved directory handle missing (index issue).", "err");
     return;
   }
-
   const { images, picasa } = await listImagesInDirectory(dirHandle, pathRel, options);
   setPicasaLog(formatPicasaLog(pathRel, picasa, options.album?.token ? String(options.album.token) : ""));
   await renderTiles(images);
   setStatus(images.length ? "Ready." : "No images found in this folder.", images.length ? "ok" : "warn");
 }
-
 /** List image files in a directory (non-recursive, like your Kivy folder scan) */
 async function listImagesInDirectory(dirHandle, relDir, options = {}) {
   const out = [];
   const picasa = await getPicasaMetaForFolder(relDir, dirHandle);
   const albumToken = options.album?.token ? String(options.album.token) : "";
   const members = albumToken ? (picasa.membersByToken.get(albumToken) || null) : null;
-
   for await (const [name, handle] of dirHandle.entries()) {
     if (handle.kind === "file" && isImageName(name)) {
       if (members && !members.has(name)) continue;
@@ -1350,13 +1234,11 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
   out.sort((a,b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
   return { images: out, picasa };
 }
-
 /** Render tiles with thumbnails */
 async function renderTiles(images) {
   state.currentImages = images;
   el.countPill.textContent = `${images.length} images`;
   el.grid.innerHTML = "";
-
   // Render progressively for responsiveness
   const batch = 24;
   for (let i=0; i<images.length; i+=batch) {
@@ -1367,7 +1249,6 @@ async function renderTiles(images) {
       const img = document.createElement("img");
       img.className = "thumb";
       img.alt = it.name;
-
       // thumb
       try {
         it.thumbUrl = await makeThumbURL(it.file, 320);
@@ -1377,13 +1258,11 @@ async function renderTiles(images) {
         it.url = URL.createObjectURL(it.file);
         img.src = it.url;
       }
-
       const cap = document.createElement("div");
       cap.className = "caption";
       const faceNames = (it.faces || []).map((f) => f.label).filter(Boolean);
       cap.textContent = it.caption || it.name;
       if (faceNames.length) cap.title = `Faces: ${faceNames.join(", ")}`;
-
       const row = document.createElement("div");
       row.className = "tileMetaRow";
       const editBtn = document.createElement("button");
@@ -1398,24 +1277,18 @@ async function renderTiles(images) {
         }
       };
       row.appendChild(editBtn);
-
       tile.appendChild(img);
       tile.appendChild(cap);
       tile.appendChild(row);
-
       const absoluteIndex = i + localIndex;
       tile.onclick = () => openSlideshow(absoluteIndex);
-
       return tile;
     }));
-
     for (const n of nodes) el.grid.appendChild(n);
-
     // Yield to UI
     await new Promise(r => setTimeout(r, 0));
   }
 }
-
 /** ===========================
  *  Slideshow
  *  =========================== */
@@ -1427,36 +1300,50 @@ function openSlideshow(index) {
   el.overlay.setAttribute("aria-hidden", "false");
   updateSlide();
 }
-
 function closeSlideshow() {
   stopPlaying();
   state.slideshow.open = false;
   el.overlay.classList.remove("show");
   el.overlay.setAttribute("aria-hidden", "true");
 }
-
+function renderSlideFaceRects(item) {
+  el.slideFaceLayer.innerHTML = "";
+  if (!state.slideshow.showFaces) return;
+  const imgRect = el.slideImg.getBoundingClientRect();
+  const layerRect = el.slideFaceLayer.getBoundingClientRect();
+  const offsetX = imgRect.left - layerRect.left;
+  const offsetY = imgRect.top - layerRect.top;
+  for (const f of (item.faces || [])) {
+    const b = rect64ToBox(f.rect64 || "");
+    const d = document.createElement('div');
+    d.className = 'slideFaceRect';
+    d.style.left = `${offsetX + b.x * imgRect.width}px`;
+    d.style.top = `${offsetY + b.y * imgRect.height}px`;
+    d.style.width = `${Math.max(8, b.w * imgRect.width)}px`;
+    d.style.height = `${Math.max(8, b.h * imgRect.height)}px`;
+    d.title = f.label || '';
+    el.slideFaceLayer.appendChild(d);
+  }
+}
 function updateSlide() {
   const it = state.currentImages[state.slideshow.index];
   if (!it) return;
-
   // Ensure full-size url
   if (!it.url) it.url = URL.createObjectURL(it.file);
-
   el.slideImg.src = it.url;
   const faces = (it.faces || []).map((f) => f.label).filter(Boolean);
   const caption = it.caption ? ` | caption: ${it.caption}` : "";
   const faceText = faces.length ? ` | faces: ${faces.join(", ")}` : "";
   el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}`;
-
+  el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
   // Prefetch next/prev (browser cache will handle blob URLs fine)
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
   if (prev && !prev.url) prev.url = URL.createObjectURL(prev.file);
   if (next && !next.url) next.url = URL.createObjectURL(next.file);
-
   el.btnPlay.textContent = state.slideshow.playing ? "⏸ Pause" : "▶ Play";
+  renderSlideFaceRects(it);
 }
-
 function prevSlide() {
   if (!state.currentImages.length) return;
   state.slideshow.index = (state.slideshow.index - 1 + state.currentImages.length) % state.currentImages.length;
@@ -1482,7 +1369,6 @@ function stopPlaying() {
 function togglePlay() {
   state.slideshow.playing ? stopPlaying() : startPlaying();
 }
-
 /** ===========================
  *  App init + events
  *  =========================== */
@@ -1493,7 +1379,6 @@ el.btnPick.onclick = async () => {
     state.libraryRoot = dir;
     state.activeListIndex = -1;
     setAsideState("Library folder selected", "ok");
-
     setStatus("Indexing directories… (first time can take a bit)", "warn");
     state.dirIndex = await buildDirectoryIndex(state.libraryRoot, ({ count, lastPath }) => {
       const suffix = lastPath ? ` (latest: ${lastPath})` : "";
@@ -1515,7 +1400,6 @@ el.btnPick.onclick = async () => {
     setStatus(String(e?.message || e), "err");
   }
 };
-
 el.btnPickPmp.onclick = async () => {
   try {
     // Secure context required (https or localhost)
@@ -1526,7 +1410,6 @@ el.btnPickPmp.onclick = async () => {
       setStatus("PMP folder selected. Now choose “Open Library Folder” to resolve image paths.", "warn");
       return;
     }
-
     el.btnReload.disabled = false;
     clearGrid();
     setStatus("Loading PMP from selected import folder…", "warn");
@@ -1537,7 +1420,6 @@ el.btnPickPmp.onclick = async () => {
     setStatus(String(e?.message || e), "err");
   }
 };
-
 el.btnReload.onclick = async () => {
   try {
     if (!state.libraryRoot || !state.pmpRoot) {
@@ -1559,7 +1441,6 @@ el.btnReload.onclick = async () => {
     setStatus(String(e?.message || e), "err");
   }
 };
-
 el.btnExport.onclick = async () => {
   try {
     await exportIndexedDbLibrary();
@@ -1567,7 +1448,6 @@ el.btnExport.onclick = async () => {
     setStatus(String(e?.message || e), "err");
   }
 };
-
 el.btnViewAlbums.onclick = () => {
   state.currentViewMode = "albums";
   state.activeListIndex = -1;
@@ -1576,7 +1456,6 @@ el.btnViewAlbums.onclick = () => {
   renderNavigation();
   setStatus("Switched to album view.", "ok");
 };
-
 el.btnViewFolders.onclick = () => {
   if (!state.libraryRoot || !state.dirIndex) {
     setStatus("Choose a Library folder first to browse subfolders.", "warn");
@@ -1586,12 +1465,11 @@ el.btnViewFolders.onclick = () => {
   state.folderBrowserPath = "";
   openFolderPath(state.folderBrowserPath);
 };
-
 el.btnClose.onclick = closeSlideshow;
 el.btnPrev.onclick = prevSlide;
 el.btnNext.onclick = nextSlide;
 el.btnPlay.onclick = togglePlay;
-
+el.btnToggleFaces.onclick = () => { state.slideshow.showFaces = !state.slideshow.showFaces; updateSlide(); };
 // Keyboard controls
 window.addEventListener("keydown", (ev) => {
   if (!state.slideshow.open) return;
@@ -1600,12 +1478,10 @@ window.addEventListener("keydown", (ev) => {
   else if (ev.key === "ArrowRight") { ev.preventDefault(); nextSlide(); }
   else if (ev.key === " ") { ev.preventDefault(); togglePlay(); }
 });
-
 // Click outside image to close (optional)
 el.overlay.addEventListener("click", (ev) => {
   if (ev.target === el.overlay) closeSlideshow();
 });
-
 el.btnFaceCancel.onclick = closeFaceEditor;
 el.faceEditorOverlay.addEventListener("click", (ev) => {
   if (ev.target === el.faceEditorOverlay) closeFaceEditor();
@@ -1613,29 +1489,38 @@ el.faceEditorOverlay.addEventListener("click", (ev) => {
 el.btnFaceAdd.onclick = () => {
   const label = window.prompt("Face label", "New person");
   if (!label) return;
-  faceEditor.faces.push({ label: label.trim(), rect64: "gui:0.1,0.1,0.2,0.2" });
+  faceEditor.faces.push({ label: label.trim(), rect64: "gui:0.1|0.1|0.2|0.2" });
   renderFaceRects();
 };
 el.faceCanvasWrap.addEventListener('mousemove', (ev) => {
   if (faceEditor.draggingIdx < 0) return;
   const r = el.faceCanvasImg.getBoundingClientRect();
   const p = el.faceCanvasWrap.getBoundingClientRect();
-  const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.dragOffsetX;
-  const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.dragOffsetY;
   const cur = faceEditor.faces[faceEditor.draggingIdx];
   const b = rect64ToBox(cur.rect64);
-  const x = Math.max(0, Math.min(r.width - b.w * r.width, xPx)) / Math.max(1, r.width);
-  const y = Math.max(0, Math.min(r.height - b.h * r.height, yPx)) / Math.max(1, r.height);
-  cur.rect64 = boxToRect64({ x, y, w: b.w, h: b.h });
+  if (faceEditor.dragMode === "resize") {
+    const rightPx = ev.clientX - p.left - (r.left - p.left);
+    const bottomPx = ev.clientY - p.top - (r.top - p.top);
+    const w = Math.max(0.03, Math.min(1 - b.x, rightPx / Math.max(1, r.width) - b.x));
+    const h = Math.max(0.03, Math.min(1 - b.y, bottomPx / Math.max(1, r.height) - b.y));
+    cur.rect64 = boxToRect64({ x: b.x, y: b.y, w, h });
+  } else {
+    const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.dragOffsetX;
+    const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.dragOffsetY;
+    const x = Math.max(0, Math.min(r.width - b.w * r.width, xPx)) / Math.max(1, r.width);
+    const y = Math.max(0, Math.min(r.height - b.h * r.height, yPx)) / Math.max(1, r.height);
+    cur.rect64 = boxToRect64({ x, y, w: b.w, h: b.h });
+  }
   renderFaceRects();
 });
-window.addEventListener('mouseup', () => { faceEditor.draggingIdx = -1; });
+window.addEventListener('mouseup', () => { faceEditor.draggingIdx = -1;
+  faceEditor.dragMode = "move"; });
 el.btnFaceSave.onclick = async () => {
   if (!faceEditor.imageItem) return;
   try {
     const caption = el.faceCaptionInput.value.trim();
     const albumTokens = el.faceAlbumsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
-    const faceEntries = parseFaceEntriesInput(el.faceFacesInput.value, faceEditor.faces);
+    const faceEntries = parseFaceEntriesInput(el.faceFacesInput.value, faceEditor.faces.length ? faceEditor.faces : []);
     await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens);
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
@@ -1644,8 +1529,6 @@ el.btnFaceSave.onclick = async () => {
     el.faceEditorStatus.textContent = `Save failed: ${String(e?.message || e)}`;
   }
 };
-
-
 function downloadJson(filename, data) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -1657,14 +1540,12 @@ function downloadJson(filename, data) {
   a.remove();
   URL.revokeObjectURL(url);
 }
-
 async function exportIndexedDbLibrary() {
   const snapshot = await loadLibrarySnapshot(state.libraryId);
   if (!snapshot.library) {
     setStatus("No IndexedDB library snapshot found to export yet.", "warn");
     return;
   }
-
   downloadJson(`pica-library-${state.libraryId}.json`, {
     exportedAt: new Date().toISOString(),
     library: snapshot.library,
@@ -1673,11 +1554,9 @@ async function exportIndexedDbLibrary() {
   });
   setStatus("Exported IndexedDB snapshot as JSON.", "ok");
 }
-
 async function hydrateFromIndexedDb() {
   const snapshot = await loadLibrarySnapshot(state.libraryId);
   if (!snapshot.library) return false;
-
   state.albums = snapshot.albums || [];
   state.folderItems = snapshot.folders || [];
   el.btnExport.disabled = false;
@@ -1687,7 +1566,6 @@ async function hydrateFromIndexedDb() {
   setStatus("Loaded album/folder navigation from IndexedDB snapshot. Open both Library and PMP folders to browse images with live handles.", "ok");
   return true;
 }
-
 // Initial hint
 (async () => {
   try {
@@ -1703,7 +1581,6 @@ async function hydrateFromIndexedDb() {
   }
 })();
 </script>
-
 <!--
 How to run:
 1) Save as index.html
@@ -1711,7 +1588,6 @@ How to run:
    python -m http.server 8000
 3) Open http://localhost:8000 in Chrome/Edge
 4) Click “Open Library Folder” and pick your library root (the folder that contains db/ and your pictures)
-
 Notes:
 - This prototype resolves absolute PMP paths by suffix-matching them under the chosen library root.
 - If multiple folders share the same suffix, the first match wins (prototype behavior).
