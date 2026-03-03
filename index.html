@@ -148,6 +148,7 @@
         <div style="display:flex; gap:8px;">
           <button id="btnToggleFaces">Faces: On</button>
           <button id="btnToggleCrop">Crop: On</button>
+          <button id="btnToggleText">Text: On</button>
           <button id="btnClose">Close (Esc)</button>
         </div>
       </div>
@@ -169,6 +170,7 @@
         <label>Caption<input id="faceCaptionInput" type="text"></label>
         <label>Album tokens (comma)<input id="faceAlbumsInput" type="text"></label>
         <label>Crop rect64<input id="faceCropInput" type="text"></label>
+        <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
         <label>Faces (one per line: label@rect64)<textarea id="faceFacesInput" rows="6"></textarea></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnFaceAdd">Add face rectangle</button>
@@ -490,7 +492,7 @@ const state = {
   currentViewMode: "albums",
   activeListIndex: -1,
   libraryId: "default",
-  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true }
+  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true }
 };
 /** ===========================
  *  UI elements
@@ -521,6 +523,7 @@ const el = {
   btnPlay: document.getElementById("btnPlay"),
   btnToggleFaces: document.getElementById("btnToggleFaces"),
   btnToggleCrop: document.getElementById("btnToggleCrop"),
+  btnToggleText: document.getElementById("btnToggleText"),
   slideFaceLayer: document.getElementById("slideFaceLayer"),
   slideTextOverlay: document.getElementById("slideTextOverlay"),
   slideAlbums: document.getElementById("slideAlbums"),
@@ -530,6 +533,7 @@ const el = {
   faceCaptionInput: document.getElementById("faceCaptionInput"),
   faceAlbumsInput: document.getElementById("faceAlbumsInput"),
   faceCropInput: document.getElementById("faceCropInput"),
+  faceKeywordsInput: document.getElementById("faceKeywordsInput"),
   faceFacesInput: document.getElementById("faceFacesInput"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
@@ -615,10 +619,11 @@ function serializePicasaInfo(picasa) {
     }
   }
   for (const name of imageNames) {
-    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null };
+    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, keywords: [] };
     lines.push(`[${name}]`);
-    if (meta.caption) lines.push(`text=1;128;8;${meta.caption};Arial;`);
+    if (meta.caption) lines.push(`text=1;128;8;${meta.caption};${meta.textOverlay?.fontFamily || "Arial"};${meta.textOverlay ? `${meta.textOverlay.x},${meta.textOverlay.y},${meta.textOverlay.sizeRel},${meta.textOverlay.rotation}` : ""};v1,4294967295,4278190080,128.000000,1.000000,0.000000,1.000000,400,0,49152;;`);
     if (meta.cropRect64) lines.push(`crop=rect64(${meta.cropRect64})`);
+    if ((meta.keywords || []).length) lines.push(`keywords=${meta.keywords.join(",")}`);
     if ((meta.faces || []).length) {
       const parts = meta.faces.map((f) => `rect64(${f.rect64 || "0"}),${f.contactId || buildContactIdFromLabel(f.label || "unknown")}`);
       lines.push(`faces=${parts.join(";")}`);
@@ -643,7 +648,7 @@ function serializePicasaInfo(picasa) {
   }
   return lines.join("\n");
 }
-async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "") {
+async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = []) {
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   if (!dirHandle) throw new Error("Missing directory handle for metadata save");
@@ -655,7 +660,8 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
     picasa.contacts.set(contactId, label);
     return { rect64: String(entry.rect64 || "0"), contactId, label };
   });
-  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || "") });
+  const oldMeta = picasa.imageMeta.get(imageItem.name) || {};
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: oldMeta.textOverlay || null });
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
@@ -770,6 +776,7 @@ function openFaceEditor(imageItem) {
   el.faceCaptionInput.value = imageItem.caption || '';
   faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
   el.faceCropInput.value = faceEditor.cropRect64;
+  el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   Promise.resolve(dirHandle ? getPicasaMetaForFolder(relDir, dirHandle) : null).then((picasa) => {
@@ -857,8 +864,22 @@ function formatPicasaLog(pathRel, picasa, albumToken = "") {
 /** ===========================
  *  .picasa.ini parsing
  *  =========================== */
+function parseColorU32ToCss(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "#ffffff";
+  const u = (Math.floor(n) >>> 0);
+  const a = ((u >>> 24) & 0xFF) / 255;
+  const r = (u >>> 16) & 0xFF;
+  const g = (u >>> 8) & 0xFF;
+  const b = u & 0xFF;
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+}
+
 function parseTextOverlay(textValue) {
   const parts = String(textValue || "").split(";");
+  const enabled = String(parts[0] || "1").trim() !== "0";
+  const sizeCode = Number(parts[1] || "0");
+  const styleCode = Number(parts[2] || "0");
   const caption = (parts[3] || "").trim();
   const fontFamily = (parts[4] || "Arial").trim() || "Arial";
   const geom = (parts[5] || "").split(",").map((x) => Number(x.trim()));
@@ -866,8 +887,29 @@ function parseTextOverlay(textValue) {
   const y = Number.isFinite(geom[1]) ? geom[1] : 0.08;
   const sizeRel = Number.isFinite(geom[2]) ? geom[2] : 0.04;
   const rotation = Number.isFinite(geom[3]) ? geom[3] : 0;
-  return { raw: String(textValue || ""), caption, fontFamily, x, y, sizeRel, rotation };
+
+  const style = (parts[6] || "").split(",").map((x) => x.trim());
+  const colorPrimary = parseColorU32ToCss(style[1]);
+  const colorSecondary = parseColorU32ToCss(style[2]);
+  const opacityHint = Number(style[3]);
+
+  return {
+    raw: String(textValue || ""),
+    enabled,
+    sizeCode,
+    styleCode,
+    caption,
+    fontFamily,
+    x,
+    y,
+    sizeRel,
+    rotation,
+    colorPrimary,
+    colorSecondary,
+    opacityHint
+  };
 }
+
 function parseCaptionText(textValue) {
   return parseTextOverlay(textValue).caption;
 }
@@ -941,7 +983,7 @@ function parsePicasaIni(content) {
       if (token) albumNamesByToken.set(token, name || token);
       continue;
     }
-    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null };
+    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, keywords: [] };
     for (const line of lines) {
       const idx = line.indexOf("=");
       if (idx <= 0) continue;
@@ -961,6 +1003,8 @@ function parsePicasaIni(content) {
       } else if (key === "crop") {
         const m = val.match(/^rect64\(([^)]+)\)$/i);
         meta.cropRect64 = m ? m[1].trim() : String(val || "").trim();
+      } else if (key === "keywords" || key === "iptc") {
+        meta.keywords = String(val || "").split(",").map((x)=>x.trim()).filter(Boolean);
       }
     }
     imageMeta.set(sec, meta);
@@ -1285,7 +1329,7 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
     if (handle.kind === "file" && isImageName(name)) {
       if (members && !members.has(name)) continue;
       const file = await handle.getFile();
-      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null };
+      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, keywords: [] };
       const albumTokens = [];
       const albumNames = [];
       for (const [tok, membersSet] of picasa.membersByToken.entries()) {
@@ -1306,7 +1350,8 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
         cropRect64: meta.cropRect64 || "",
         textOverlay: meta.textOverlay || null,
         albumTokens,
-        albumNames
+        albumNames,
+        keywords: meta.keywords || []
       });
     }
   }
@@ -1360,14 +1405,16 @@ async function renderTiles(images) {
       const imgWrap = document.createElement("div");
       imgWrap.className = "tileImageWrap";
       imgWrap.appendChild(img);
-      if (it.textOverlay?.caption) {
+      if (state.slideshow.showText && it.textOverlay?.caption && it.textOverlay.enabled) {
         const t = document.createElement("div");
         t.className = "tileTextOverlay";
         t.textContent = it.textOverlay.caption;
         t.style.left = `${Math.max(0, Math.min(1, it.textOverlay.x || 0.08)) * 100}%`;
         t.style.top = `${Math.max(0, Math.min(1, it.textOverlay.y || 0.08)) * 100}%`;
         t.style.fontFamily = it.textOverlay.fontFamily || "Arial";
-        t.style.fontSize = `${Math.max(10, (it.textOverlay.sizeRel || 0.04) * 220)}px`;
+        const tileSizeCode = Number.isFinite(it.textOverlay.sizeCode) && it.textOverlay.sizeCode > 0 ? Math.max(10, it.textOverlay.sizeCode / 6) : 0;
+        t.style.fontSize = `${Math.max(tileSizeCode, Math.max(10, (it.textOverlay.sizeRel || 0.04) * 220))}px`;
+        t.style.color = it.textOverlay.colorPrimary || "#fff";
         imgWrap.appendChild(t);
       }
       tile.appendChild(imgWrap);
@@ -1437,7 +1484,8 @@ async function updateSlide() {
   const faces = (it.faces || []).map((f) => f.label).filter(Boolean);
   const caption = it.caption ? ` | caption: ${it.caption}` : "";
   const faceText = faces.length ? ` | faces: ${faces.join(", ")}` : "";
-  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}`;
+  const tagText = (it.keywords || []).length ? ` | tags: ${(it.keywords || []).join(", ")}` : "";
+  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}${tagText}`;
   if ((it.albumTokens || []).length) {
     el.slideAlbums.innerHTML = `Albums: ` + it.albumTokens.map((tok, i) => `<a href="#" data-token="${tok}" class="mono">${it.albumNames?.[i] || tok}</a>`).join(" | ");
     el.slideAlbums.querySelectorAll("a[data-token]").forEach((a) => {
@@ -1446,12 +1494,15 @@ async function updateSlide() {
   } else {
     el.slideAlbums.textContent = "Albums: (none)";
   }
-  if (it.textOverlay?.caption) {
+  if (state.slideshow.showText && it.textOverlay?.caption && it.textOverlay.enabled) {
     el.slideTextOverlay.textContent = it.textOverlay.caption;
     el.slideTextOverlay.style.left = `${Math.max(0, Math.min(1, it.textOverlay.x || 0.08)) * 100}%`;
     el.slideTextOverlay.style.top = `${Math.max(0, Math.min(1, it.textOverlay.y || 0.08)) * 100}%`;
     el.slideTextOverlay.style.fontFamily = it.textOverlay.fontFamily || "Arial";
-    el.slideTextOverlay.style.fontSize = `${Math.max(16, (it.textOverlay.sizeRel || 0.04) * Math.max(300, el.slideImg.clientWidth || 300))}px`;
+    const sizeFromCode = Number.isFinite(it.textOverlay.sizeCode) && it.textOverlay.sizeCode > 0 ? Math.max(10, it.textOverlay.sizeCode / 4) : 0;
+    const sizeFromRel = Math.max(16, (it.textOverlay.sizeRel || 0.04) * Math.max(300, el.slideImg.clientWidth || 300));
+    el.slideTextOverlay.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
+    el.slideTextOverlay.style.color = it.textOverlay.colorPrimary || "#fff";
     el.slideTextOverlay.style.transform = `translate(-50%, -50%) rotate(${(it.textOverlay.rotation || 0) * 360}deg)`;
     el.slideTextOverlay.style.display = "block";
   } else {
@@ -1459,6 +1510,7 @@ async function updateSlide() {
   }
   el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
   el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
+  el.btnToggleText.textContent = state.slideshow.showText ? "Text: On" : "Text: Off";
   // Prefetch next/prev (browser cache will handle blob URLs fine)
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
@@ -1594,6 +1646,7 @@ el.btnNext.onclick = nextSlide;
 el.btnPlay.onclick = togglePlay;
 el.btnToggleFaces.onclick = () => { state.slideshow.showFaces = !state.slideshow.showFaces; updateSlide(); };
 el.btnToggleCrop.onclick = () => { state.slideshow.showCrop = !state.slideshow.showCrop; updateSlide(); };
+el.btnToggleText.onclick = () => { state.slideshow.showText = !state.slideshow.showText; updateSlide(); };
 // Keyboard controls
 window.addEventListener("keydown", (ev) => {
   if (!state.slideshow.open) return;
@@ -1666,11 +1719,12 @@ el.btnFaceSave.onclick = async () => {
   try {
     const caption = el.faceCaptionInput.value.trim();
     const albumTokens = el.faceAlbumsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
+    const keywords = el.faceKeywordsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
     const faceEntries = parseFaceEntriesInput(el.faceFacesInput.value, faceEditor.faces.length ? faceEditor.faces : []);
-    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, el.faceCropInput.value.trim());
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, el.faceCropInput.value.trim(), keywords);
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
-    setStatus('Saved caption/faces/crop/albums to .picasa.info', 'ok');
+    setStatus('Saved caption/faces/crop/albums/tags to .picasa.info', 'ok');
   } catch (e) {
     el.faceEditorStatus.textContent = `Save failed: ${String(e?.message || e)}`;
   }
