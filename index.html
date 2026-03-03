@@ -57,11 +57,11 @@
     .tileMetaRow { display:flex; gap:8px; align-items:center; padding: 0 8px 8px; }
     .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
     .faceEditorBox { background:#1a1a1a; border:1px solid #333; border-radius:10px; padding:10px; width:min(90vw,1000px); height:min(90vh,760px); display:grid; grid-template-columns: 1fr 280px; gap:10px; }
-    .faceCanvasWrap { position:relative; background:#000; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; }
+    .faceCanvasWrap { position:relative; background:#000; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; touch-action:none; }
     .faceCanvasImg { max-width:100%; max-height:100%; user-select:none; }
-    .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; }
-    .faceRectHandle { position:absolute; width:12px; height:12px; right:-7px; bottom:-7px; background:#fff; border:1px solid #111; border-radius:50%; cursor:nwse-resize; }
-    .cropRect { position:absolute; border:2px solid #8ce99a; background:rgba(140,233,154,.16); cursor:move; }
+    .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; touch-action:none; }
+    .faceRectHandle { position:absolute; width:18px; height:18px; right:-10px; bottom:-10px; background:#fff; border:1px solid #111; border-radius:50%; cursor:nwse-resize; touch-action:none; }
+    .cropRect { position:absolute; border:2px solid #8ce99a; background:rgba(140,233,154,.16); cursor:move; touch-action:none; }
     .slideFaceLayer { position:absolute; inset:0; pointer-events:none; }
     .slideFaceRect { position:absolute; border:2px solid #ffd166; background:rgba(255,209,102,.18); }
     .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
@@ -704,8 +704,22 @@ function syncFaceTextareaFromState() {
   el.faceFacesInput.value = faceEditor.faces.map((f) => `${f.label}@${f.rect64}`).join("\n");
 }
 
+function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
+  if (ev?.preventDefault) ev.preventDefault();
+  if (kind === "crop") {
+    faceEditor.cropDragging = true;
+    faceEditor.cropMode = mode;
+  } else {
+    faceEditor.draggingIdx = idx;
+    faceEditor.dragMode = mode;
+    faceEditor.cropDragging = false;
+  }
+  faceEditor.dragOffsetX = ev.offsetX ?? 0;
+  faceEditor.dragOffsetY = ev.offsetY ?? 0;
+}
+
 function renderFaceRects() {
-  el.faceCanvasWrap.querySelectorAll('.faceRect').forEach((n) => n.remove());
+  el.faceCanvasWrap.querySelectorAll('.faceRect, .cropRect').forEach((n) => n.remove());
   const r = el.faceCanvasImg.getBoundingClientRect();
   const p = el.faceCanvasWrap.getBoundingClientRect();
   faceEditor.displayW = r.width; faceEditor.displayH = r.height;
@@ -718,9 +732,9 @@ function renderFaceRects() {
     c.style.top = `${offsetY + cb.y * r.height}px`;
     c.style.width = `${Math.max(12, cb.w * r.width)}px`;
     c.style.height = `${Math.max(12, cb.h * r.height)}px`;
-    c.onmousedown = (ev) => { ev.preventDefault(); faceEditor.cropDragging = true; faceEditor.cropMode = "move"; faceEditor.dragOffsetX = ev.offsetX; faceEditor.dragOffsetY = ev.offsetY; };
+    c.onpointerdown = (ev) => { beginEditorDrag(ev, "crop", -1, "move"); };
     const ch = document.createElement('div'); ch.className = "faceRectHandle";
-    ch.onmousedown = (ev) => { ev.preventDefault(); ev.stopPropagation(); faceEditor.cropDragging = true; faceEditor.cropMode = "resize"; };
+    ch.onpointerdown = (ev) => { ev.stopPropagation(); beginEditorDrag(ev, "crop", -1, "resize"); };
     c.appendChild(ch);
     el.faceCanvasWrap.appendChild(c);
     el.faceCropInput.value = faceEditor.cropRect64;
@@ -735,24 +749,10 @@ function renderFaceRects() {
     div.style.width = `${Math.max(12, b.w * r.width)}px`;
     div.style.height = `${Math.max(12, b.h * r.height)}px`;
     div.title = `${face.label} (${face.rect64})`;
-    div.onmousedown = (ev) => {
-      ev.preventDefault();
-      faceEditor.draggingIdx = idx;
-      faceEditor.dragMode = "move";
-  faceEditor.cropDragging = false;
-      faceEditor.dragOffsetX = ev.offsetX;
-      faceEditor.dragOffsetY = ev.offsetY;
-      el.faceEditorStatus.textContent = `Dragging ${face.label}`;
-    };
+    div.onpointerdown = (ev) => { beginEditorDrag(ev, "face", idx, "move"); el.faceEditorStatus.textContent = `Dragging ${face.label}`; };
     const h = document.createElement('div');
     h.className = 'faceRectHandle';
-    h.onmousedown = (ev) => {
-      ev.preventDefault();
-      ev.stopPropagation();
-      faceEditor.draggingIdx = idx;
-      faceEditor.dragMode = "resize";
-      el.faceEditorStatus.textContent = `Resizing ${face.label}`;
-    };
+    h.onpointerdown = (ev) => { ev.stopPropagation(); beginEditorDrag(ev, "face", idx, "resize"); el.faceEditorStatus.textContent = `Resizing ${face.label}`; };
     div.appendChild(h);
     el.faceCanvasWrap.appendChild(div);
   });
@@ -1550,8 +1550,8 @@ el.btnFaceAdd.onclick = () => {
   faceEditor.faces.push({ label: label.trim(), rect64: "gui:0.1|0.1|0.2|0.2" });
   renderFaceRects();
 };
-el.faceCanvasWrap.addEventListener('mousemove', (ev) => {
-  if (faceEditor.draggingIdx < 0) return;
+el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
+  if (faceEditor.draggingIdx < 0 && !faceEditor.cropDragging) return;
   const r = el.faceCanvasImg.getBoundingClientRect();
   const p = el.faceCanvasWrap.getBoundingClientRect();
   if (faceEditor.cropDragging) {
@@ -1591,9 +1591,10 @@ el.faceCanvasWrap.addEventListener('mousemove', (ev) => {
   }
   renderFaceRects();
 });
-window.addEventListener('mouseup', () => { faceEditor.draggingIdx = -1;
+window.addEventListener('pointerup', () => { faceEditor.draggingIdx = -1;
   faceEditor.dragMode = "move";
-  faceEditor.cropDragging = false; });
+  faceEditor.cropDragging = false;
+  faceEditor.cropMode = "move"; });
 el.btnFaceSave.onclick = async () => {
   if (!faceEditor.imageItem) return;
   try {
