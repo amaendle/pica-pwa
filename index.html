@@ -64,6 +64,9 @@
     .cropRect { position:absolute; border:2px solid #8ce99a; background:rgba(140,233,154,.16); cursor:move; touch-action:none; }
     .slideFaceLayer { position:absolute; inset:0; pointer-events:none; }
     .slideFaceRect { position:absolute; border:2px solid #ffd166; background:rgba(255,209,102,.18); }
+    .slideTextOverlay { position:absolute; pointer-events:none; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); font-weight:600; }
+    .tileImageWrap { position:relative; }
+    .tileTextOverlay { position:absolute; pointer-events:none; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); font-weight:600; left:8%; top:8%; font-size:14px; max-width:80%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
     .faceEditorSide { display:flex; flex-direction:column; gap:8px; }
     .faceEditorSide input, .faceEditorSide textarea { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
@@ -139,8 +142,9 @@
     <div class="slideWrap">
       <img id="slideImg" class="slideImg" alt="">
       <div id="slideFaceLayer" class="slideFaceLayer"></div>
+      <div id="slideTextOverlay" class="slideTextOverlay"></div>
       <div class="overlayTop">
-        <div id="slideMeta" class="mono"></div>
+        <div><div id="slideMeta" class="mono"></div><div id="slideAlbums" style="margin-top:4px"></div></div>
         <div style="display:flex; gap:8px;">
           <button id="btnToggleFaces">Faces: On</button>
           <button id="btnToggleCrop">Crop: On</button>
@@ -518,6 +522,8 @@ const el = {
   btnToggleFaces: document.getElementById("btnToggleFaces"),
   btnToggleCrop: document.getElementById("btnToggleCrop"),
   slideFaceLayer: document.getElementById("slideFaceLayer"),
+  slideTextOverlay: document.getElementById("slideTextOverlay"),
+  slideAlbums: document.getElementById("slideAlbums"),
   faceEditorOverlay: document.getElementById("faceEditorOverlay"),
   faceCanvasWrap: document.getElementById("faceCanvasWrap"),
   faceCanvasImg: document.getElementById("faceCanvasImg"),
@@ -609,7 +615,7 @@ function serializePicasaInfo(picasa) {
     }
   }
   for (const name of imageNames) {
-    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "" };
+    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null };
     lines.push(`[${name}]`);
     if (meta.caption) lines.push(`text=1;128;8;${meta.caption};Arial;`);
     if (meta.cropRect64) lines.push(`crop=rect64(${meta.cropRect64})`);
@@ -851,9 +857,19 @@ function formatPicasaLog(pathRel, picasa, albumToken = "") {
 /** ===========================
  *  .picasa.ini parsing
  *  =========================== */
-function parseCaptionText(textValue) {
+function parseTextOverlay(textValue) {
   const parts = String(textValue || "").split(";");
-  return (parts[3] || "").trim();
+  const caption = (parts[3] || "").trim();
+  const fontFamily = (parts[4] || "Arial").trim() || "Arial";
+  const geom = (parts[5] || "").split(",").map((x) => Number(x.trim()));
+  const x = Number.isFinite(geom[0]) ? geom[0] : 0.08;
+  const y = Number.isFinite(geom[1]) ? geom[1] : 0.08;
+  const sizeRel = Number.isFinite(geom[2]) ? geom[2] : 0.04;
+  const rotation = Number.isFinite(geom[3]) ? geom[3] : 0;
+  return { raw: String(textValue || ""), caption, fontFamily, x, y, sizeRel, rotation };
+}
+function parseCaptionText(textValue) {
+  return parseTextOverlay(textValue).caption;
 }
 function parseFacesValue(facesValue, contacts) {
   const out = [];
@@ -925,7 +941,7 @@ function parsePicasaIni(content) {
       if (token) albumNamesByToken.set(token, name || token);
       continue;
     }
-    const meta = { caption: "", faces: [], cropRect64: "" };
+    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null };
     for (const line of lines) {
       const idx = line.indexOf("=");
       if (idx <= 0) continue;
@@ -939,7 +955,9 @@ function parsePicasaIni(content) {
       } else if (key === "faces") {
         meta.faces = parseFacesValue(val, contacts);
       } else if (key === "text") {
-        meta.caption = parseCaptionText(val);
+        const t = parseTextOverlay(val);
+        meta.caption = t.caption;
+        meta.textOverlay = t;
       } else if (key === "crop") {
         const m = val.match(/^rect64\(([^)]+)\)$/i);
         meta.cropRect64 = m ? m[1].trim() : String(val || "").trim();
@@ -1267,7 +1285,15 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
     if (handle.kind === "file" && isImageName(name)) {
       if (members && !members.has(name)) continue;
       const file = await handle.getFile();
-      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "" };
+      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null };
+      const albumTokens = [];
+      const albumNames = [];
+      for (const [tok, membersSet] of picasa.membersByToken.entries()) {
+        if (membersSet.has(name)) {
+          albumTokens.push(tok);
+          albumNames.push(picasa.albumNamesByToken.get(tok) || tok);
+        }
+      }
       out.push({
         id: `${relDir}/${name}::${file.lastModified}`,
         file,
@@ -1277,7 +1303,10 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
         name,
         caption: meta.caption || "",
         faces: meta.faces || [],
-        cropRect64: meta.cropRect64 || ""
+        cropRect64: meta.cropRect64 || "",
+        textOverlay: meta.textOverlay || null,
+        albumTokens,
+        albumNames
       });
     }
   }
@@ -1328,7 +1357,20 @@ async function renderTiles(images) {
         }
       };
       row.appendChild(editBtn);
-      tile.appendChild(img);
+      const imgWrap = document.createElement("div");
+      imgWrap.className = "tileImageWrap";
+      imgWrap.appendChild(img);
+      if (it.textOverlay?.caption) {
+        const t = document.createElement("div");
+        t.className = "tileTextOverlay";
+        t.textContent = it.textOverlay.caption;
+        t.style.left = `${Math.max(0, Math.min(1, it.textOverlay.x || 0.08)) * 100}%`;
+        t.style.top = `${Math.max(0, Math.min(1, it.textOverlay.y || 0.08)) * 100}%`;
+        t.style.fontFamily = it.textOverlay.fontFamily || "Arial";
+        t.style.fontSize = `${Math.max(10, (it.textOverlay.sizeRel || 0.04) * 220)}px`;
+        imgWrap.appendChild(t);
+      }
+      tile.appendChild(imgWrap);
       tile.appendChild(cap);
       tile.appendChild(row);
       const absoluteIndex = i + localIndex;
@@ -1357,6 +1399,11 @@ function closeSlideshow() {
   el.overlay.classList.remove("show");
   el.overlay.setAttribute("aria-hidden", "true");
 }
+function goToAlbumByToken(token) {
+  const idx = state.albums.findIndex((a) => String(a.token || "") === String(token || ""));
+  if (idx >= 0) selectAlbum(idx);
+}
+
 function renderSlideFaceRects(item) {
   el.slideFaceLayer.innerHTML = "";
   if (!state.slideshow.showFaces) return;
@@ -1391,6 +1438,25 @@ async function updateSlide() {
   const caption = it.caption ? ` | caption: ${it.caption}` : "";
   const faceText = faces.length ? ` | faces: ${faces.join(", ")}` : "";
   el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}`;
+  if ((it.albumTokens || []).length) {
+    el.slideAlbums.innerHTML = `Albums: ` + it.albumTokens.map((tok, i) => `<a href="#" data-token="${tok}" class="mono">${it.albumNames?.[i] || tok}</a>`).join(" | ");
+    el.slideAlbums.querySelectorAll("a[data-token]").forEach((a) => {
+      a.onclick = (ev) => { ev.preventDefault(); closeSlideshow(); goToAlbumByToken(a.getAttribute("data-token")); };
+    });
+  } else {
+    el.slideAlbums.textContent = "Albums: (none)";
+  }
+  if (it.textOverlay?.caption) {
+    el.slideTextOverlay.textContent = it.textOverlay.caption;
+    el.slideTextOverlay.style.left = `${Math.max(0, Math.min(1, it.textOverlay.x || 0.08)) * 100}%`;
+    el.slideTextOverlay.style.top = `${Math.max(0, Math.min(1, it.textOverlay.y || 0.08)) * 100}%`;
+    el.slideTextOverlay.style.fontFamily = it.textOverlay.fontFamily || "Arial";
+    el.slideTextOverlay.style.fontSize = `${Math.max(16, (it.textOverlay.sizeRel || 0.04) * Math.max(300, el.slideImg.clientWidth || 300))}px`;
+    el.slideTextOverlay.style.transform = `translate(-50%, -50%) rotate(${(it.textOverlay.rotation || 0) * 360}deg)`;
+    el.slideTextOverlay.style.display = "block";
+  } else {
+    el.slideTextOverlay.style.display = "none";
+  }
   el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
   el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
   // Prefetch next/prev (browser cache will handle blob URLs fine)
