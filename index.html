@@ -61,6 +61,7 @@
     .faceCanvasImg { max-width:100%; max-height:100%; user-select:none; }
     .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; }
     .faceRectHandle { position:absolute; width:12px; height:12px; right:-7px; bottom:-7px; background:#fff; border:1px solid #111; border-radius:50%; cursor:nwse-resize; }
+    .cropRect { position:absolute; border:2px solid #8ce99a; background:rgba(140,233,154,.16); cursor:move; }
     .slideFaceLayer { position:absolute; inset:0; pointer-events:none; }
     .slideFaceRect { position:absolute; border:2px solid #ffd166; background:rgba(255,209,102,.18); }
     .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
@@ -142,6 +143,7 @@
         <div id="slideMeta" class="mono"></div>
         <div style="display:flex; gap:8px;">
           <button id="btnToggleFaces">Faces: On</button>
+          <button id="btnToggleCrop">Crop: On</button>
           <button id="btnClose">Close (Esc)</button>
         </div>
       </div>
@@ -162,6 +164,7 @@
         <div><b>Edit image metadata</b></div>
         <label>Caption<input id="faceCaptionInput" type="text"></label>
         <label>Album tokens (comma)<input id="faceAlbumsInput" type="text"></label>
+        <label>Crop rect64<input id="faceCropInput" type="text"></label>
         <label>Faces (one per line: label@rect64)<textarea id="faceFacesInput" rows="6"></textarea></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnFaceAdd">Add face rectangle</button>
@@ -417,7 +420,7 @@ function resolveAbsoluteToRelative(absPath, dirIndex) {
 /** ===========================
  *  Thumbnail generation (in-memory)
  *  =========================== */
-async function makeThumbURL(file, size = 320) {
+async function makeThumbURL(file, size = 320, cropRect64 = "") {
   // fast path: createImageBitmap resize
   let bmp = null;
   try {
@@ -429,11 +432,16 @@ async function makeThumbURL(file, size = 320) {
   const ctx = canvas.getContext("2d", { alpha: false });
   if (bmp) {
     const w = bmp.width, h = bmp.height;
-    const scale = Math.min(size / w, size / h);
-    const tw = Math.max(1, Math.round(w * scale));
-    const th = Math.max(1, Math.round(h * scale));
+    const b = cropRect64 ? rect64ToBox(cropRect64) : null;
+    const sx = b ? Math.max(0, Math.round(b.x * w)) : 0;
+    const sy = b ? Math.max(0, Math.round(b.y * h)) : 0;
+    const sw = b ? Math.max(1, Math.round(b.w * w)) : w;
+    const sh = b ? Math.max(1, Math.round(b.h * h)) : h;
+    const scale = Math.min(size / sw, size / sh);
+    const tw = Math.max(1, Math.round(sw * scale));
+    const th = Math.max(1, Math.round(sh * scale));
     canvas.width = tw; canvas.height = th;
-    ctx.drawImage(bmp, 0, 0, tw, th);
+    ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, tw, th);
     bmp.close?.();
   } else {
     // fallback: load via object URL
@@ -446,11 +454,16 @@ async function makeThumbURL(file, size = 320) {
     });
     URL.revokeObjectURL(url);
     const w = img.naturalWidth, h = img.naturalHeight;
-    const scale = Math.min(size / w, size / h);
-    const tw = Math.max(1, Math.round(w * scale));
-    const th = Math.max(1, Math.round(h * scale));
+    const b = cropRect64 ? rect64ToBox(cropRect64) : null;
+    const sx = b ? Math.max(0, Math.round(b.x * w)) : 0;
+    const sy = b ? Math.max(0, Math.round(b.y * h)) : 0;
+    const sw = b ? Math.max(1, Math.round(b.w * w)) : w;
+    const sh = b ? Math.max(1, Math.round(b.h * h)) : h;
+    const scale = Math.min(size / sw, size / sh);
+    const tw = Math.max(1, Math.round(sw * scale));
+    const th = Math.max(1, Math.round(sh * scale));
     canvas.width = tw; canvas.height = th;
-    ctx.drawImage(img, 0, 0, tw, th);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, tw, th);
   }
   const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.82));
   return URL.createObjectURL(blob);
@@ -473,7 +486,7 @@ const state = {
   currentViewMode: "albums",
   activeListIndex: -1,
   libraryId: "default",
-  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true }
+  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true }
 };
 /** ===========================
  *  UI elements
@@ -503,12 +516,14 @@ const el = {
   btnNext: document.getElementById("btnNext"),
   btnPlay: document.getElementById("btnPlay"),
   btnToggleFaces: document.getElementById("btnToggleFaces"),
+  btnToggleCrop: document.getElementById("btnToggleCrop"),
   slideFaceLayer: document.getElementById("slideFaceLayer"),
   faceEditorOverlay: document.getElementById("faceEditorOverlay"),
   faceCanvasWrap: document.getElementById("faceCanvasWrap"),
   faceCanvasImg: document.getElementById("faceCanvasImg"),
   faceCaptionInput: document.getElementById("faceCaptionInput"),
   faceAlbumsInput: document.getElementById("faceAlbumsInput"),
+  faceCropInput: document.getElementById("faceCropInput"),
   faceFacesInput: document.getElementById("faceFacesInput"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
@@ -528,6 +543,7 @@ function clearGrid() {
   for (const it of state.currentImages) {
     if (it.thumbUrl?.startsWith("blob:")) URL.revokeObjectURL(it.thumbUrl);
     if (it.url?.startsWith("blob:")) URL.revokeObjectURL(it.url);
+    if (it.cropUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropUrl);
   }
   state.currentImages = [];
   el.grid.innerHTML = "";
@@ -593,9 +609,10 @@ function serializePicasaInfo(picasa) {
     }
   }
   for (const name of imageNames) {
-    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [] };
+    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "" };
     lines.push(`[${name}]`);
     if (meta.caption) lines.push(`text=1;128;8;${meta.caption};Arial;`);
+    if (meta.cropRect64) lines.push(`crop=rect64(${meta.cropRect64})`);
     if ((meta.faces || []).length) {
       const parts = meta.faces.map((f) => `rect64(${f.rect64 || "0"}),${f.contactId || buildContactIdFromLabel(f.label || "unknown")}`);
       lines.push(`faces=${parts.join(";")}`);
@@ -620,7 +637,7 @@ function serializePicasaInfo(picasa) {
   }
   return lines.join("\n");
 }
-async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens) {
+async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "") {
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   if (!dirHandle) throw new Error("Missing directory handle for metadata save");
@@ -632,7 +649,7 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
     picasa.contacts.set(contactId, label);
     return { rect64: String(entry.rect64 || "0"), contactId, label };
   });
-  picasa.imageMeta.set(imageItem.name, { caption, faces });
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || "") });
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
@@ -659,13 +676,23 @@ const faceEditor = {
   naturalW: 1,
   naturalH: 1,
   displayW: 1,
-  displayH: 1
+  displayH: 1,
+  cropRect64: "",
+  cropDragging: false,
+  cropMode: "move"
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
   if (s.startsWith("gui:")) {
     const nums = s.slice(4).split("|").map((x) => Number(x.trim()));
     if (nums.length === 4 && nums.every((n) => Number.isFinite(n))) return { x: nums[0], y: nums[1], w: nums[2], h: nums[3] };
+  }
+  if (/^[0-9a-f]{16}$/i.test(s)) {
+    const a = parseInt(s.slice(0,4),16) / 65535;
+    const b = parseInt(s.slice(4,8),16) / 65535;
+    const c = parseInt(s.slice(8,12),16) / 65535;
+    const d = parseInt(s.slice(12,16),16) / 65535;
+    return { x: Math.max(0, Math.min(a, 1)), y: Math.max(0, Math.min(b, 1)), w: Math.max(0.01, Math.min(1, c - a)), h: Math.max(0.01, Math.min(1, d - b)) };
   }
   return { x: 0.1, y: 0.1, w: 0.2, h: 0.2 };
 }
@@ -683,6 +710,22 @@ function renderFaceRects() {
   const p = el.faceCanvasWrap.getBoundingClientRect();
   faceEditor.displayW = r.width; faceEditor.displayH = r.height;
   const offsetX = r.left - p.left; const offsetY = r.top - p.top;
+  if (faceEditor.cropRect64) {
+    const cb = rect64ToBox(faceEditor.cropRect64);
+    const c = document.createElement('div');
+    c.className = "cropRect";
+    c.style.left = `${offsetX + cb.x * r.width}px`;
+    c.style.top = `${offsetY + cb.y * r.height}px`;
+    c.style.width = `${Math.max(12, cb.w * r.width)}px`;
+    c.style.height = `${Math.max(12, cb.h * r.height)}px`;
+    c.onmousedown = (ev) => { ev.preventDefault(); faceEditor.cropDragging = true; faceEditor.cropMode = "move"; faceEditor.dragOffsetX = ev.offsetX; faceEditor.dragOffsetY = ev.offsetY; };
+    const ch = document.createElement('div'); ch.className = "faceRectHandle";
+    ch.onmousedown = (ev) => { ev.preventDefault(); ev.stopPropagation(); faceEditor.cropDragging = true; faceEditor.cropMode = "resize"; };
+    c.appendChild(ch);
+    el.faceCanvasWrap.appendChild(c);
+    el.faceCropInput.value = faceEditor.cropRect64;
+  }
+
   faceEditor.faces.forEach((face, idx) => {
     const b = rect64ToBox(face.rect64);
     const div = document.createElement('div');
@@ -696,6 +739,7 @@ function renderFaceRects() {
       ev.preventDefault();
       faceEditor.draggingIdx = idx;
       faceEditor.dragMode = "move";
+  faceEditor.cropDragging = false;
       faceEditor.dragOffsetX = ev.offsetX;
       faceEditor.dragOffsetY = ev.offsetY;
       el.faceEditorStatus.textContent = `Dragging ${face.label}`;
@@ -718,6 +762,8 @@ function openFaceEditor(imageItem) {
   faceEditor.imageItem = imageItem;
   faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
   el.faceCaptionInput.value = imageItem.caption || '';
+  faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
+  el.faceCropInput.value = faceEditor.cropRect64;
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   Promise.resolve(dirHandle ? getPicasaMetaForFolder(relDir, dirHandle) : null).then((picasa) => {
@@ -740,6 +786,7 @@ function closeFaceEditor() {
   el.faceEditorOverlay.setAttribute('aria-hidden', 'true');
   faceEditor.draggingIdx = -1;
   faceEditor.dragMode = "move";
+  faceEditor.cropDragging = false;
 }
 async function editImageMetadata(imageItem) {
   const captionInput = window.prompt("Caption", imageItem.caption || "");
@@ -878,7 +925,7 @@ function parsePicasaIni(content) {
       if (token) albumNamesByToken.set(token, name || token);
       continue;
     }
-    const meta = { caption: "", faces: [] };
+    const meta = { caption: "", faces: [], cropRect64: "" };
     for (const line of lines) {
       const idx = line.indexOf("=");
       if (idx <= 0) continue;
@@ -893,6 +940,9 @@ function parsePicasaIni(content) {
         meta.faces = parseFacesValue(val, contacts);
       } else if (key === "text") {
         meta.caption = parseCaptionText(val);
+      } else if (key === "crop") {
+        const m = val.match(/^rect64\(([^)]+)\)$/i);
+        meta.cropRect64 = m ? m[1].trim() : String(val || "").trim();
       }
     }
     imageMeta.set(sec, meta);
@@ -1217,7 +1267,7 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
     if (handle.kind === "file" && isImageName(name)) {
       if (members && !members.has(name)) continue;
       const file = await handle.getFile();
-      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [] };
+      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "" };
       out.push({
         id: `${relDir}/${name}::${file.lastModified}`,
         file,
@@ -1226,7 +1276,8 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
         thumbUrl: null,
         name,
         caption: meta.caption || "",
-        faces: meta.faces || []
+        faces: meta.faces || [],
+        cropRect64: meta.cropRect64 || ""
       });
     }
   }
@@ -1251,7 +1302,7 @@ async function renderTiles(images) {
       img.alt = it.name;
       // thumb
       try {
-        it.thumbUrl = await makeThumbURL(it.file, 320);
+        it.thumbUrl = await makeThumbURL(it.file, 320, it.cropRect64 || "");
         img.src = it.thumbUrl;
       } catch {
         // fallback: full url (still ok for prototype)
@@ -1325,17 +1376,23 @@ function renderSlideFaceRects(item) {
     el.slideFaceLayer.appendChild(d);
   }
 }
-function updateSlide() {
+async function updateSlide() {
   const it = state.currentImages[state.slideshow.index];
   if (!it) return;
   // Ensure full-size url
   if (!it.url) it.url = URL.createObjectURL(it.file);
-  el.slideImg.src = it.url;
+  if (state.slideshow.showCrop && it.cropRect64) {
+    if (!it.cropUrl) it.cropUrl = await makeThumbURL(it.file, 2048, it.cropRect64);
+    el.slideImg.src = it.cropUrl || it.url;
+  } else {
+    el.slideImg.src = it.url;
+  }
   const faces = (it.faces || []).map((f) => f.label).filter(Boolean);
   const caption = it.caption ? ` | caption: ${it.caption}` : "";
   const faceText = faces.length ? ` | faces: ${faces.join(", ")}` : "";
   el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}`;
   el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
+  el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
   // Prefetch next/prev (browser cache will handle blob URLs fine)
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
@@ -1470,6 +1527,7 @@ el.btnPrev.onclick = prevSlide;
 el.btnNext.onclick = nextSlide;
 el.btnPlay.onclick = togglePlay;
 el.btnToggleFaces.onclick = () => { state.slideshow.showFaces = !state.slideshow.showFaces; updateSlide(); };
+el.btnToggleCrop.onclick = () => { state.slideshow.showCrop = !state.slideshow.showCrop; updateSlide(); };
 // Keyboard controls
 window.addEventListener("keydown", (ev) => {
   if (!state.slideshow.open) return;
@@ -1496,6 +1554,26 @@ el.faceCanvasWrap.addEventListener('mousemove', (ev) => {
   if (faceEditor.draggingIdx < 0) return;
   const r = el.faceCanvasImg.getBoundingClientRect();
   const p = el.faceCanvasWrap.getBoundingClientRect();
+  if (faceEditor.cropDragging) {
+    const cb = rect64ToBox(faceEditor.cropRect64);
+    if (faceEditor.cropMode === "resize") {
+      const rightPx = ev.clientX - p.left - (r.left - p.left);
+      const bottomPx = ev.clientY - p.top - (r.top - p.top);
+      const w = Math.max(0.03, Math.min(1 - cb.x, rightPx / Math.max(1, r.width) - cb.x));
+      const h = Math.max(0.03, Math.min(1 - cb.y, bottomPx / Math.max(1, r.height) - cb.y));
+      faceEditor.cropRect64 = boxToRect64({ x: cb.x, y: cb.y, w, h });
+    } else {
+      const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.dragOffsetX;
+      const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.dragOffsetY;
+      const x = Math.max(0, Math.min(r.width - cb.w * r.width, xPx)) / Math.max(1, r.width);
+      const y = Math.max(0, Math.min(r.height - cb.h * r.height, yPx)) / Math.max(1, r.height);
+      faceEditor.cropRect64 = boxToRect64({ x, y, w: cb.w, h: cb.h });
+    }
+    el.faceCropInput.value = faceEditor.cropRect64;
+    renderFaceRects();
+    return;
+  }
+
   const cur = faceEditor.faces[faceEditor.draggingIdx];
   const b = rect64ToBox(cur.rect64);
   if (faceEditor.dragMode === "resize") {
@@ -1514,17 +1592,18 @@ el.faceCanvasWrap.addEventListener('mousemove', (ev) => {
   renderFaceRects();
 });
 window.addEventListener('mouseup', () => { faceEditor.draggingIdx = -1;
-  faceEditor.dragMode = "move"; });
+  faceEditor.dragMode = "move";
+  faceEditor.cropDragging = false; });
 el.btnFaceSave.onclick = async () => {
   if (!faceEditor.imageItem) return;
   try {
     const caption = el.faceCaptionInput.value.trim();
     const albumTokens = el.faceAlbumsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
     const faceEntries = parseFaceEntriesInput(el.faceFacesInput.value, faceEditor.faces.length ? faceEditor.faces : []);
-    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens);
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, el.faceCropInput.value.trim());
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
-    setStatus('Saved caption/face rectangles/albums to .picasa.info', 'ok');
+    setStatus('Saved caption/faces/crop/albums to .picasa.info', 'ok');
   } catch (e) {
     el.faceEditorStatus.textContent = `Save failed: ${String(e?.message || e)}`;
   }
