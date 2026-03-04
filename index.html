@@ -72,6 +72,7 @@
     .faceEditorSide input, .faceEditorSide textarea, .faceEditorSide select { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
     .editorTextBox { position:absolute; min-width:24px; min-height:18px; display:flex; align-items:center; justify-content:center; user-select:none; cursor:move; }
     .editorTextBox.active { outline:1px dashed #f1c40f; }
+    .starActive { color:#ffd43b; border-color:#ffd43b; }
     .hidden { display:none !important; }
     .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
     .warn { color: #ffda9e; }
@@ -129,6 +130,8 @@
     <main>
       <div class="toolbar">
         <span id="viewTitle">No selection</span>
+        <input id="albumNameInput" class="hidden" type="text" style="max-width:220px;" placeholder="Album name">
+        <button id="btnRenameAlbum" class="hidden">Rename album</button>
         <span class="pill" id="countPill"></span>
         <span class="pill" id="resolvePill"></span>
         <span style="margin-left:auto" class="pill">Slideshow: <span class="kbd">←</span>/<span class="kbd">→</span> <span class="kbd">Space</span> <span class="kbd">Esc</span></span>
@@ -180,23 +183,24 @@
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
-        <label><input id="faceStarInput" type="checkbox"> Starred</label>
+        <button id="btnFaceStarToggle" title="Toggle star">☆ Star</button>
         <label>Tilt value <span id="faceTiltValue" class="mono">0.00</span><input id="faceTiltSlider" type="range" min="-1" max="1" step="0.01" value="0"></label>
         <button id="btnApplyTiltFilter">Apply tilt filter</button>
-        <label>Available faces<select id="faceFaceSelect"></select></label>
-        <label>Selected face label<input id="faceFaceLabelInput" type="text"></label>
-        <label>Text overlay<input id="faceTextInput" type="text"></label>
-        <label>Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
-        <label>Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
-        <label>Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
-        <label>Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
-        <label>Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="1" value="2"></label>
+        <label>Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
+        <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnFaceAdd">Add face rectangle</button>
+          <button id="btnTextAdd">Add text</button>
           <button id="btnUndoFilter">Undo filter</button>
           <button id="btnFaceSave">Save</button>
           <button id="btnFaceCancel">Cancel</button>
         </div>
+        <label id="textInputRow" class="hidden">Text overlay<input id="faceTextInput" type="text"></label>
+        <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
+        <label id="textSizeRow" class="hidden">Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
+        <label id="textColorRow" class="hidden">Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
+        <label id="textOutlineColorRow" class="hidden">Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
+        <label id="textOutlineWidthRow" class="hidden">Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="1" value="2"></label>
         <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
@@ -602,6 +606,7 @@ const state = {
   folderNavItems: [],         // Folder browser entries for current folder path
   folderBrowserPath: "",      // Current relative path when in folder view
   picasaByFolder: new Map(),  // Map<pathRel, parsed .picasa.ini metadata>
+  iniAlbumsByToken: new Map(),
   currentImages: [],          // ImageItem[]
   currentTitle: "",
   currentResolved: "",
@@ -627,6 +632,8 @@ const el = {
   albumList: document.getElementById("albumList"),
   grid: document.getElementById("grid"),
   viewTitle: document.getElementById("viewTitle"),
+  albumNameInput: document.getElementById("albumNameInput"),
+  btnRenameAlbum: document.getElementById("btnRenameAlbum"),
   countPill: document.getElementById("countPill"),
   resolvePill: document.getElementById("resolvePill"),
   mainStatus: document.getElementById("mainStatus"),
@@ -654,11 +661,19 @@ const el = {
   faceCropRow: document.getElementById("faceCropRow"),
   faceCropInput: document.getElementById("faceCropInput"),
   faceKeywordsInput: document.getElementById("faceKeywordsInput"),
-  faceStarInput: document.getElementById("faceStarInput"),
+  btnFaceStarToggle: document.getElementById("btnFaceStarToggle"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
   faceFaceSelect: document.getElementById("faceFaceSelect"),
+  faceLabelRow: document.getElementById("faceLabelRow"),
   faceFaceLabelInput: document.getElementById("faceFaceLabelInput"),
+  btnTextAdd: document.getElementById("btnTextAdd"),
+  textInputRow: document.getElementById("textInputRow"),
+  textFontRow: document.getElementById("textFontRow"),
+  textSizeRow: document.getElementById("textSizeRow"),
+  textColorRow: document.getElementById("textColorRow"),
+  textOutlineColorRow: document.getElementById("textOutlineColorRow"),
+  textOutlineWidthRow: document.getElementById("textOutlineWidthRow"),
   faceTextInput: document.getElementById("faceTextInput"),
   faceTextFontInput: document.getElementById("faceTextFontInput"),
   faceTextSizeInput: document.getElementById("faceTextSizeInput"),
@@ -889,7 +904,9 @@ const faceEditor = {
   textDragging: false,
   textDragOffsetX: 0,
   textDragOffsetY: 0,
-  textOverlay: null,
+  textOverlays: [],
+  activeTextIdx: -1,
+  star: false,
   filters: []
 };
 function rect64ToBox(rect64) {
@@ -918,30 +935,47 @@ function cssColorToHex(color, fallback = "#ffffff") {
   if (!m) return fallback;
   return `#${[m[1], m[2], m[3]].map((n)=>Math.max(0,Math.min(255,Number(n))).toString(16).padStart(2, "0")).join("")}`;
 }
+function updateSelectionRows() {
+  const hasFace = faceEditor.activeFaceIdx >= 0 && !!faceEditor.faces[faceEditor.activeFaceIdx];
+  el.faceLabelRow.classList.toggle("hidden", !hasFace);
+  const hasText = faceEditor.activeTextIdx >= 0 && !!faceEditor.textOverlays[faceEditor.activeTextIdx];
+  [el.textInputRow, el.textFontRow, el.textSizeRow, el.textColorRow, el.textOutlineColorRow, el.textOutlineWidthRow].forEach((n)=>n.classList.toggle("hidden", !hasText));
+}
 function syncFaceSelectFromState() {
-  el.faceFaceSelect.innerHTML = "";
-  if (!faceEditor.faces.length) {
-    const opt = document.createElement("option");
-    opt.value = "";
-    opt.textContent = "(no faces)";
-    el.faceFaceSelect.appendChild(opt);
-    faceEditor.activeFaceIdx = -1;
-    el.faceFaceLabelInput.value = "";
-    return;
-  }
+  const select = el.faceFaceSelect;
+  select.innerHTML = "";
   faceEditor.faces.forEach((face, idx) => {
     const opt = document.createElement("option");
     opt.value = String(idx);
     opt.textContent = `${idx + 1}. ${face.label || "(unnamed)"}`;
-    el.faceFaceSelect.appendChild(opt);
+    if (idx === faceEditor.activeFaceIdx) opt.selected = true;
+    select.appendChild(opt);
   });
-  if (faceEditor.activeFaceIdx < 0 || faceEditor.activeFaceIdx >= faceEditor.faces.length) faceEditor.activeFaceIdx = 0;
-  el.faceFaceSelect.value = String(faceEditor.activeFaceIdx);
-  el.faceFaceLabelInput.value = faceEditor.faces[faceEditor.activeFaceIdx]?.label || "";
+  if (faceEditor.activeFaceIdx >= 0 && faceEditor.faces[faceEditor.activeFaceIdx]) {
+    el.faceFaceLabelInput.value = faceEditor.faces[faceEditor.activeFaceIdx].label || "";
+  } else {
+    el.faceFaceLabelInput.value = "";
+  }
+  updateSelectionRows();
+}
+function syncTextInputsFromState() {
+  const t = faceEditor.textOverlays[faceEditor.activeTextIdx];
+  if (!t) {
+    el.faceTextInput.value = "";
+    return;
+  }
+  el.faceTextInput.value = t.caption || "";
+  el.faceTextFontInput.value = t.fontFamily || "Arial";
+  const initialSizePx = Math.max(8, Math.round(((t.sizeCode || 128) / 6) || ((t.sizeRel || 0.04) * 220)));
+  el.faceTextSizeInput.value = String(initialSizePx);
+  el.faceTextColorInput.value = cssColorToHex(t.colorPrimary, "#ffffff");
+  el.faceTextOutlineColorInput.value = cssColorToHex(t.colorSecondary, "#000000");
+  el.faceTextOutlineWidthInput.value = String(Math.max(0, Number(t.outlineWidth || 2) || 0));
+  updateSelectionRows();
 }
 function updateTextOverlayFromInputs() {
-  if (!faceEditor.textOverlay) faceEditor.textOverlay = { enabled: true, caption: "", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 2 };
-  const t = faceEditor.textOverlay;
+  const t = faceEditor.textOverlays[faceEditor.activeTextIdx];
+  if (!t) return;
   t.enabled = true;
   t.caption = String(el.faceTextInput.value || "");
   t.fontFamily = String(el.faceTextFontInput.value || "Arial").trim() || "Arial";
@@ -952,6 +986,7 @@ function updateTextOverlayFromInputs() {
   t.colorSecondary = el.faceTextOutlineColorInput.value || "#000000";
   t.outlineWidth = Math.max(0, Number(el.faceTextOutlineWidthInput.value || "2") || 0);
 }
+
 
 function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
   if (ev?.preventDefault) ev.preventDefault();
@@ -1006,31 +1041,34 @@ function renderFaceRects() {
     div.appendChild(h);
     el.faceCanvasWrap.appendChild(div);
   });
-  if (faceEditor.textOverlay?.caption) {
-    const t = faceEditor.textOverlay;
+  faceEditor.textOverlays.forEach((t, idx) => {
+    if (!t?.caption) return;
     const box = document.createElement("div");
-    box.className = "editorTextBox active";
+    box.className = `editorTextBox${idx === faceEditor.activeTextIdx ? " active" : ""}`;
     box.textContent = t.caption;
     box.style.left = `${offsetX + Math.max(0, Math.min(1, t.x || 0.08)) * r.width}px`;
     box.style.top = `${offsetY + Math.max(0, Math.min(1, t.y || 0.08)) * r.height}px`;
     box.style.fontFamily = t.fontFamily || "Arial";
-    const fontPx = Math.max(8, Number(el.faceTextSizeInput.value || "36") || 36);
+    const fontPx = Math.max(8, Number((t.sizeCode || 128) / 6) || 36);
     box.style.fontSize = `${fontPx}px`;
     box.style.color = t.colorPrimary || "#ffffff";
     box.style.webkitTextStroke = `${Math.max(0, t.outlineWidth || 0)}px ${t.colorSecondary || "#000"}`;
     box.onpointerdown = (ev) => {
       ev.preventDefault();
+      faceEditor.activeTextIdx = idx;
+      syncTextInputsFromState();
       faceEditor.textDragging = true;
       faceEditor.textDragOffsetX = ev.offsetX ?? 0;
       faceEditor.textDragOffsetY = ev.offsetY ?? 0;
+      renderFaceRects();
     };
     el.faceCanvasWrap.appendChild(box);
-  }
+  });
 }
 function openFaceEditor(imageItem) {
   faceEditor.imageItem = imageItem;
   faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
-  faceEditor.activeFaceIdx = faceEditor.faces.length ? 0 : -1;
+  faceEditor.activeFaceIdx = -1;
   el.faceCaptionInput.value = imageItem.caption || '';
   faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
   faceEditor.cropUiVisible = false;
@@ -1039,22 +1077,19 @@ function openFaceEditor(imageItem) {
   el.btnApplyCropFilter.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
-  el.faceStarInput.checked = !!imageItem.star;
+  faceEditor.star = !!imageItem.star;
+  el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
+  el.btnFaceStarToggle.textContent = faceEditor.star ? "★ Star" : "☆ Star";
   faceEditor.filters = Array.isArray(imageItem.filters) ? imageItem.filters.slice() : [];
   const tiltVal = lastTiltFromFilters(faceEditor.filters);
   const safeTilt = Number.isFinite(tiltVal) ? Math.max(-1, Math.min(1, tiltVal)) : 0;
   el.faceTiltSlider.value = safeTilt.toFixed(2);
   el.faceTiltValue.textContent = safeTilt.toFixed(2);
   el.faceCanvasImg.style.transform = `rotate(${(safeTilt * 15).toFixed(2)}deg)`;
-  faceEditor.textOverlay = (imageItem.textOverlays && imageItem.textOverlays[0]) || imageItem.textOverlay || { enabled: true, caption: imageItem.caption || "", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 2 };
-  el.faceTextInput.value = faceEditor.textOverlay.caption || "";
-  el.faceTextFontInput.value = faceEditor.textOverlay.fontFamily || "Arial";
-  const initialSizePx = Math.max(8, Math.round(((faceEditor.textOverlay.sizeCode || 128) / 6) || ((faceEditor.textOverlay.sizeRel || 0.04) * 220)));
-  el.faceTextSizeInput.value = String(initialSizePx);
-  el.faceTextColorInput.value = cssColorToHex(faceEditor.textOverlay.colorPrimary, "#ffffff");
-  el.faceTextOutlineColorInput.value = cssColorToHex(faceEditor.textOverlay.colorSecondary, "#000000");
-  el.faceTextOutlineWidthInput.value = String(Math.max(0, Number(faceEditor.textOverlay.outlineWidth || 2) || 0));
+  faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
+  faceEditor.activeTextIdx = -1;
   syncFaceSelectFromState();
+  syncTextInputsFromState();
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   Promise.resolve(dirHandle ? getPicasaMetaForFolder(relDir, dirHandle) : null).then((picasa) => {
@@ -1080,6 +1115,8 @@ function closeFaceEditor() {
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
   faceEditor.textDragging = false;
+  faceEditor.activeTextIdx = -1;
+  faceEditor.activeFaceIdx = -1;
 }
 async function editImageMetadata(imageItem) {
   const captionInput = window.prompt("Caption", imageItem.caption || "");
@@ -1366,6 +1403,7 @@ async function getPicasaMetaForFolder(pathRel, dirHandle) {
     empty.detection = scanResult.detection || "none";
     if (!scanResult.found) {
       state.picasaByFolder.set(pathRel, empty);
+      upsertIniAlbumsFromPicasa(pathRel, empty);
       return empty;
     }
     const text = await (await scanResult.found.fileHandle.getFile()).text();
@@ -1376,12 +1414,85 @@ async function getPicasaMetaForFolder(pathRel, dirHandle) {
     parsed.detection = scanResult.detection || "none";
     parsed.missing = false;
     state.picasaByFolder.set(pathRel, parsed);
+    upsertIniAlbumsFromPicasa(pathRel, parsed);
     return parsed;
   } catch {
     state.picasaByFolder.set(pathRel, empty);
+    upsertIniAlbumsFromPicasa(pathRel, empty);
     return empty;
   }
 }
+
+function refreshAlbumNameEditor() {
+  const show = state.currentViewMode === "albums" && state.activeListIndex >= 0;
+  el.albumNameInput.classList.toggle("hidden", !show);
+  el.btnRenameAlbum.classList.toggle("hidden", !show);
+  if (!show) return;
+  const album = state.albums[state.activeListIndex];
+  el.albumNameInput.value = album?.name || "";
+}
+function upsertIniAlbumsFromPicasa(pathRel, picasa) {
+  if (!picasa) return;
+  for (const album of state.iniAlbumsByToken.values()) album.refs = (album.refs || []).filter((r) => r.pathRel !== pathRel);
+  for (const [token, members] of picasa.membersByToken.entries()) {
+    if (!token) continue;
+    const existing = state.iniAlbumsByToken.get(token) || { token, name: picasa.albumNamesByToken.get(token) || token, refs: [] };
+    existing.name = picasa.albumNamesByToken.get(token) || existing.name || token;
+    const filtered = existing.refs.filter((r) => r.pathRel !== pathRel);
+    const additions = Array.from(members || []).map((imageName) => ({ pathRel, imageName }));
+    existing.refs = [...filtered, ...additions];
+    state.iniAlbumsByToken.set(token, existing);
+  }
+  for (const [tok, album] of Array.from(state.iniAlbumsByToken.entries())) { if (!(album.refs || []).length) state.iniAlbumsByToken.delete(tok); }
+  const nonIni = state.albums.filter((a) => a.source !== "ini");
+  const iniAlbums = Array.from(state.iniAlbumsByToken.values()).map((a) => ({
+    id: `ini:${a.token}`,
+    source: "ini",
+    token: a.token,
+    name: a.name || a.token,
+    pathRel: a.refs[0]?.pathRel || "",
+    absPath: a.refs[0]?.pathRel || "",
+    broken: !a.refs.length,
+    imageRefs: a.refs.slice()
+  }));
+  state.albums = [...nonIni, ...iniAlbums].sort((a,b)=>(a.name||"").localeCompare(b.name||"", undefined, { sensitivity: "base", numeric:true }));
+}
+async function listImagesForAlbumRefs(imageRefs = []) {
+  const out = [];
+  const byFolder = new Map();
+  for (const ref of imageRefs) {
+    if (!ref?.pathRel || !ref?.imageName) continue;
+    if (!byFolder.has(ref.pathRel)) byFolder.set(ref.pathRel, new Set());
+    byFolder.get(ref.pathRel).add(ref.imageName);
+  }
+  for (const [pathRel, namesSet] of byFolder.entries()) {
+    const dirHandle = state.dirIndex.get(pathRel);
+    if (!dirHandle) continue;
+    const picasa = await getPicasaMetaForFolder(pathRel, dirHandle);
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind !== "file" || !isImageName(name) || !namesSet.has(name)) continue;
+      const file = await handle.getFile();
+      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
+      const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
+      const iptcKeywords = iniKeywords.length ? [] : await extractIptcKeywordsFromFile(file);
+      const mergedKeywords = Array.from(new Set([...iniKeywords, ...iptcKeywords]));
+      out.push({
+        id: `${pathRel}/${name}::${file.lastModified}`,
+        file,
+        relPath: pathRel ? `${pathRel}/${name}` : name,
+        url: null, thumbUrl: null, name,
+        caption: meta.caption || "", faces: meta.faces || [], cropRect64: meta.cropRect64 || "",
+        textOverlay: meta.textOverlay || null,
+        textOverlays: meta.textOverlays || (meta.textOverlay ? [meta.textOverlay] : []),
+        albumTokens: Array.from(picasa.membersByToken.keys()).filter((tok) => (picasa.membersByToken.get(tok) || new Set()).has(name)),
+        albumNames: [], keywords: mergedKeywords, star: !!meta.star, filters: meta.filters || []
+      });
+    }
+  }
+  out.sort((a,b)=>a.relPath.localeCompare(b.relPath, undefined, { sensitivity: "base", numeric:true }));
+  return out;
+}
+
 /** ===========================
  *  Load PMP albums from db/
  *  =========================== */
@@ -1438,7 +1549,20 @@ async function loadAlbumsFromPMP() {
     });
   }
   state.albums = albums;
-  state.folderItems = buildFolderItems(albums);
+  if (state.iniAlbumsByToken.size) {
+    const iniAlbums = Array.from(state.iniAlbumsByToken.values()).filter((a)=>(a.refs||[]).length).map((a) => ({
+      id: `ini:${a.token}`,
+      source: "ini",
+      token: a.token,
+      name: a.name || a.token,
+      pathRel: a.refs[0]?.pathRel || "",
+      absPath: a.refs[0]?.pathRel || "",
+      broken: !(a.refs||[]).length,
+      imageRefs: (a.refs || []).slice()
+    }));
+    state.albums = [...state.albums, ...iniAlbums].sort((a,b)=>(a.name||"").localeCompare(b.name||"", undefined, { sensitivity:"base", numeric:true }));
+  }
+  state.folderItems = buildFolderItems(state.albums.filter((a)=>a.source !== "ini"));
   await saveLibrarySnapshot({
     libraryId: state.libraryId,
     rootName: state.libraryRoot.name || "",
@@ -1479,6 +1603,7 @@ function renderNavigation() {
     renderAlbumList(state.activeListIndex);
   }
   updateViewButtons();
+  refreshAlbumNameEditor();
 }
 function updateViewButtons() {
   el.btnViewAlbums.classList.toggle("active", state.currentViewMode === "albums");
@@ -1538,6 +1663,16 @@ async function selectAlbum(idx) {
   clearGrid();
   state.currentTitle = album.name || "(unnamed album)";
   el.viewTitle.textContent = `Album: ${state.currentTitle}`;
+  refreshAlbumNameEditor();
+  if (album.source === "ini") {
+    const refs = Array.isArray(album.imageRefs) ? album.imageRefs : [];
+    const images = await listImagesForAlbumRefs(refs);
+    setPicasaLog(`INI album token=${album.token} refs=${refs.length}`);
+    el.resolvePill.textContent = `INI album (${refs.length} refs)`;
+    await renderTiles(images);
+    setStatus(images.length ? "Ready." : "No images found for this INI album.", images.length ? "ok" : "warn");
+    return;
+  }
   if (album.broken || !album.pathRel) {
     el.resolvePill.textContent = "Path unresolved";
     setStatus("This album path could not be resolved under the selected library root. (Absolute path mismatch)", "err");
@@ -1603,6 +1738,7 @@ async function openFolderPath(pathRel) {
   const folderLabel = pathRel || "/";
   state.currentTitle = folderLabel;
   el.viewTitle.textContent = `Folder: ${folderLabel}`;
+  refreshAlbumNameEditor();
   await showImagesForResolvedPath(pathRel, `Folder: ${folderLabel}`);
 }
 async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
@@ -1616,6 +1752,14 @@ async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
   const { images, picasa } = await listImagesInDirectory(dirHandle, pathRel, options);
   setPicasaLog(formatPicasaLog(pathRel, picasa, options.album?.token ? String(options.album.token) : ""));
   await renderTiles(images);
+  await saveLibrarySnapshot({
+    id: state.libraryId,
+    label: state.libraryRoot?.name || "Library",
+    pickedAt: Date.now(),
+    stats: { albums: state.albums.length, folders: state.folderItems.length },
+    albums: state.albums,
+    folders: state.folderItems
+  });
   setStatus(images.length ? "Ready." : "No images found in this folder.", images.length ? "ok" : "warn");
 }
 /** List image files in a directory (non-recursive, like your Kivy folder scan) */
@@ -1944,6 +2088,29 @@ el.btnViewAlbums.onclick = () => {
   renderNavigation();
   setStatus("Switched to album view.", "ok");
 };
+el.btnRenameAlbum.onclick = async () => {
+  const idx = state.activeListIndex;
+  const album = state.albums[idx];
+  if (!album) return;
+  const newName = String(el.albumNameInput.value || "").trim();
+  if (!newName) return;
+  album.name = newName;
+  if (album.source === "ini" && album.token && state.iniAlbumsByToken.has(album.token)) {
+    state.iniAlbumsByToken.get(album.token).name = newName;
+  }
+  renderNavigation();
+  if (state.currentViewMode === "albums" && idx >= 0) el.viewTitle.textContent = `Album: ${newName}`;
+  await saveLibrarySnapshot({
+    id: state.libraryId,
+    label: state.libraryRoot?.name || "Library",
+    pickedAt: Date.now(),
+    stats: { albums: state.albums.length, folders: state.folderItems.length },
+    albums: state.albums,
+    folders: state.folderItems
+  });
+  setStatus("Album name updated.", "ok");
+};
+el.albumNameInput.addEventListener("keydown", (ev) => { if (ev.key === "Enter") el.btnRenameAlbum.click(); });
 el.btnViewFolders.onclick = () => {
   if (!state.libraryRoot || !state.dirIndex) {
     setStatus("Choose a Library folder first to browse subfolders.", "warn");
@@ -1987,6 +2154,11 @@ el.btnFaceCancel.onclick = closeFaceEditor;
 el.faceEditorOverlay.addEventListener("click", (ev) => {
   if (ev.target === el.faceEditorOverlay) closeFaceEditor();
 });
+el.btnFaceStarToggle.onclick = () => {
+  faceEditor.star = !faceEditor.star;
+  el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
+  el.btnFaceStarToggle.textContent = faceEditor.star ? "★ Star" : "☆ Star";
+};
 el.btnCropMode.onclick = () => {
   faceEditor.cropUiVisible = !faceEditor.cropUiVisible;
   el.faceCropRow.classList.toggle("hidden", !faceEditor.cropUiVisible);
@@ -2011,9 +2183,18 @@ el.faceTiltSlider.oninput = () => {
   el.faceTiltValue.textContent = Number.isFinite(t) ? t.toFixed(2) : "0.00";
   el.faceCanvasImg.style.transform = `rotate(${((Number.isFinite(t) ? t : 0) * 15).toFixed(2)}deg)`;
 };
-el.faceFaceSelect.onchange = () => {
-  faceEditor.activeFaceIdx = Number(el.faceFaceSelect.value || "-1");
-  el.faceFaceLabelInput.value = faceEditor.faces[faceEditor.activeFaceIdx]?.label || "";
+el.faceFaceSelect.onmousedown = (ev) => {
+  const opt = ev.target.closest("option");
+  if (!opt) {
+    faceEditor.activeFaceIdx = -1;
+    syncFaceSelectFromState();
+    renderFaceRects();
+    return;
+  }
+  ev.preventDefault();
+  const idx = Number(opt.value);
+  faceEditor.activeFaceIdx = (faceEditor.activeFaceIdx === idx) ? -1 : idx;
+  syncFaceSelectFromState();
   renderFaceRects();
 };
 el.faceFaceLabelInput.oninput = () => {
@@ -2046,6 +2227,12 @@ el.btnFaceAdd.onclick = () => {
   syncFaceSelectFromState();
   renderFaceRects();
 };
+el.btnTextAdd.onclick = () => {
+  faceEditor.textOverlays.push({ enabled: true, caption: "New text", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 2 });
+  faceEditor.activeTextIdx = faceEditor.textOverlays.length - 1;
+  syncTextInputsFromState();
+  renderFaceRects();
+};
 el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
   if (faceEditor.draggingIdx < 0 && !faceEditor.cropDragging && !faceEditor.textDragging) return;
   const r = el.faceCanvasImg.getBoundingClientRect();
@@ -2069,11 +2256,12 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
     renderFaceRects();
     return;
   }
-  if (faceEditor.textDragging && faceEditor.textOverlay) {
+  if (faceEditor.textDragging && faceEditor.activeTextIdx >= 0 && faceEditor.textOverlays[faceEditor.activeTextIdx]) {
     const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.textDragOffsetX;
     const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.textDragOffsetY;
-    faceEditor.textOverlay.x = Math.max(0, Math.min(r.width - 24, xPx)) / Math.max(1, r.width);
-    faceEditor.textOverlay.y = Math.max(0, Math.min(r.height - 18, yPx)) / Math.max(1, r.height);
+    const txt = faceEditor.textOverlays[faceEditor.activeTextIdx];
+    txt.x = Math.max(0, Math.min(r.width - 24, xPx)) / Math.max(1, r.width);
+    txt.y = Math.max(0, Math.min(r.height - 18, yPx)) / Math.max(1, r.height);
     renderFaceRects();
     return;
   }
@@ -2111,8 +2299,8 @@ el.btnFaceSave.onclick = async () => {
     const keywords = el.faceKeywordsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
     updateTextOverlayFromInputs();
     const faceEntries = faceEditor.faces.slice();
-    const textOverlays = faceEditor.textOverlay?.caption ? [faceEditor.textOverlay] : [];
-    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, el.faceStarInput.checked, faceEditor.filters, textOverlays);
+    const textOverlays = faceEditor.textOverlays.filter((t) => t && String(t.caption || "").trim());
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays);
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
     setStatus('Saved caption/faces/crop/albums/tags to .picasa.info', 'ok');
