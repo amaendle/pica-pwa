@@ -69,7 +69,10 @@
     .tileTextOverlay { position:absolute; pointer-events:none; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); font-weight:600; left:8%; top:8%; font-size:14px; max-width:80%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
     .faceEditorSide { display:flex; flex-direction:column; gap:8px; }
-    .faceEditorSide input, .faceEditorSide textarea { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
+    .faceEditorSide input, .faceEditorSide textarea, .faceEditorSide select { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
+    .editorTextBox { position:absolute; min-width:24px; min-height:18px; display:flex; align-items:center; justify-content:center; user-select:none; cursor:move; }
+    .editorTextBox.active { outline:1px dashed #f1c40f; }
+    .hidden { display:none !important; }
     .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
     .warn { color: #ffda9e; }
     .ok { color: #a9f7c5; }
@@ -171,15 +174,25 @@
         <div><b>Edit image metadata</b></div>
         <label>Caption<input id="faceCaptionInput" type="text"></label>
         <label>Album tokens (comma)<input id="faceAlbumsInput" type="text"></label>
-        <label>Crop rect64<input id="faceCropInput" type="text"></label>
+        <div style="display:flex; gap:8px;">
+          <button id="btnCropMode">Crop</button>
+          <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
+        </div>
+        <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
         <label><input id="faceStarInput" type="checkbox"> Starred</label>
-        <label>Tilt value<input id="faceTiltInput" type="number" step="0.01" value="1.000000"></label>
-        <label>Faces (one per line: label@rect64)<textarea id="faceFacesInput" rows="6"></textarea></label>
+        <label>Tilt value <span id="faceTiltValue" class="mono">0.00</span><input id="faceTiltSlider" type="range" min="-1" max="1" step="0.01" value="0"></label>
+        <button id="btnApplyTiltFilter">Apply tilt filter</button>
+        <label>Available faces<select id="faceFaceSelect"></select></label>
+        <label>Selected face label<input id="faceFaceLabelInput" type="text"></label>
+        <label>Text overlay<input id="faceTextInput" type="text"></label>
+        <label>Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
+        <label>Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
+        <label>Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
+        <label>Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
+        <label>Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="1" value="2"></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnFaceAdd">Add face rectangle</button>
-          <button id="btnApplyCropFilter">Apply crop filter</button>
-          <button id="btnApplyTiltFilter">Apply tilt filter</button>
           <button id="btnUndoFilter">Undo filter</button>
           <button id="btnFaceSave">Save</button>
           <button id="btnFaceCancel">Cancel</button>
@@ -638,12 +651,22 @@ const el = {
   faceCanvasImg: document.getElementById("faceCanvasImg"),
   faceCaptionInput: document.getElementById("faceCaptionInput"),
   faceAlbumsInput: document.getElementById("faceAlbumsInput"),
+  faceCropRow: document.getElementById("faceCropRow"),
   faceCropInput: document.getElementById("faceCropInput"),
   faceKeywordsInput: document.getElementById("faceKeywordsInput"),
   faceStarInput: document.getElementById("faceStarInput"),
-  faceTiltInput: document.getElementById("faceTiltInput"),
-  faceFacesInput: document.getElementById("faceFacesInput"),
+  faceTiltSlider: document.getElementById("faceTiltSlider"),
+  faceTiltValue: document.getElementById("faceTiltValue"),
+  faceFaceSelect: document.getElementById("faceFaceSelect"),
+  faceFaceLabelInput: document.getElementById("faceFaceLabelInput"),
+  faceTextInput: document.getElementById("faceTextInput"),
+  faceTextFontInput: document.getElementById("faceTextFontInput"),
+  faceTextSizeInput: document.getElementById("faceTextSizeInput"),
+  faceTextColorInput: document.getElementById("faceTextColorInput"),
+  faceTextOutlineColorInput: document.getElementById("faceTextOutlineColorInput"),
+  faceTextOutlineWidthInput: document.getElementById("faceTextOutlineWidthInput"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
+  btnCropMode: document.getElementById("btnCropMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnApplyCropFilter: document.getElementById("btnApplyCropFilter"),
   btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
@@ -735,6 +758,26 @@ function lastTiltFromFilters(filters) {
   }
   return null;
 }
+function cssColorToU32(color, fallback = 4294967295) {
+  const s = String(color || "").trim();
+  const hex = s.match(/^#([0-9a-f]{6})$/i);
+  let r = 255, g = 255, b = 255;
+  if (hex) {
+    r = parseInt(hex[1].slice(0,2), 16);
+    g = parseInt(hex[1].slice(2,4), 16);
+    b = parseInt(hex[1].slice(4,6), 16);
+  } else {
+    const m = s.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if (m) {
+      r = Math.max(0, Math.min(255, Number(m[1])));
+      g = Math.max(0, Math.min(255, Number(m[2])));
+      b = Math.max(0, Math.min(255, Number(m[3])));
+    } else {
+      return fallback;
+    }
+  }
+  return ((255 << 24) | (r << 16) | (g << 8) | b) >>> 0;
+}
 
 function albumTokensForImage(picasa, imageName) {
   const tokens = [];
@@ -758,7 +801,12 @@ function serializePicasaInfo(picasa) {
     const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
     lines.push(`[${name}]`);
     if (meta.textOverlays?.length) {
-      const txt = meta.textOverlays.map((t) => `${t.enabled ? 1 : 0};${t.sizeCode || 128};${t.styleCode || 8};${t.caption};${t.fontFamily || "Arial"};${t.x},${t.y},${t.sizeRel},${t.rotation};v1,4294967295,4278190080,128.000000,1.000000,0.000000,1.000000,400,0,49152`).join(";;") + ";;";
+      const txt = meta.textOverlays.map((t) => {
+        const primary = cssColorToU32(t.colorPrimary, 4294967295);
+        const secondary = cssColorToU32(t.colorSecondary, 4278190080);
+        const outlineCode = (Math.max(0, Number(t.outlineWidth || 2)) * 64).toFixed(6);
+        return `${t.enabled ? 1 : 0};${t.sizeCode || 128};${t.styleCode || 8};${t.caption};${t.fontFamily || "Arial"};${t.x},${t.y},${t.sizeRel},${t.rotation};v1,${primary},${secondary},${outlineCode},1.000000,0.000000,1.000000,400,0,49152`;
+      }).join(";;") + ";;";
       lines.push(`text=${txt}`);
     } else if (meta.caption) lines.push(`text=1;128;8;${meta.caption};${meta.textOverlay?.fontFamily || "Arial"};${meta.textOverlay ? `${meta.textOverlay.x},${meta.textOverlay.y},${meta.textOverlay.sizeRel},${meta.textOverlay.rotation}` : ""};v1,4294967295,4278190080,128.000000,1.000000,0.000000,1.000000,400,0,49152;;`);
     if (meta.star) lines.push(`star=yes`);
@@ -789,7 +837,7 @@ function serializePicasaInfo(picasa) {
   }
   return lines.join("\n");
 }
-async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = []) {
+async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = [], textOverlays = null) {
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   if (!dirHandle) throw new Error("Missing directory handle for metadata save");
@@ -802,7 +850,10 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
     return { rect64: String(entry.rect64 || "0"), contactId, label };
   });
   const oldMeta = picasa.imageMeta.get(imageItem.name) || {};
-  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: oldMeta.textOverlay || null, textOverlays: oldMeta.textOverlays || [], star: !!star, filters: Array.isArray(filters) ? filters.slice() : [] });
+  const normalizedTextOverlays = Array.isArray(textOverlays)
+    ? textOverlays.filter((x) => x && String(x.caption || "").trim())
+    : (oldMeta.textOverlays || []);
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: Array.isArray(filters) ? filters.slice() : [] });
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
@@ -822,6 +873,7 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
 const faceEditor = {
   imageItem: null,
   faces: [],
+  activeFaceIdx: -1,
   draggingIdx: -1,
   dragMode: "move",
   dragOffsetX: 0,
@@ -831,8 +883,13 @@ const faceEditor = {
   displayW: 1,
   displayH: 1,
   cropRect64: "",
+  cropUiVisible: false,
   cropDragging: false,
   cropMode: "move",
+  textDragging: false,
+  textDragOffsetX: 0,
+  textDragOffsetY: 0,
+  textOverlay: null,
   filters: []
 };
 function rect64ToBox(rect64) {
@@ -854,8 +911,46 @@ function boxToRect64(box) {
   const clamp = (n) => Math.max(0, Math.min(1, n));
   return `gui:${clamp(box.x).toFixed(6)}|${clamp(box.y).toFixed(6)}|${clamp(box.w).toFixed(6)}|${clamp(box.h).toFixed(6)}`;
 }
-function syncFaceTextareaFromState() {
-  el.faceFacesInput.value = faceEditor.faces.map((f) => `${f.label}@${f.rect64}`).join("\n");
+function cssColorToHex(color, fallback = "#ffffff") {
+  const s = String(color || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(s)) return s;
+  const m = s.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!m) return fallback;
+  return `#${[m[1], m[2], m[3]].map((n)=>Math.max(0,Math.min(255,Number(n))).toString(16).padStart(2, "0")).join("")}`;
+}
+function syncFaceSelectFromState() {
+  el.faceFaceSelect.innerHTML = "";
+  if (!faceEditor.faces.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "(no faces)";
+    el.faceFaceSelect.appendChild(opt);
+    faceEditor.activeFaceIdx = -1;
+    el.faceFaceLabelInput.value = "";
+    return;
+  }
+  faceEditor.faces.forEach((face, idx) => {
+    const opt = document.createElement("option");
+    opt.value = String(idx);
+    opt.textContent = `${idx + 1}. ${face.label || "(unnamed)"}`;
+    el.faceFaceSelect.appendChild(opt);
+  });
+  if (faceEditor.activeFaceIdx < 0 || faceEditor.activeFaceIdx >= faceEditor.faces.length) faceEditor.activeFaceIdx = 0;
+  el.faceFaceSelect.value = String(faceEditor.activeFaceIdx);
+  el.faceFaceLabelInput.value = faceEditor.faces[faceEditor.activeFaceIdx]?.label || "";
+}
+function updateTextOverlayFromInputs() {
+  if (!faceEditor.textOverlay) faceEditor.textOverlay = { enabled: true, caption: "", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 2 };
+  const t = faceEditor.textOverlay;
+  t.enabled = true;
+  t.caption = String(el.faceTextInput.value || "");
+  t.fontFamily = String(el.faceTextFontInput.value || "Arial").trim() || "Arial";
+  const sizePx = Math.max(8, Number(el.faceTextSizeInput.value || "36") || 36);
+  t.sizeCode = Math.round(sizePx * 6);
+  t.sizeRel = Math.max(0.02, Math.min(0.4, sizePx / 900));
+  t.colorPrimary = el.faceTextColorInput.value || "#ffffff";
+  t.colorSecondary = el.faceTextOutlineColorInput.value || "#000000";
+  t.outlineWidth = Math.max(0, Number(el.faceTextOutlineWidthInput.value || "2") || 0);
 }
 
 function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
@@ -873,12 +968,12 @@ function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
 }
 
 function renderFaceRects() {
-  el.faceCanvasWrap.querySelectorAll('.faceRect, .cropRect').forEach((n) => n.remove());
+  el.faceCanvasWrap.querySelectorAll('.faceRect, .cropRect, .editorTextBox').forEach((n) => n.remove());
   const r = el.faceCanvasImg.getBoundingClientRect();
   const p = el.faceCanvasWrap.getBoundingClientRect();
   faceEditor.displayW = r.width; faceEditor.displayH = r.height;
   const offsetX = r.left - p.left; const offsetY = r.top - p.top;
-  if (faceEditor.cropRect64) {
+  if (faceEditor.cropUiVisible && faceEditor.cropRect64) {
     const cb = rect64ToBox(faceEditor.cropRect64);
     const c = document.createElement('div');
     c.className = "cropRect";
@@ -895,34 +990,71 @@ function renderFaceRects() {
   }
 
   faceEditor.faces.forEach((face, idx) => {
+    if (idx !== faceEditor.activeFaceIdx) return;
     const b = rect64ToBox(face.rect64);
     const div = document.createElement('div');
-    div.className = 'faceRect';
+    div.className = 'faceRect active';
     div.style.left = `${offsetX + b.x * r.width}px`;
     div.style.top = `${offsetY + b.y * r.height}px`;
     div.style.width = `${Math.max(12, b.w * r.width)}px`;
     div.style.height = `${Math.max(12, b.h * r.height)}px`;
     div.title = `${face.label} (${face.rect64})`;
-    div.onpointerdown = (ev) => { beginEditorDrag(ev, "face", idx, "move"); el.faceEditorStatus.textContent = `Dragging ${face.label}`; };
+    div.onpointerdown = (ev) => { faceEditor.activeFaceIdx = idx; syncFaceSelectFromState(); beginEditorDrag(ev, "face", idx, "move"); el.faceEditorStatus.textContent = `Dragging ${face.label}`; };
     const h = document.createElement('div');
     h.className = 'faceRectHandle';
     h.onpointerdown = (ev) => { ev.stopPropagation(); beginEditorDrag(ev, "face", idx, "resize"); el.faceEditorStatus.textContent = `Resizing ${face.label}`; };
     div.appendChild(h);
     el.faceCanvasWrap.appendChild(div);
   });
-  syncFaceTextareaFromState();
+  if (faceEditor.textOverlay?.caption) {
+    const t = faceEditor.textOverlay;
+    const box = document.createElement("div");
+    box.className = "editorTextBox active";
+    box.textContent = t.caption;
+    box.style.left = `${offsetX + Math.max(0, Math.min(1, t.x || 0.08)) * r.width}px`;
+    box.style.top = `${offsetY + Math.max(0, Math.min(1, t.y || 0.08)) * r.height}px`;
+    box.style.fontFamily = t.fontFamily || "Arial";
+    const fontPx = Math.max(8, Number(el.faceTextSizeInput.value || "36") || 36);
+    box.style.fontSize = `${fontPx}px`;
+    box.style.color = t.colorPrimary || "#ffffff";
+    box.style.webkitTextStroke = `${Math.max(0, t.outlineWidth || 0)}px ${t.colorSecondary || "#000"}`;
+    box.onpointerdown = (ev) => {
+      ev.preventDefault();
+      faceEditor.textDragging = true;
+      faceEditor.textDragOffsetX = ev.offsetX ?? 0;
+      faceEditor.textDragOffsetY = ev.offsetY ?? 0;
+    };
+    el.faceCanvasWrap.appendChild(box);
+  }
 }
 function openFaceEditor(imageItem) {
   faceEditor.imageItem = imageItem;
   faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
+  faceEditor.activeFaceIdx = faceEditor.faces.length ? 0 : -1;
   el.faceCaptionInput.value = imageItem.caption || '';
   faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
+  faceEditor.cropUiVisible = false;
   el.faceCropInput.value = faceEditor.cropRect64;
+  el.faceCropRow.classList.add("hidden");
+  el.btnApplyCropFilter.classList.add("hidden");
+  el.btnCropMode.textContent = "Crop";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   el.faceStarInput.checked = !!imageItem.star;
   faceEditor.filters = Array.isArray(imageItem.filters) ? imageItem.filters.slice() : [];
   const tiltVal = lastTiltFromFilters(faceEditor.filters);
-  el.faceTiltInput.value = Number.isFinite(tiltVal) ? tiltVal.toFixed(6) : "1.000000";
+  const safeTilt = Number.isFinite(tiltVal) ? Math.max(-1, Math.min(1, tiltVal)) : 0;
+  el.faceTiltSlider.value = safeTilt.toFixed(2);
+  el.faceTiltValue.textContent = safeTilt.toFixed(2);
+  el.faceCanvasImg.style.transform = `rotate(${(safeTilt * 15).toFixed(2)}deg)`;
+  faceEditor.textOverlay = (imageItem.textOverlays && imageItem.textOverlays[0]) || imageItem.textOverlay || { enabled: true, caption: imageItem.caption || "", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 2 };
+  el.faceTextInput.value = faceEditor.textOverlay.caption || "";
+  el.faceTextFontInput.value = faceEditor.textOverlay.fontFamily || "Arial";
+  const initialSizePx = Math.max(8, Math.round(((faceEditor.textOverlay.sizeCode || 128) / 6) || ((faceEditor.textOverlay.sizeRel || 0.04) * 220)));
+  el.faceTextSizeInput.value = String(initialSizePx);
+  el.faceTextColorInput.value = cssColorToHex(faceEditor.textOverlay.colorPrimary, "#ffffff");
+  el.faceTextOutlineColorInput.value = cssColorToHex(faceEditor.textOverlay.colorSecondary, "#000000");
+  el.faceTextOutlineWidthInput.value = String(Math.max(0, Number(faceEditor.textOverlay.outlineWidth || 2) || 0));
+  syncFaceSelectFromState();
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   Promise.resolve(dirHandle ? getPicasaMetaForFolder(relDir, dirHandle) : null).then((picasa) => {
@@ -943,9 +1075,11 @@ function openFaceEditor(imageItem) {
 function closeFaceEditor() {
   el.faceEditorOverlay.classList.remove('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'true');
+  el.faceCanvasImg.style.transform = "";
   faceEditor.draggingIdx = -1;
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
+  faceEditor.textDragging = false;
 }
 async function editImageMetadata(imageItem) {
   const captionInput = window.prompt("Caption", imageItem.caption || "");
@@ -1022,7 +1156,7 @@ function parseColorU32ToCss(v) {
 }
 
 function parseOneTextOverlayChunk(chunk) {
-  const parts = String(textValue || "").split(";");
+  const parts = String(chunk || "").split(";");
   const enabled = String(parts[0] || "1").trim() !== "0";
   const sizeCode = Number(parts[1] || "0");
   const styleCode = Number(parts[2] || "0");
@@ -1040,7 +1174,7 @@ function parseOneTextOverlayChunk(chunk) {
   const opacityHint = Number(style[3]);
 
   return {
-    raw: String(textValue || ""),
+    raw: String(chunk || ""),
     enabled,
     sizeCode,
     styleCode,
@@ -1052,7 +1186,8 @@ function parseOneTextOverlayChunk(chunk) {
     rotation,
     colorPrimary,
     colorSecondary,
-    opacityHint
+    opacityHint,
+    outlineWidth: Number.isFinite(opacityHint) ? Math.max(0, Math.min(12, opacityHint / 64)) : 2
   };
 }
 
@@ -1585,6 +1720,7 @@ async function renderTiles(images) {
         const tileSizeCode = Number.isFinite(it.textOverlay.sizeCode) && it.textOverlay.sizeCode > 0 ? Math.max(10, it.textOverlay.sizeCode / 6) : 0;
         t.style.fontSize = `${Math.max(tileSizeCode, Math.max(10, (it.textOverlay.sizeRel || 0.04) * 220))}px`;
         t.style.color = it.textOverlay.colorPrimary || "#fff";
+        t.style.webkitTextStroke = `${Math.max(0, it.textOverlay.outlineWidth || 0)}px ${it.textOverlay.colorSecondary || "#000"}`;
         imgWrap.appendChild(t);
       }
       tile.appendChild(imgWrap);
@@ -1677,6 +1813,7 @@ async function updateSlide() {
     const sizeFromRel = Math.max(16, (chosen.sizeRel || 0.04) * Math.max(300, el.slideImg.clientWidth || 300));
     el.slideTextOverlay.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
     el.slideTextOverlay.style.color = chosen.colorPrimary || "#fff";
+    el.slideTextOverlay.style.webkitTextStroke = `${Math.max(0, chosen.outlineWidth || 0)}px ${chosen.colorSecondary || "#000"}`;
     el.slideTextOverlay.style.transform = `translate(-50%, -50%) rotate(${(chosen.rotation || 0) * 360}deg)`;
     el.slideTextOverlay.style.display = "block";
     }
@@ -1850,18 +1987,52 @@ el.btnFaceCancel.onclick = closeFaceEditor;
 el.faceEditorOverlay.addEventListener("click", (ev) => {
   if (ev.target === el.faceEditorOverlay) closeFaceEditor();
 });
+el.btnCropMode.onclick = () => {
+  faceEditor.cropUiVisible = !faceEditor.cropUiVisible;
+  el.faceCropRow.classList.toggle("hidden", !faceEditor.cropUiVisible);
+  el.btnApplyCropFilter.classList.toggle("hidden", !faceEditor.cropUiVisible);
+  el.btnCropMode.textContent = faceEditor.cropUiVisible ? "Hide crop" : "Crop";
+  renderFaceRects();
+};
 el.btnApplyCropFilter.onclick = () => {
-  const c = String(el.faceCropInput.value || "").trim();
+  const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
   faceEditor.filters.push(`crop64=1,${c}`);
   el.faceEditorStatus.textContent = `Applied filter: crop64 (${faceEditor.filters.length})`;
 };
 el.btnApplyTiltFilter.onclick = () => {
-  const t = Number(el.faceTiltInput.value || "0");
+  const t = Number(el.faceTiltSlider.value || "0");
   if (!Number.isFinite(t)) return;
   faceEditor.filters.push(`tilt=1,${t.toFixed(6)},0.000000`);
   el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
 };
+el.faceTiltSlider.oninput = () => {
+  const t = Number(el.faceTiltSlider.value || "0");
+  el.faceTiltValue.textContent = Number.isFinite(t) ? t.toFixed(2) : "0.00";
+  el.faceCanvasImg.style.transform = `rotate(${((Number.isFinite(t) ? t : 0) * 15).toFixed(2)}deg)`;
+};
+el.faceFaceSelect.onchange = () => {
+  faceEditor.activeFaceIdx = Number(el.faceFaceSelect.value || "-1");
+  el.faceFaceLabelInput.value = faceEditor.faces[faceEditor.activeFaceIdx]?.label || "";
+  renderFaceRects();
+};
+el.faceFaceLabelInput.oninput = () => {
+  const idx = faceEditor.activeFaceIdx;
+  if (idx < 0 || !faceEditor.faces[idx]) return;
+  faceEditor.faces[idx].label = el.faceFaceLabelInput.value;
+  syncFaceSelectFromState();
+};
+[
+  el.faceTextInput,
+  el.faceTextFontInput,
+  el.faceTextSizeInput,
+  el.faceTextColorInput,
+  el.faceTextOutlineColorInput,
+  el.faceTextOutlineWidthInput
+].forEach((node) => node.addEventListener("input", () => {
+  updateTextOverlayFromInputs();
+  renderFaceRects();
+}));
 el.btnUndoFilter.onclick = () => {
   const removed = faceEditor.filters.pop();
   el.faceEditorStatus.textContent = removed ? `Undo filter: ${removed}` : 'No filter to undo';
@@ -1871,10 +2042,12 @@ el.btnFaceAdd.onclick = () => {
   const label = window.prompt("Face label", "New person");
   if (!label) return;
   faceEditor.faces.push({ label: label.trim(), rect64: "gui:0.1|0.1|0.2|0.2" });
+  faceEditor.activeFaceIdx = faceEditor.faces.length - 1;
+  syncFaceSelectFromState();
   renderFaceRects();
 };
 el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
-  if (faceEditor.draggingIdx < 0 && !faceEditor.cropDragging) return;
+  if (faceEditor.draggingIdx < 0 && !faceEditor.cropDragging && !faceEditor.textDragging) return;
   const r = el.faceCanvasImg.getBoundingClientRect();
   const p = el.faceCanvasWrap.getBoundingClientRect();
   if (faceEditor.cropDragging) {
@@ -1896,8 +2069,18 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
     renderFaceRects();
     return;
   }
+  if (faceEditor.textDragging && faceEditor.textOverlay) {
+    const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.textDragOffsetX;
+    const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.textDragOffsetY;
+    faceEditor.textOverlay.x = Math.max(0, Math.min(r.width - 24, xPx)) / Math.max(1, r.width);
+    faceEditor.textOverlay.y = Math.max(0, Math.min(r.height - 18, yPx)) / Math.max(1, r.height);
+    renderFaceRects();
+    return;
+  }
 
+  if (faceEditor.draggingIdx < 0) return;
   const cur = faceEditor.faces[faceEditor.draggingIdx];
+  if (!cur) return;
   const b = rect64ToBox(cur.rect64);
   if (faceEditor.dragMode === "resize") {
     const rightPx = ev.clientX - p.left - (r.left - p.left);
@@ -1917,15 +2100,19 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
 window.addEventListener('pointerup', () => { faceEditor.draggingIdx = -1;
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
-  faceEditor.cropMode = "move"; });
+  faceEditor.cropMode = "move";
+  faceEditor.textDragging = false;
+});
 el.btnFaceSave.onclick = async () => {
   if (!faceEditor.imageItem) return;
   try {
     const caption = el.faceCaptionInput.value.trim();
     const albumTokens = el.faceAlbumsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
     const keywords = el.faceKeywordsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
-    const faceEntries = parseFaceEntriesInput(el.faceFacesInput.value, faceEditor.faces.length ? faceEditor.faces : []);
-    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, el.faceCropInput.value.trim(), keywords, el.faceStarInput.checked, faceEditor.filters);
+    updateTextOverlayFromInputs();
+    const faceEntries = faceEditor.faces.slice();
+    const textOverlays = faceEditor.textOverlay?.caption ? [faceEditor.textOverlay] : [];
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, el.faceStarInput.checked, faceEditor.filters, textOverlays);
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
     setStatus('Saved caption/faces/crop/albums/tags to .picasa.info', 'ok');
