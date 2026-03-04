@@ -103,6 +103,7 @@
     <button id="btnPickPmp">Open PMP Import Folder</button>
     <button id="btnExport" disabled>Export IndexedDB Library</button>
     <button id="btnReload" disabled>Reload PMP</button>
+    <button id="btnSettings">Settings</button>
     <span class="pill" id="pillState">No library selected</span>
     <span class="pill mono" id="pillInfo"></span>
   </header>
@@ -187,6 +188,28 @@
       </div>
     </div>
   </div>
+
+  <div class="overlay" id="settingsOverlay" aria-hidden="true">
+    <div class="faceEditorBox" style="grid-template-columns:1fr; max-width:640px; height:auto;">
+      <div class="faceEditorSide">
+        <div><b>Metadata settings</b></div>
+        <label>Read caption preference
+          <select id="selReadCaptionPref"><option value="ini">.ini/.info first</option><option value="iptc">IPTC first</option></select>
+        </label>
+        <label>Read keywords preference
+          <select id="selReadKeywordsPref"><option value="ini">.ini/.info first</option><option value="iptc">IPTC first</option></select>
+        </label>
+        <label>Save caption preference
+          <select id="selWriteCaptionPref"><option value="ini">.ini/.info</option><option value="iptc">IPTC (fallback to .ini/.info)</option></select>
+        </label>
+        <label>Save keywords preference
+          <select id="selWriteKeywordsPref"><option value="ini">.ini/.info</option><option value="iptc">IPTC (fallback to .ini/.info)</option></select>
+        </label>
+        <div style="display:flex; gap:8px;"><button id="btnSettingsSave">Save settings</button><button id="btnSettingsClose">Close</button></div>
+      </div>
+    </div>
+  </div>
+
 <script>
 /** ===========================
  *  Helpers: path + file types
@@ -572,7 +595,8 @@ const state = {
   currentViewMode: "albums",
   activeListIndex: -1,
   libraryId: "default",
-  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true }
+  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true },
+  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini" }
 };
 /** ===========================
  *  UI elements
@@ -582,6 +606,7 @@ const el = {
   btnPickPmp: document.getElementById("btnPickPmp"),
   btnExport: document.getElementById("btnExport"),
   btnReload: document.getElementById("btnReload"),
+  btnSettings: document.getElementById("btnSettings"),
   btnViewAlbums: document.getElementById("btnViewAlbums"),
   btnViewFolders: document.getElementById("btnViewFolders"),
   pillState: document.getElementById("pillState"),
@@ -625,6 +650,13 @@ const el = {
   btnUndoFilter: document.getElementById("btnUndoFilter"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
+  settingsOverlay: document.getElementById("settingsOverlay"),
+  selReadCaptionPref: document.getElementById("selReadCaptionPref"),
+  selReadKeywordsPref: document.getElementById("selReadKeywordsPref"),
+  selWriteCaptionPref: document.getElementById("selWriteCaptionPref"),
+  selWriteKeywordsPref: document.getElementById("selWriteKeywordsPref"),
+  btnSettingsSave: document.getElementById("btnSettingsSave"),
+  btnSettingsClose: document.getElementById("btnSettingsClose"),
 };
 function setStatus(msg, cls = "") {
   el.mainStatus.className = "status " + cls;
