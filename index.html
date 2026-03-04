@@ -149,6 +149,7 @@
           <button id="btnToggleFaces">Faces: On</button>
           <button id="btnToggleCrop">Crop: On</button>
           <button id="btnToggleText">Text: On</button>
+          <button id="btnToggleStar">Star: Off</button>
           <button id="btnClose">Close (Esc)</button>
         </div>
       </div>
@@ -171,9 +172,14 @@
         <label>Album tokens (comma)<input id="faceAlbumsInput" type="text"></label>
         <label>Crop rect64<input id="faceCropInput" type="text"></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
+        <label><input id="faceStarInput" type="checkbox"> Starred</label>
+        <label>Tilt value<input id="faceTiltInput" type="number" step="0.01" value="1.000000"></label>
         <label>Faces (one per line: label@rect64)<textarea id="faceFacesInput" rows="6"></textarea></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnFaceAdd">Add face rectangle</button>
+          <button id="btnApplyCropFilter">Apply crop filter</button>
+          <button id="btnApplyTiltFilter">Apply tilt filter</button>
+          <button id="btnUndoFilter">Undo filter</button>
           <button id="btnFaceSave">Save</button>
           <button id="btnFaceCancel">Cancel</button>
         </div>
@@ -598,6 +604,7 @@ const el = {
   btnToggleFaces: document.getElementById("btnToggleFaces"),
   btnToggleCrop: document.getElementById("btnToggleCrop"),
   btnToggleText: document.getElementById("btnToggleText"),
+  btnToggleStar: document.getElementById("btnToggleStar"),
   slideFaceLayer: document.getElementById("slideFaceLayer"),
   slideTextOverlay: document.getElementById("slideTextOverlay"),
   slideAlbums: document.getElementById("slideAlbums"),
@@ -608,9 +615,14 @@ const el = {
   faceAlbumsInput: document.getElementById("faceAlbumsInput"),
   faceCropInput: document.getElementById("faceCropInput"),
   faceKeywordsInput: document.getElementById("faceKeywordsInput"),
+  faceStarInput: document.getElementById("faceStarInput"),
+  faceTiltInput: document.getElementById("faceTiltInput"),
   faceFacesInput: document.getElementById("faceFacesInput"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
+  btnApplyCropFilter: document.getElementById("btnApplyCropFilter"),
+  btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
+  btnUndoFilter: document.getElementById("btnUndoFilter"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
 };
@@ -674,6 +686,24 @@ function parseFaceEntriesInput(rawInput, existingFaces = []) {
   }
   return out;
 }
+function parseFiltersValue(val) {
+  return String(val || "").split(";").map((x) => x.trim()).filter(Boolean);
+}
+function lastCropFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const m = String(filters[i]).match(/^crop64=1,([0-9a-f]+)$/i);
+    if (m) return m[1];
+  }
+  return "";
+}
+function lastTiltFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const m = String(filters[i]).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+
 function albumTokensForImage(picasa, imageName) {
   const tokens = [];
   for (const [token, members] of picasa.membersByToken.entries()) {
@@ -693,9 +723,14 @@ function serializePicasaInfo(picasa) {
     }
   }
   for (const name of imageNames) {
-    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, keywords: [] };
+    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
     lines.push(`[${name}]`);
-    if (meta.caption) lines.push(`text=1;128;8;${meta.caption};${meta.textOverlay?.fontFamily || "Arial"};${meta.textOverlay ? `${meta.textOverlay.x},${meta.textOverlay.y},${meta.textOverlay.sizeRel},${meta.textOverlay.rotation}` : ""};v1,4294967295,4278190080,128.000000,1.000000,0.000000,1.000000,400,0,49152;;`);
+    if (meta.textOverlays?.length) {
+      const txt = meta.textOverlays.map((t) => `${t.enabled ? 1 : 0};${t.sizeCode || 128};${t.styleCode || 8};${t.caption};${t.fontFamily || "Arial"};${t.x},${t.y},${t.sizeRel},${t.rotation};v1,4294967295,4278190080,128.000000,1.000000,0.000000,1.000000,400,0,49152`).join(";;") + ";;";
+      lines.push(`text=${txt}`);
+    } else if (meta.caption) lines.push(`text=1;128;8;${meta.caption};${meta.textOverlay?.fontFamily || "Arial"};${meta.textOverlay ? `${meta.textOverlay.x},${meta.textOverlay.y},${meta.textOverlay.sizeRel},${meta.textOverlay.rotation}` : ""};v1,4294967295,4278190080,128.000000,1.000000,0.000000,1.000000,400,0,49152;;`);
+    if (meta.star) lines.push(`star=yes`);
+    if ((meta.filters || []).length) lines.push(`filters=${meta.filters.join(";")};`);
     if (meta.cropRect64) lines.push(`crop=rect64(${meta.cropRect64})`);
     if ((meta.keywords || []).length) lines.push(`keywords=${meta.keywords.join(",")}`);
     if ((meta.faces || []).length) {
@@ -722,7 +757,7 @@ function serializePicasaInfo(picasa) {
   }
   return lines.join("\n");
 }
-async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = []) {
+async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = []) {
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   if (!dirHandle) throw new Error("Missing directory handle for metadata save");
@@ -735,7 +770,7 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
     return { rect64: String(entry.rect64 || "0"), contactId, label };
   });
   const oldMeta = picasa.imageMeta.get(imageItem.name) || {};
-  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: oldMeta.textOverlay || null });
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: oldMeta.textOverlay || null, textOverlays: oldMeta.textOverlays || [], star: !!star, filters: Array.isArray(filters) ? filters.slice() : [] });
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
@@ -765,7 +800,8 @@ const faceEditor = {
   displayH: 1,
   cropRect64: "",
   cropDragging: false,
-  cropMode: "move"
+  cropMode: "move",
+  filters: []
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
@@ -851,6 +887,10 @@ function openFaceEditor(imageItem) {
   faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
   el.faceCropInput.value = faceEditor.cropRect64;
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
+  el.faceStarInput.checked = !!imageItem.star;
+  faceEditor.filters = Array.isArray(imageItem.filters) ? imageItem.filters.slice() : [];
+  const tiltVal = lastTiltFromFilters(faceEditor.filters);
+  el.faceTiltInput.value = Number.isFinite(tiltVal) ? tiltVal.toFixed(6) : "1.000000";
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   Promise.resolve(dirHandle ? getPicasaMetaForFolder(relDir, dirHandle) : null).then((picasa) => {
@@ -949,7 +989,7 @@ function parseColorU32ToCss(v) {
   return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, a)).toFixed(3)})`;
 }
 
-function parseTextOverlay(textValue) {
+function parseOneTextOverlayChunk(chunk) {
   const parts = String(textValue || "").split(";");
   const enabled = String(parts[0] || "1").trim() !== "0";
   const sizeCode = Number(parts[1] || "0");
@@ -984,8 +1024,18 @@ function parseTextOverlay(textValue) {
   };
 }
 
+function parseTextOverlays(textValue) {
+  const src = String(textValue || "");
+  const chunks = src.split(";;").map((x)=>x.trim()).filter(Boolean);
+  const out = chunks.map(parseOneTextOverlayChunk).filter((x) => x && x.caption);
+  if (out.length) return out;
+  const one = parseOneTextOverlayChunk(src);
+  return one && one.caption ? [one] : [];
+}
+
 function parseCaptionText(textValue) {
-  return parseTextOverlay(textValue).caption;
+  const overlays = parseTextOverlays(textValue);
+  return overlays.length ? overlays[0].caption : "";
 }
 function parseFacesValue(facesValue, contacts) {
   const out = [];
@@ -1057,7 +1107,7 @@ function parsePicasaIni(content) {
       if (token) albumNamesByToken.set(token, name || token);
       continue;
     }
-    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, keywords: [] };
+    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
     for (const line of lines) {
       const idx = line.indexOf("=");
       if (idx <= 0) continue;
@@ -1071,15 +1121,23 @@ function parsePicasaIni(content) {
       } else if (key === "faces") {
         meta.faces = parseFacesValue(val, contacts);
       } else if (key === "text") {
-        const t = parseTextOverlay(val);
-        meta.caption = t.caption;
-        meta.textOverlay = t;
+        const overlays = parseTextOverlays(val);
+        meta.textOverlays = overlays;
+        if (overlays.length) { meta.caption = overlays[0].caption; meta.textOverlay = overlays[0]; }
+      } else if (key === "filters") {
+        meta.filters = parseFiltersValue(val);
+      } else if (key === "star") {
+        meta.star = /^yes|1|true$/i.test(val);
       } else if (key === "crop") {
         const m = val.match(/^rect64\(([^)]+)\)$/i);
         meta.cropRect64 = m ? m[1].trim() : String(val || "").trim();
       } else if (key === "keywords" || key === "iptc") {
         meta.keywords = String(val || "").split(",").map((x)=>x.trim()).filter(Boolean);
       }
+    }
+    if (!meta.cropRect64) {
+      const cf = lastCropFromFilters(meta.filters);
+      if (cf) meta.cropRect64 = cf;
     }
     imageMeta.set(sec, meta);
   }
@@ -1403,7 +1461,7 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
     if (handle.kind === "file" && isImageName(name)) {
       if (members && !members.has(name)) continue;
       const file = await handle.getFile();
-      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, keywords: [] };
+      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
       const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
       const iptcKeywords = iniKeywords.length ? [] : await extractIptcKeywordsFromFile(file);
       const mergedKeywords = Array.from(new Set([...iniKeywords, ...iptcKeywords]));
@@ -1426,9 +1484,12 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
         faces: meta.faces || [],
         cropRect64: meta.cropRect64 || "",
         textOverlay: meta.textOverlay || null,
+        textOverlays: meta.textOverlays || (meta.textOverlay ? [meta.textOverlay] : []),
         albumTokens,
         albumNames,
-        keywords: mergedKeywords
+        keywords: mergedKeywords,
+        star: !!meta.star,
+        filters: meta.filters || []
       });
     }
   }
@@ -1463,7 +1524,7 @@ async function renderTiles(images) {
       const cap = document.createElement("div");
       cap.className = "caption";
       const faceNames = (it.faces || []).map((f) => f.label).filter(Boolean);
-      cap.textContent = it.caption || it.name;
+      cap.textContent = `${it.star ? "★ " : ""}${it.caption || it.name}`;
       if (faceNames.length) cap.title = `Faces: ${faceNames.join(", ")}`;
       const row = document.createElement("div");
       row.className = "tileMetaRow";
@@ -1562,7 +1623,8 @@ async function updateSlide() {
   const caption = it.caption ? ` | caption: ${it.caption}` : "";
   const faceText = faces.length ? ` | faces: ${faces.join(", ")}` : "";
   const tagText = (it.keywords || []).length ? ` | tags: ${(it.keywords || []).join(", ")}` : "";
-  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}${tagText}`;
+  const starText = it.star ? " | ★ starred" : "";
+  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}${tagText}${starText}`;
   if ((it.albumTokens || []).length) {
     el.slideAlbums.innerHTML = `Albums: ` + it.albumTokens.map((tok, i) => `<a href="#" data-token="${tok}" class="mono">${it.albumNames?.[i] || tok}</a>`).join(" | ");
     el.slideAlbums.querySelectorAll("a[data-token]").forEach((a) => {
@@ -1571,23 +1633,28 @@ async function updateSlide() {
   } else {
     el.slideAlbums.textContent = "Albums: (none)";
   }
-  if (state.slideshow.showText && it.textOverlay?.caption && it.textOverlay.enabled) {
-    el.slideTextOverlay.textContent = it.textOverlay.caption;
-    el.slideTextOverlay.style.left = `${Math.max(0, Math.min(1, it.textOverlay.x || 0.08)) * 100}%`;
-    el.slideTextOverlay.style.top = `${Math.max(0, Math.min(1, it.textOverlay.y || 0.08)) * 100}%`;
-    el.slideTextOverlay.style.fontFamily = it.textOverlay.fontFamily || "Arial";
-    const sizeFromCode = Number.isFinite(it.textOverlay.sizeCode) && it.textOverlay.sizeCode > 0 ? Math.max(10, it.textOverlay.sizeCode / 4) : 0;
-    const sizeFromRel = Math.max(16, (it.textOverlay.sizeRel || 0.04) * Math.max(300, el.slideImg.clientWidth || 300));
+  if (state.slideshow.showText && (it.textOverlays || []).length) {
+    const activeText = (it.textOverlays || []).filter((t) => t.enabled !== false);
+    const chosen = activeText.length ? activeText[0] : it.textOverlay;
+    if (!chosen) { el.slideTextOverlay.style.display = "none"; } else {
+    el.slideTextOverlay.textContent = chosen.caption;
+    el.slideTextOverlay.style.left = `${Math.max(0, Math.min(1, chosen.x || 0.08)) * 100}%`;
+    el.slideTextOverlay.style.top = `${Math.max(0, Math.min(1, chosen.y || 0.08)) * 100}%`;
+    el.slideTextOverlay.style.fontFamily = chosen.fontFamily || "Arial";
+    const sizeFromCode = Number.isFinite(chosen.sizeCode) && chosen.sizeCode > 0 ? Math.max(10, chosen.sizeCode / 4) : 0;
+    const sizeFromRel = Math.max(16, (chosen.sizeRel || 0.04) * Math.max(300, el.slideImg.clientWidth || 300));
     el.slideTextOverlay.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
-    el.slideTextOverlay.style.color = it.textOverlay.colorPrimary || "#fff";
-    el.slideTextOverlay.style.transform = `translate(-50%, -50%) rotate(${(it.textOverlay.rotation || 0) * 360}deg)`;
+    el.slideTextOverlay.style.color = chosen.colorPrimary || "#fff";
+    el.slideTextOverlay.style.transform = `translate(-50%, -50%) rotate(${(chosen.rotation || 0) * 360}deg)`;
     el.slideTextOverlay.style.display = "block";
+    }
   } else {
     el.slideTextOverlay.style.display = "none";
   }
   el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
   el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
   el.btnToggleText.textContent = state.slideshow.showText ? "Text: On" : "Text: Off";
+  el.btnToggleStar.textContent = it.star ? "Star: On" : "Star: Off";
   // Prefetch next/prev (browser cache will handle blob URLs fine)
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
@@ -1724,6 +1791,17 @@ el.btnPlay.onclick = togglePlay;
 el.btnToggleFaces.onclick = () => { state.slideshow.showFaces = !state.slideshow.showFaces; updateSlide(); };
 el.btnToggleCrop.onclick = () => { state.slideshow.showCrop = !state.slideshow.showCrop; updateSlide(); };
 el.btnToggleText.onclick = () => { state.slideshow.showText = !state.slideshow.showText; updateSlide(); };
+el.btnToggleStar.onclick = async () => {
+  const it = state.currentImages[state.slideshow.index];
+  if (!it) return;
+  it.star = !it.star;
+  try {
+    await savePicasaInfoForImage(it, it.caption || "", it.faces || [], it.albumTokens || [], it.cropRect64 || "", it.keywords || [], it.star, it.filters || []);
+    updateSlide();
+  } catch (e) {
+    setStatus(`Failed to toggle star: ${String(e?.message || e)}`, "err");
+  }
+};
 // Keyboard controls
 window.addEventListener("keydown", (ev) => {
   if (!state.slideshow.open) return;
@@ -1740,6 +1818,23 @@ el.btnFaceCancel.onclick = closeFaceEditor;
 el.faceEditorOverlay.addEventListener("click", (ev) => {
   if (ev.target === el.faceEditorOverlay) closeFaceEditor();
 });
+el.btnApplyCropFilter.onclick = () => {
+  const c = String(el.faceCropInput.value || "").trim();
+  if (!c) return;
+  faceEditor.filters.push(`crop64=1,${c}`);
+  el.faceEditorStatus.textContent = `Applied filter: crop64 (${faceEditor.filters.length})`;
+};
+el.btnApplyTiltFilter.onclick = () => {
+  const t = Number(el.faceTiltInput.value || "0");
+  if (!Number.isFinite(t)) return;
+  faceEditor.filters.push(`tilt=1,${t.toFixed(6)},0.000000`);
+  el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
+};
+el.btnUndoFilter.onclick = () => {
+  const removed = faceEditor.filters.pop();
+  el.faceEditorStatus.textContent = removed ? `Undo filter: ${removed}` : 'No filter to undo';
+};
+
 el.btnFaceAdd.onclick = () => {
   const label = window.prompt("Face label", "New person");
   if (!label) return;
@@ -1798,7 +1893,7 @@ el.btnFaceSave.onclick = async () => {
     const albumTokens = el.faceAlbumsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
     const keywords = el.faceKeywordsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
     const faceEntries = parseFaceEntriesInput(el.faceFacesInput.value, faceEditor.faces.length ? faceEditor.faces : []);
-    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, el.faceCropInput.value.trim(), keywords);
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, el.faceCropInput.value.trim(), keywords, el.faceStarInput.checked, faceEditor.filters);
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
     setStatus('Saved caption/faces/crop/albums/tags to .picasa.info', 'ok');
