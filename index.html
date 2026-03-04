@@ -450,22 +450,66 @@ function txDone(tx) {
   });
 }
 async function saveLibrarySnapshot(snapshot) {
-  const db = await openLibraryDB();
-  const tx = db.transaction([STORES.libraries, STORES.albums, STORES.folders], "readwrite");
-  const libraries = tx.objectStore(STORES.libraries);
-  const albums = tx.objectStore(STORES.albums);
-  const folders = tx.objectStore(STORES.folders);
-  libraries.put({
-    id: snapshot.libraryId,
-    label: snapshot.label,
-    savedAt: Date.now(),
-    rootName: snapshot.rootName,
-    stats: snapshot.stats
+  const libraryId = String(snapshot?.libraryId || snapshot?.id || state.libraryId || "default").trim() || "default";
+  const rawAlbums = Array.isArray(snapshot?.albums) ? snapshot.albums : [];
+  const rawFolders = Array.isArray(snapshot?.folders) ? snapshot.folders : [];
+  const albumsNorm = rawAlbums.map((album, idx) => {
+    const token = String(album?.token || "").trim();
+    const pathRel = String(album?.pathRel || "").trim();
+    const fallbackId = `album:${libraryId}:${token || pathRel || idx}`;
+    const id = String(album?.id || fallbackId).trim() || fallbackId;
+    return { ...album, id, libraryId };
   });
-  for (const album of snapshot.albums) albums.put(album);
-  for (const folder of snapshot.folders) folders.put(folder);
-  await txDone(tx);
-  db.close();
+  const foldersNorm = rawFolders.map((folder, idx) => {
+    const pathRel = String(folder?.pathRel || "").trim();
+    const fallbackId = `folder:${libraryId}:${pathRel || idx}`;
+    const id = String(folder?.id || fallbackId).trim() || fallbackId;
+    return { ...folder, id, libraryId };
+  });
+
+  console.log("[saveLibrarySnapshot] begin", {
+    libraryId,
+    albums: albumsNorm.length,
+    folders: foldersNorm.length,
+    snapshotKeys: Object.keys(snapshot || {})
+  });
+
+  const badAlbum = albumsNorm.find((a) => !a.id);
+  const badFolder = foldersNorm.find((f) => !f.id);
+  if (badAlbum || badFolder) {
+    console.log("[saveLibrarySnapshot] invalid normalized entries", { badAlbum, badFolder });
+  }
+
+  const db = await openLibraryDB();
+  try {
+    const tx = db.transaction([STORES.libraries, STORES.albums, STORES.folders], "readwrite");
+    const libraries = tx.objectStore(STORES.libraries);
+    const albums = tx.objectStore(STORES.albums);
+    const folders = tx.objectStore(STORES.folders);
+    const libraryRow = {
+      id: libraryId,
+      label: snapshot?.label,
+      savedAt: Date.now(),
+      rootName: snapshot?.rootName,
+      stats: snapshot?.stats
+    };
+    console.log("[saveLibrarySnapshot] put library", libraryRow);
+    libraries.put(libraryRow);
+    for (const album of albumsNorm) albums.put(album);
+    for (const folder of foldersNorm) folders.put(folder);
+    await txDone(tx);
+    console.log("[saveLibrarySnapshot] done", { libraryId });
+  } catch (e) {
+    console.log("[saveLibrarySnapshot] failed", {
+      libraryId,
+      error: String(e?.message || e),
+      firstAlbum: albumsNorm[0] || null,
+      firstFolder: foldersNorm[0] || null
+    });
+    throw e;
+  } finally {
+    db.close();
+  }
 }
 async function loadLibrarySnapshot(libraryId = "default") {
   const db = await openLibraryDB();
