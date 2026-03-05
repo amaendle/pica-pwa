@@ -717,6 +717,54 @@ async function makeTiltThenCropURL(file, size = 2048, cropRect64 = "", tiltVal =
 }
 
 
+
+function buildEffectiveFilterChain(filters = [], fallbackCropRect64 = "") {
+  const chain = Array.isArray(filters) ? filters.map((f) => String(f || "").trim()).filter(Boolean) : [];
+  if (!chain.length && fallbackCropRect64) chain.push(`crop64=1,${fallbackCropRect64}`);
+  return chain;
+}
+
+function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = [], fallbackCropRect64 = "") {
+  let w = Math.max(1, Number(naturalW) || 1);
+  let h = Math.max(1, Number(naturalH) || 1);
+  let x = Math.max(0, Math.min(1, Number(xNorm) || 0)) * w;
+  let y = Math.max(0, Math.min(1, Number(yNorm) || 0)) * h;
+  let tiltDeg = 0;
+  const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
+  for (const f of chain) {
+    let m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+    if (m) {
+      const tiltVal = Number(m[1]);
+      const rad = (Number.isFinite(tiltVal) ? tiltVal : 0) * (Math.PI / 12);
+      const cos = Math.cos(rad), sin = Math.sin(rad);
+      const rw = Math.max(1, Math.ceil(Math.abs(cos * w) + Math.abs(sin * h)));
+      const rh = Math.max(1, Math.ceil(Math.abs(sin * w) + Math.abs(cos * h)));
+      const cx = w / 2, cy = h / 2;
+      const dx = x - cx, dy = y - cy;
+      x = (dx * cos - dy * sin) + rw / 2;
+      y = (dx * sin + dy * cos) + rh / 2;
+      w = rw; h = rh;
+      tiltDeg += (Number.isFinite(tiltVal) ? tiltVal : 0) * 15;
+      continue;
+    }
+    m = String(f).match(/^crop64=1,(.+)$/i);
+    if (m) {
+      const b = rect64ToBox(m[1].trim());
+      const sx = Math.max(0, Math.round(b.x * w));
+      const sy = Math.max(0, Math.round(b.y * h));
+      const sw = Math.max(1, Math.round(b.w * w));
+      const sh = Math.max(1, Math.round(b.h * h));
+      x -= sx; y -= sy;
+      w = sw; h = sh;
+    }
+  }
+  return {
+    x: x / Math.max(1, w),
+    y: y / Math.max(1, h),
+    tiltDeg
+  };
+}
+
 async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "") {
   const src = URL.createObjectURL(file instanceof Blob ? file : new Blob([file]));
   const img = await new Promise((res, rej) => {
@@ -732,8 +780,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   let ctx = canvas.getContext("2d");
   ctx.drawImage(img, 0, 0);
 
-  const chain = Array.isArray(filters) ? filters.map((f) => String(f || "").trim()).filter(Boolean) : [];
-  if (!chain.length && fallbackCropRect64) chain.push(`crop64=1,${fallbackCropRect64}`);
+  const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
 
   for (const f of chain) {
     let m = f.match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
@@ -1409,8 +1456,9 @@ function renderFaceRects() {
     const box = document.createElement("div");
     box.className = `editorTextBox${idx === faceEditor.activeTextIdx ? " active" : ""}`;
     box.textContent = t.caption;
-    box.style.left = `${offsetX + Math.max(0, Math.min(1, t.x || 0.08)) * r.width}px`;
-    box.style.top = `${offsetY + Math.max(0, Math.min(1, t.y || 0.08)) * r.height}px`;
+    const mapped = mapPointThroughFilterChain(t.x || 0.08, t.y || 0.08, faceEditor.naturalW, faceEditor.naturalH, faceEditor.filters || [], faceEditor.cropRect64 || "");
+    box.style.left = `${offsetX + Math.max(0, Math.min(1, mapped.x || 0.08)) * r.width}px`;
+    box.style.top = `${offsetY + Math.max(0, Math.min(1, mapped.y || 0.08)) * r.height}px`;
     box.style.fontFamily = t.fontFamily || "Arial";
     const fontPx = Math.max(8, Number((t.sizeCode || 128) / 6) || 36);
     box.style.fontSize = `${fontPx}px`;
@@ -1422,6 +1470,8 @@ function renderFaceRects() {
     box.style.fontStyle = ((Number(t.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
     box.style.textDecoration = ((Number(t.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
     box.style.webkitTextStroke = `${Math.max(0, Number(t.strokeWidthFactor ?? (t.outlineWidth || 0)) * 6)}px ${t.colorSecondary || "#000"}`;
+    box.style.transform = `rotate(${((t.rotation || 0) * 360 + (mapped.tiltDeg || 0)).toFixed(2)}deg)`;
+    box.style.transformOrigin = "top left";
     box.onpointerdown = (ev) => {
       ev.preventDefault();
       faceEditor.activeTextIdx = idx;
@@ -2265,12 +2315,27 @@ async function renderTiles(images) {
     const nodes = await Promise.all(slice.map(async (it, localIndex) => {
       const tile = document.createElement("div");
       tile.className = "tile";
+      if (!it.naturalW || !it.naturalH) {
+        const src = URL.createObjectURL(it.file);
+        try {
+          const dims = await new Promise((res, rej) => {
+            const im = new Image();
+            im.onload = () => res({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 });
+            im.onerror = rej;
+            im.src = src;
+          });
+          it.naturalW = dims.w;
+          it.naturalH = dims.h;
+        } catch {}
+        URL.revokeObjectURL(src);
+      }
       const img = document.createElement("img");
       img.className = "thumb";
       img.alt = it.name;
       // thumb
       try {
-        it.thumbUrl = await makeThumbURL(it.file, 320, it.cropRect64 || "");
+        const chain = buildEffectiveFilterChain(it.filters || [], it.cropRect64 || "");
+        it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "");
         img.src = it.thumbUrl;
       } catch {
         // fallback: full url (still ok for prototype)
@@ -2299,24 +2364,30 @@ async function renderTiles(images) {
       const imgWrap = document.createElement("div");
       imgWrap.className = "tileImageWrap";
       imgWrap.appendChild(img);
-      if (state.slideshow.showText && it.textOverlay?.caption && it.textOverlay.enabled) {
-        const t = document.createElement("div");
-        t.className = "tileTextOverlay";
-        t.textContent = it.textOverlay.caption;
-        t.style.left = `${Math.max(0, Math.min(1, it.textOverlay.x || 0.08)) * 100}%`;
-        t.style.top = `${Math.max(0, Math.min(1, it.textOverlay.y || 0.08)) * 100}%`;
-        t.style.fontFamily = it.textOverlay.fontFamily || "Arial";
-        const tileSizeCode = Number.isFinite(it.textOverlay.sizeCode) && it.textOverlay.sizeCode > 0 ? Math.max(10, it.textOverlay.sizeCode / 6) : 0;
-        t.style.fontSize = `${Math.max(tileSizeCode, Math.max(10, (it.textOverlay.sizeRel || 0.04) * 220))}px`;
-        const noSolidFill = (Number(it.textOverlay.renderFlags || 0) & 0x1) !== 0;
-        const solidFillMode = (Number(it.textOverlay.renderFlags || 0) & 0x2) !== 0;
-        t.style.color = noSolidFill && !solidFillMode ? "transparent" : (it.textOverlay.colorPrimary || "#fff");
-        t.style.opacity = `${Math.max(0, Math.min(1, (Number(it.textOverlay.opacity255 ?? 255) || 255) / 255))}`;
-        t.style.fontWeight = String(Number(it.textOverlay.fontWeight || 400) || 400);
-        t.style.fontStyle = ((Number(it.textOverlay.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
-        t.style.textDecoration = ((Number(it.textOverlay.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
-        t.style.webkitTextStroke = `${Math.max(0, Number(it.textOverlay.strokeWidthFactor ?? (it.textOverlay.outlineWidth || 0)) * 6)}px ${it.textOverlay.colorSecondary || "#000"}`;
-        imgWrap.appendChild(t);
+      if (state.slideshow.showText && (it.textOverlays || []).length) {
+        const overlays = (it.textOverlays || []).filter((tx) => tx && tx.enabled !== false && String(tx.caption || "").trim());
+        for (const tx of overlays) {
+          const t = document.createElement("div");
+          t.className = "tileTextOverlay";
+          t.textContent = tx.caption;
+          const mapped = mapPointThroughFilterChain(tx.x || 0.08, tx.y || 0.08, it.naturalW || 1, it.naturalH || 1, it.filters || [], it.cropRect64 || "");
+          t.style.left = `${Math.max(0, Math.min(1, mapped.x || 0.08)) * 100}%`;
+          t.style.top = `${Math.max(0, Math.min(1, mapped.y || 0.08)) * 100}%`;
+          t.style.fontFamily = tx.fontFamily || "Arial";
+          const tileSizeCode = Number.isFinite(tx.sizeCode) && tx.sizeCode > 0 ? Math.max(10, tx.sizeCode / 6) : 0;
+          t.style.fontSize = `${Math.max(tileSizeCode, Math.max(10, (tx.sizeRel || 0.04) * 220))}px`;
+          const noSolidFill = (Number(tx.renderFlags || 0) & 0x1) !== 0;
+          const solidFillMode = (Number(tx.renderFlags || 0) & 0x2) !== 0;
+          t.style.color = noSolidFill && !solidFillMode ? "transparent" : (tx.colorPrimary || "#fff");
+          t.style.opacity = `${Math.max(0, Math.min(1, (Number(tx.opacity255 ?? 255) || 255) / 255))}`;
+          t.style.fontWeight = String(Number(tx.fontWeight || 400) || 400);
+          t.style.fontStyle = ((Number(tx.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+          t.style.textDecoration = ((Number(tx.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+          t.style.webkitTextStroke = `${Math.max(0, Number(tx.strokeWidthFactor ?? (tx.outlineWidth || 0)) * 6)}px ${tx.colorSecondary || "#000"}`;
+          t.style.transform = `rotate(${((tx.rotation || 0) * 360 + (mapped.tiltDeg || 0)).toFixed(2)}deg)`;
+          t.style.transformOrigin = "top left";
+          imgWrap.appendChild(t);
+        }
       }
       tile.appendChild(imgWrap);
       tile.appendChild(cap);
@@ -2353,7 +2424,7 @@ function goToAlbumByToken(token) {
 }
 
 function renderSlideFaceRects(item) {
-  el.slideFaceLayer.innerHTML = "";
+  el.slideFaceLayer.querySelectorAll(".slideFaceRect").forEach((n) => n.remove());
   if (!state.slideshow.showFaces) return;
   const imgRect = el.slideImg.getBoundingClientRect();
   const layerRect = el.slideFaceLayer.getBoundingClientRect();
@@ -2410,38 +2481,37 @@ async function updateSlide() {
     el.slideAlbums.textContent = "Albums: (none)";
   }
 
+  el.slideFaceLayer.querySelectorAll(".slideTextOverlay").forEach((n) => n.remove());
+  el.slideTextOverlay.style.display = "none";
   if (state.slideshow.showText && (it.textOverlays || []).length) {
-    const activeText = (it.textOverlays || []).filter((t) => t.enabled !== false);
-    const chosen = activeText.length ? activeText[0] : it.textOverlay;
-    if (!chosen) {
-      el.slideTextOverlay.style.display = "none";
-    } else {
-      const imgRect = el.slideImg.getBoundingClientRect();
-      const layerRect = el.slideFaceLayer.getBoundingClientRect();
-      const offsetX = imgRect.left - layerRect.left;
-      const offsetY = imgRect.top - layerRect.top;
-      el.slideTextOverlay.textContent = chosen.caption;
-      el.slideTextOverlay.style.left = `${offsetX + Math.max(0, Math.min(1, chosen.x || 0.08)) * imgRect.width}px`;
-      el.slideTextOverlay.style.top = `${offsetY + Math.max(0, Math.min(1, chosen.y || 0.08)) * imgRect.height}px`;
-      el.slideTextOverlay.style.fontFamily = chosen.fontFamily || "Arial";
+    const imgRect = el.slideImg.getBoundingClientRect();
+    const layerRect = el.slideFaceLayer.getBoundingClientRect();
+    const offsetX = imgRect.left - layerRect.left;
+    const offsetY = imgRect.top - layerRect.top;
+    const overlays = (it.textOverlays || []).filter((t) => t && t.enabled !== false && String(t.caption || "").trim());
+    for (const chosen of overlays) {
+      const d = document.createElement("div");
+      d.className = "slideTextOverlay";
+      const mapped = mapPointThroughFilterChain(chosen.x || 0.08, chosen.y || 0.08, it.naturalW || 1, it.naturalH || 1, state.slideshow.showCrop ? (it.filters || []) : [], state.slideshow.showCrop ? (it.cropRect64 || "") : "");
+      d.textContent = chosen.caption;
+      d.style.left = `${offsetX + Math.max(0, Math.min(1, mapped.x || 0.08)) * imgRect.width}px`;
+      d.style.top = `${offsetY + Math.max(0, Math.min(1, mapped.y || 0.08)) * imgRect.height}px`;
+      d.style.fontFamily = chosen.fontFamily || "Arial";
       const sizeFromCode = Number.isFinite(chosen.sizeCode) && chosen.sizeCode > 0 ? Math.max(10, chosen.sizeCode / 4) : 0;
       const sizeFromRel = Math.max(16, (chosen.sizeRel || 0.04) * Math.max(300, imgRect.width || 300));
-      el.slideTextOverlay.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
+      d.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
       const noSolidFill = (Number(chosen.renderFlags || 0) & 0x1) !== 0;
       const solidFillMode = (Number(chosen.renderFlags || 0) & 0x2) !== 0;
-      el.slideTextOverlay.style.color = noSolidFill && !solidFillMode ? "transparent" : (chosen.colorPrimary || "#fff");
-      el.slideTextOverlay.style.opacity = `${Math.max(0, Math.min(1, (Number(chosen.opacity255 ?? 255) || 255) / 255))}`;
-      el.slideTextOverlay.style.fontWeight = String(Number(chosen.fontWeight || 400) || 400);
-      el.slideTextOverlay.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
-      el.slideTextOverlay.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
-      el.slideTextOverlay.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
-      const textRot = (chosen.rotation || 0) * 360 + (state.slideshow.showCrop ? tiltDeg : 0);
-      el.slideTextOverlay.style.transform = `rotate(${textRot}deg)`;
-      el.slideTextOverlay.style.transformOrigin = "top left";
-      el.slideTextOverlay.style.display = "block";
+      d.style.color = noSolidFill && !solidFillMode ? "transparent" : (chosen.colorPrimary || "#fff");
+      d.style.opacity = `${Math.max(0, Math.min(1, (Number(chosen.opacity255 ?? 255) || 255) / 255))}`;
+      d.style.fontWeight = String(Number(chosen.fontWeight || 400) || 400);
+      d.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+      d.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+      d.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
+      d.style.transform = `rotate(${((chosen.rotation || 0) * 360 + (mapped.tiltDeg || 0)).toFixed(2)}deg)`;
+      d.style.transformOrigin = "top left";
+      el.slideFaceLayer.appendChild(d);
     }
-  } else {
-    el.slideTextOverlay.style.display = "none";
   }
 
   el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
