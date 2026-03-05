@@ -686,7 +686,7 @@ function tiltValueToRad(tiltVal) {
 }
 function textRotationToDeg(rotationValue) {
   const r = Number(rotationValue);
-  return (Number.isFinite(r) ? -r : 0) * 360;
+  return (Number.isFinite(r) ? -r : 0) * (180 / Math.PI);
 }
 
 async function makeTiltThenCropURL(file, size = 2048, cropRect64 = "", tiltVal = 0) {
@@ -737,45 +737,44 @@ function buildEffectiveFilterChain(filters = [], fallbackCropRect64 = "") {
 }
 
 function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = [], fallbackCropRect64 = "") {
-  let w = Math.max(1, Number(naturalW) || 1);
-  let h = Math.max(1, Number(naturalH) || 1);
-  let x = Math.max(0, Math.min(1, Number(xNorm) || 0)) * w;
-  let y = Math.max(0, Math.min(1, Number(yNorm) || 0)) * h;
+  const baseW = Math.max(1, Number(naturalW) || 1);
+  const baseH = Math.max(1, Number(naturalH) || 1);
+  let x = Math.max(0, Math.min(1, Number(xNorm) || 0)) * baseW;
+  let y = Math.max(0, Math.min(1, Number(yNorm) || 0)) * baseH;
+  let view = { x: 0, y: 0, w: baseW, h: baseH };
   let tiltDeg = 0;
   const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
   for (const f of chain) {
-    let m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+    let m = String(f).match(/^crop64=1,(.+)$/i);
+    if (m) {
+      const b = rect64ToBox(m[1].trim());
+      const sx = view.x + b.x * view.w;
+      const sy = view.y + b.y * view.h;
+      const sw = Math.max(1, b.w * view.w);
+      const sh = Math.max(1, b.h * view.h);
+      view = { x: sx, y: sy, w: sw, h: sh };
+      continue;
+    }
+    m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
     if (m) {
       const tiltVal = Number(m[1]);
       const rad = tiltValueToRad(tiltVal);
       const cos = Math.cos(rad), sin = Math.sin(rad);
-      const rw = Math.max(1, Math.ceil(Math.abs(cos * w) + Math.abs(sin * h)));
-      const rh = Math.max(1, Math.ceil(Math.abs(sin * w) + Math.abs(cos * h)));
-      const cx = w / 2, cy = h / 2;
+      const cx = view.x + view.w / 2;
+      const cy = view.y + view.h / 2;
       const dx = x - cx, dy = y - cy;
-      x = (dx * cos - dy * sin) + rw / 2;
-      y = (dx * sin + dy * cos) + rh / 2;
-      w = rw; h = rh;
+      x = (dx * cos - dy * sin) + cx;
+      y = (dx * sin + dy * cos) + cy;
       tiltDeg += tiltValueToDeg(tiltVal);
-      continue;
-    }
-    m = String(f).match(/^crop64=1,(.+)$/i);
-    if (m) {
-      const b = rect64ToBox(m[1].trim());
-      const sx = Math.max(0, Math.round(b.x * w));
-      const sy = Math.max(0, Math.round(b.y * h));
-      const sw = Math.max(1, Math.round(b.w * w));
-      const sh = Math.max(1, Math.round(b.h * h));
-      x -= sx; y -= sy;
-      w = sw; h = sh;
     }
   }
   return {
-    x: x / Math.max(1, w),
-    y: y / Math.max(1, h),
+    x: (x - view.x) / Math.max(1, view.w),
+    y: (y - view.y) / Math.max(1, view.h),
     tiltDeg
   };
 }
+
 
 async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "") {
   const src = URL.createObjectURL(file instanceof Blob ? file : new Blob([file]));
@@ -788,67 +787,49 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   URL.revokeObjectURL(src);
 
   const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
-  const cropFilter = chain.find((f) => /^crop64=1,/i.test(f));
-  const cropRect = cropFilter ? rect64ToBox(String(cropFilter).replace(/^crop64=1,/i, "").trim()) : null;
-  const tiltVals = chain
-    .map((f) => {
-      const m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
-      return m ? Number(m[1]) : null;
-    })
-    .filter((v) => Number.isFinite(v));
-
   let canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth || 1;
   canvas.height = img.naturalHeight || 1;
-  let ctx = canvas.getContext("2d");
-  ctx.drawImage(img, 0, 0);
+  canvas.getContext("2d").drawImage(img, 0, 0);
 
-  if (cropRect && tiltVals.length) {
-    const w = canvas.width, h = canvas.height;
-    const tilted = document.createElement("canvas");
-    tilted.width = w; tilted.height = h;
-    const tctx = tilted.getContext("2d");
-    tctx.translate(w / 2, h / 2);
-    for (const tv of tiltVals) tctx.rotate(tiltValueToRad(tv));
-    tctx.drawImage(canvas, -w / 2, -h / 2);
-    const sx = Math.max(0, Math.round(cropRect.x * w));
-    const sy = Math.max(0, Math.round(cropRect.y * h));
-    const sw = Math.max(1, Math.round(cropRect.w * w));
-    const sh = Math.max(1, Math.round(cropRect.h * h));
-    const out = document.createElement("canvas");
-    out.width = sw; out.height = sh;
-    out.getContext("2d").drawImage(tilted, sx, sy, sw, sh, 0, 0, sw, sh);
-    canvas = out;
-  } else {
-    for (const f of chain) {
-      let m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
-      if (m) {
-        const rad = tiltValueToRad(Number(m[1]));
-        const w = canvas.width, h = canvas.height;
-        const out = document.createElement("canvas");
-        out.width = w; out.height = h;
-        const octx = out.getContext("2d");
-        octx.translate(w / 2, h / 2);
-        octx.rotate(rad);
-        octx.drawImage(canvas, -w / 2, -h / 2);
-        canvas = out;
-        continue;
-      }
-      m = String(f).match(/^crop64=1,(.+)$/i);
-      if (m) {
-        const b = rect64ToBox(m[1].trim());
-        const w = canvas.width, h = canvas.height;
-        const sx = Math.max(0, Math.round(b.x * w));
-        const sy = Math.max(0, Math.round(b.y * h));
-        const sw = Math.max(1, Math.round(b.w * w));
-        const sh = Math.max(1, Math.round(b.h * h));
-        const out = document.createElement("canvas");
-        out.width = sw; out.height = sh;
-        out.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
-        canvas = out;
-      }
+  let view = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+
+  for (const f of chain) {
+    let m = String(f).match(/^crop64=1,(.+)$/i);
+    if (m) {
+      const b = rect64ToBox(m[1].trim());
+      const sx = view.x + b.x * view.w;
+      const sy = view.y + b.y * view.h;
+      const sw = Math.max(1, b.w * view.w);
+      const sh = Math.max(1, b.h * view.h);
+      view = { x: sx, y: sy, w: sw, h: sh };
+      continue;
+    }
+    m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+    if (m) {
+      const rad = tiltValueToRad(Number(m[1]));
+      const out = document.createElement("canvas");
+      out.width = canvas.width;
+      out.height = canvas.height;
+      const octx = out.getContext("2d");
+      const cx = view.x + view.w / 2;
+      const cy = view.y + view.h / 2;
+      octx.translate(cx, cy);
+      octx.rotate(rad);
+      octx.drawImage(canvas, -cx, -cy);
+      canvas = out;
     }
   }
+
+  const sx = Math.max(0, Math.round(view.x));
+  const sy = Math.max(0, Math.round(view.y));
+  const sw = Math.max(1, Math.round(view.w));
+  const sh = Math.max(1, Math.round(view.h));
+  const cropped = document.createElement("canvas");
+  cropped.width = sw;
+  cropped.height = sh;
+  cropped.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  canvas = cropped;
 
   const maxDim = Math.max(canvas.width, canvas.height);
   if (maxDim > size) {
