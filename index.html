@@ -1166,6 +1166,7 @@ const faceEditor = {
   previewUrl: "",
   previewKey: "",
   previewDraftUrl: "",
+  previewRequestId: 0,
   filters: []
 };
 function rect64ToBox(rect64) {
@@ -1330,25 +1331,35 @@ async function refreshEditorPreview(previewFilters = null) {
   const isDraft = Array.isArray(previewFilters);
   const key = JSON.stringify({ f: effectiveFilters, draft: isDraft });
   if (!isDraft && faceEditor.previewKey === key && faceEditor.previewUrl) {
+    el.faceCanvasImg.style.transform = "";
     el.faceCanvasImg.src = faceEditor.previewUrl;
     return;
   }
+  const requestId = ++faceEditor.previewRequestId;
   try {
     const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, effectiveFilters, 2048, faceEditor.cropRect64 || "");
+    if (requestId !== faceEditor.previewRequestId) {
+      if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      return;
+    }
     if (!isDraft) {
       if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
       if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
       faceEditor.previewDraftUrl = "";
       faceEditor.previewUrl = url;
       faceEditor.previewKey = key;
+      el.faceCanvasImg.style.transform = "";
       el.faceCanvasImg.src = url;
       return;
     }
     if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
     faceEditor.previewDraftUrl = url;
+    el.faceCanvasImg.style.transform = "";
     el.faceCanvasImg.src = url;
   } catch {
+    if (requestId !== faceEditor.previewRequestId) return;
     if (!faceEditor.imageItem.url) faceEditor.imageItem.url = URL.createObjectURL(faceEditor.imageItem.file);
+    el.faceCanvasImg.style.transform = "";
     el.faceCanvasImg.src = faceEditor.imageItem.url;
   }
 }
@@ -1499,6 +1510,7 @@ function openFaceEditor(imageItem) {
     renderFaceRects();
   };
   faceEditor.previewKey = "";
+  faceEditor.previewRequestId = 0;
   refreshEditorPreview();
   el.faceEditorOverlay.classList.add('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'false');
@@ -1524,6 +1536,7 @@ function closeFaceEditor() {
   faceEditor.previewUrl = "";
   faceEditor.previewDraftUrl = "";
   faceEditor.previewKey = "";
+  faceEditor.previewRequestId = 0;
   renderFilterList();
 }
 async function editImageMetadata(imageItem) {
@@ -2666,7 +2679,10 @@ el.btnTiltMode.onclick = () => {
   faceEditor.tiltUiVisible = !faceEditor.tiltUiVisible;
   el.tiltControls.classList.toggle("hidden", !faceEditor.tiltUiVisible);
   el.btnTiltMode.textContent = faceEditor.tiltUiVisible ? "Hide tilt" : "Tilt";
-  if (!faceEditor.tiltUiVisible) refreshEditorPreview();
+  if (!faceEditor.tiltUiVisible) {
+    el.faceCanvasImg.style.transform = "";
+    refreshEditorPreview();
+  }
 };
 el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
@@ -2687,6 +2703,7 @@ el.btnApplyTiltFilter.onclick = () => {
   if (!Number.isFinite(t)) return;
   faceEditor.filters.push(`tilt=1,${t.toFixed(6)},0.000000`);
   renderFilterList();
+  el.faceCanvasImg.style.transform = "";
   refreshEditorPreview();
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
@@ -2697,6 +2714,7 @@ el.faceTiltSlider.oninput = () => {
   const t = Number(el.faceTiltSlider.value || "0");
   el.faceTiltValue.textContent = Number.isFinite(t) ? t.toFixed(2) : "0.00";
   if (!Number.isFinite(t)) return;
+  el.faceCanvasImg.style.transform = `rotate(${(t * 15).toFixed(2)}deg)`;
   const draftFilters = (faceEditor.filters || []).concat([`tilt=1,${t.toFixed(6)},0.000000`]);
   refreshEditorPreview(draftFilters);
 };
