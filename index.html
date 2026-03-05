@@ -72,6 +72,7 @@
     .faceEditorSide input, .faceEditorSide textarea, .faceEditorSide select { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
     .editorTextBox { position:absolute; min-width:24px; min-height:18px; display:flex; align-items:center; justify-content:center; user-select:none; cursor:move; }
     .editorTextBox.active { outline:1px dashed #f1c40f; }
+    .textRotateHandle { position:absolute; width:16px; height:16px; right:-8px; top:-8px; background:#ffd43b; border:1px solid #111; border-radius:50%; cursor:grab; }
     .starActive { color:#ffd43b; border-color:#ffd43b; }
     .hidden { display:none !important; }
     .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
@@ -232,7 +233,7 @@
         <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
         <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
         <div><b>Applied filters</b></div>
-        <select id="faceFilterList" class="mono" multiple size="5"></select>
+        <select id="faceFilterList" class="mono" multiple size="8" style="width:100%; height:180px;"></select>
         <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
         <div class="mono" id="faceEditorStatus"></div>
       </div>
@@ -711,6 +712,71 @@ async function makeTiltThenCropURL(file, size = 2048, cropRect64 = "", tiltVal =
   return URL.createObjectURL(outBlob);
 }
 
+
+async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "") {
+  const src = URL.createObjectURL(file instanceof Blob ? file : new Blob([file]));
+  const img = await new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = rej;
+    im.src = src;
+  });
+  URL.revokeObjectURL(src);
+  let canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth || 1;
+  canvas.height = img.naturalHeight || 1;
+  let ctx = canvas.getContext("2d");
+  ctx.drawImage(img, 0, 0);
+
+  const chain = Array.isArray(filters) ? filters.map((f) => String(f || "").trim()).filter(Boolean) : [];
+  if (!chain.length && fallbackCropRect64) chain.push(`crop64=1,${fallbackCropRect64}`);
+
+  for (const f of chain) {
+    let m = f.match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+    if (m) {
+      const tiltVal = Number(m[1]);
+      const rad = (Number.isFinite(tiltVal) ? tiltVal : 0) * (Math.PI / 12);
+      const w = canvas.width, h = canvas.height;
+      const cos = Math.cos(rad), sin = Math.sin(rad);
+      const rw = Math.max(1, Math.ceil(Math.abs(cos * w) + Math.abs(sin * h)));
+      const rh = Math.max(1, Math.ceil(Math.abs(sin * w) + Math.abs(cos * h)));
+      const out = document.createElement("canvas");
+      out.width = rw; out.height = rh;
+      const octx = out.getContext("2d");
+      octx.translate(rw / 2, rh / 2);
+      octx.rotate(rad);
+      octx.drawImage(canvas, -w / 2, -h / 2);
+      canvas = out; ctx = octx;
+      continue;
+    }
+    m = f.match(/^crop64=1,(.+)$/i);
+    if (m) {
+      const b = rect64ToBox(m[1].trim());
+      const w = canvas.width, h = canvas.height;
+      const sx = Math.max(0, Math.round(b.x * w));
+      const sy = Math.max(0, Math.round(b.y * h));
+      const sw = Math.max(1, Math.round(b.w * w));
+      const sh = Math.max(1, Math.round(b.h * h));
+      const out = document.createElement("canvas");
+      out.width = sw; out.height = sh;
+      out.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+      canvas = out; ctx = out.getContext("2d");
+    }
+  }
+
+  const maxDim = Math.max(canvas.width, canvas.height);
+  if (maxDim > size) {
+    const scale = size / maxDim;
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(canvas.width * scale));
+    out.height = Math.max(1, Math.round(canvas.height * scale));
+    out.getContext("2d").drawImage(canvas, 0, 0, out.width, out.height);
+    canvas = out;
+  }
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.9));
+  return URL.createObjectURL(blob);
+}
+
 /** ===========================
  *  App state
  *  =========================== */
@@ -941,18 +1007,7 @@ function cssColorToU32(color, fallback = 4294967295) {
 }
 
 function normalizeFilterOrder(filters) {
-  const arr = Array.isArray(filters) ? filters.map((f, i) => ({ f: String(f || ""), i })) : [];
-  const rank = (v) => {
-    if (/^tilt=1,/i.test(v)) return 0;
-    if (/^crop64=1,/i.test(v)) return 1;
-    return 2;
-  };
-  arr.sort((a, b) => {
-    const ra = rank(a.f), rb = rank(b.f);
-    if (ra !== rb) return ra - rb;
-    return a.i - b.i;
-  });
-  return arr.map((x) => x.f);
+  return Array.isArray(filters) ? filters.map((f) => String(f || "")) : [];
 }
 function renderFilterList() {
   if (!el.faceFilterList) return;
@@ -1053,7 +1108,7 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
   const normalizedTextOverlays = Array.isArray(textOverlays)
     ? textOverlays.filter((x) => x && String(x.caption || "").trim())
     : (oldMeta.textOverlays || []);
-  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: normalizeFilterOrder(Array.isArray(filters) ? filters.slice() : []) });
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: (Array.isArray(filters) ? filters.slice() : []) });
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
@@ -1090,6 +1145,10 @@ const faceEditor = {
   textDragging: false,
   textDragOffsetX: 0,
   textDragOffsetY: 0,
+  textDragMode: "move",
+  textResizeBasePx: 36,
+  textRotateOriginX: 0,
+  textRotateOriginY: 0,
   textOverlays: [],
   activeTextIdx: -1,
   star: false,
@@ -1097,6 +1156,8 @@ const faceEditor = {
   albumNameToToken: new Map(),
   albumTokenToName: new Map(),
   selectedAlbumTokens: new Set(),
+  previewUrl: "",
+  previewKey: "",
   filters: []
 };
 function rect64ToBox(rect64) {
@@ -1252,6 +1313,26 @@ function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
   faceEditor.dragOffsetY = ev.offsetY ?? 0;
 }
 
+
+async function refreshEditorPreview() {
+  if (!faceEditor.imageItem) return;
+  const key = JSON.stringify({ f: faceEditor.filters || [] });
+  if (faceEditor.previewKey === key && faceEditor.previewUrl) {
+    el.faceCanvasImg.src = faceEditor.previewUrl;
+    return;
+  }
+  try {
+    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, faceEditor.filters || [], 2048, faceEditor.cropRect64 || "");
+    if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
+    faceEditor.previewUrl = url;
+    faceEditor.previewKey = key;
+    el.faceCanvasImg.src = url;
+  } catch {
+    if (!faceEditor.imageItem.url) faceEditor.imageItem.url = URL.createObjectURL(faceEditor.imageItem.file);
+    el.faceCanvasImg.src = faceEditor.imageItem.url;
+  }
+}
+
 function renderFaceRects() {
   el.faceCanvasWrap.querySelectorAll('.faceRect, .cropRect, .editorTextBox').forEach((n) => n.remove());
   const r = el.faceCanvasImg.getBoundingClientRect();
@@ -1314,10 +1395,32 @@ function renderFaceRects() {
       faceEditor.activeTextIdx = idx;
       syncTextInputsFromState();
       faceEditor.textDragging = true;
+      faceEditor.textDragMode = "move";
       faceEditor.textDragOffsetX = ev.offsetX ?? 0;
       faceEditor.textDragOffsetY = ev.offsetY ?? 0;
       renderFaceRects();
     };
+    if (idx === faceEditor.activeTextIdx) {
+      const rh = document.createElement("div");
+      rh.className = "faceRectHandle";
+      rh.onpointerdown = (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        faceEditor.textDragging = true;
+        faceEditor.textDragMode = "resize";
+        faceEditor.textResizeBasePx = Math.max(8, Number((t.sizeCode || 128) / 6) || 36);
+      };
+      box.appendChild(rh);
+      const rot = document.createElement("div");
+      rot.className = "textRotateHandle";
+      rot.onpointerdown = (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        faceEditor.textDragging = true;
+        faceEditor.textDragMode = "rotate";
+        faceEditor.textRotateOriginX = offsetX + Math.max(0, Math.min(1, t.x || 0.08)) * r.width;
+        faceEditor.textRotateOriginY = offsetY + Math.max(0, Math.min(1, t.y || 0.08)) * r.height;
+      };
+      box.appendChild(rot);
+    }
     el.faceCanvasWrap.appendChild(box);
   });
 }
@@ -1339,7 +1442,7 @@ function openFaceEditor(imageItem) {
   faceEditor.star = !!imageItem.star;
   el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
   el.btnFaceStarToggle.textContent = faceEditor.star ? "★ Star" : "☆ Star";
-  faceEditor.filters = normalizeFilterOrder(Array.isArray(imageItem.filters) ? imageItem.filters.slice() : []);
+  faceEditor.filters = Array.isArray(imageItem.filters) ? imageItem.filters.slice() : [];
   renderFilterList();
   const tiltVal = lastTiltFromFilters(faceEditor.filters);
   const safeTilt = Number.isFinite(tiltVal) ? Math.max(-1, Math.min(1, tiltVal)) : 0;
@@ -1367,12 +1470,13 @@ function openFaceEditor(imageItem) {
     renderAlbumSelectFromState();
   });
   if (!imageItem.url) imageItem.url = URL.createObjectURL(imageItem.file);
-  el.faceCanvasImg.src = imageItem.url;
   el.faceCanvasImg.onload = () => {
     faceEditor.naturalW = el.faceCanvasImg.naturalWidth || 1;
     faceEditor.naturalH = el.faceCanvasImg.naturalHeight || 1;
     renderFaceRects();
   };
+  faceEditor.previewKey = "";
+  refreshEditorPreview();
   el.faceEditorOverlay.classList.add('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'false');
   el.faceEditorStatus.textContent = 'Drag rectangles. Add new faces with button.';
@@ -1385,9 +1489,13 @@ function closeFaceEditor() {
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
   faceEditor.textDragging = false;
+  faceEditor.textDragMode = "move";
   faceEditor.activeTextIdx = -1;
   faceEditor.activeFaceIdx = -1;
   faceEditor.selectedAlbumTokens = new Set();
+  if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
+  faceEditor.previewUrl = "";
+  faceEditor.previewKey = "";
   renderFilterList();
 }
 async function editImageMetadata(imageItem) {
@@ -2530,22 +2638,22 @@ el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
   faceEditor.filters.push(`crop64=1,${c}`);
-  faceEditor.filters = normalizeFilterOrder(faceEditor.filters);
   renderFilterList();
+  refreshEditorPreview();
   el.faceEditorStatus.textContent = `Applied filter: crop64 (${faceEditor.filters.length})`;
 };
 el.btnApplyTiltFilter.onclick = () => {
   const t = Number(el.faceTiltSlider.value || "0");
   if (!Number.isFinite(t)) return;
   faceEditor.filters.push(`tilt=1,${t.toFixed(6)},0.000000`);
-  faceEditor.filters = normalizeFilterOrder(faceEditor.filters);
   renderFilterList();
+  refreshEditorPreview();
   el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
 };
 el.faceTiltSlider.oninput = () => {
   const t = Number(el.faceTiltSlider.value || "0");
   el.faceTiltValue.textContent = Number.isFinite(t) ? t.toFixed(2) : "0.00";
-  el.faceCanvasImg.style.transform = `rotate(${((Number.isFinite(t) ? t : 0) * 15).toFixed(2)}deg)`;
+  el.faceCanvasImg.style.transform = "";
 };
 el.faceFaceSelect.onmousedown = (ev) => {
   const opt = ev.target.closest("option");
@@ -2593,13 +2701,13 @@ el.faceFaceLabelInput.oninput = () => {
 el.btnRemoveSelectedFilters.onclick = () => {
   const selected = Array.from(el.faceFilterList.selectedOptions || []).map((o)=>Number(o.value)).filter((n)=>Number.isFinite(n)).sort((a,b)=>b-a);
   for (const idx of selected) { if (idx >= 0 && idx < faceEditor.filters.length) faceEditor.filters.splice(idx, 1); }
-  faceEditor.filters = normalizeFilterOrder(faceEditor.filters);
   renderFilterList();
+  refreshEditorPreview();
 };
 el.btnUndoFilter.onclick = () => {
   const removed = faceEditor.filters.pop();
-  faceEditor.filters = normalizeFilterOrder(faceEditor.filters);
   renderFilterList();
+  refreshEditorPreview();
   el.faceEditorStatus.textContent = removed ? `Undo filter: ${removed}` : 'No filter to undo';
 };
 
@@ -2664,9 +2772,28 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
     return;
   }
   if (faceEditor.textDragging && faceEditor.activeTextIdx >= 0 && faceEditor.textOverlays[faceEditor.activeTextIdx]) {
+    const txt = faceEditor.textOverlays[faceEditor.activeTextIdx];
+    if (faceEditor.textDragMode === "rotate") {
+      const px = ev.clientX - p.left;
+      const py = ev.clientY - p.top;
+      const ang = Math.atan2(py - faceEditor.textRotateOriginY, px - faceEditor.textRotateOriginX);
+      txt.rotation = ang / (2 * Math.PI);
+      renderFaceRects();
+      return;
+    }
+    if (faceEditor.textDragMode === "resize") {
+      const rightPx = ev.clientX - p.left - (r.left - p.left);
+      const baseX = Math.max(0, Math.min(1, txt.x || 0.08)) * r.width;
+      const delta = rightPx - baseX;
+      const fontPx = Math.max(8, Math.min(240, delta));
+      txt.sizeCode = Math.round(fontPx * 6);
+      txt.sizeRel = Math.max(0.02, Math.min(0.4, fontPx / 900));
+      el.faceTextSizeInput.value = String(Math.round(fontPx));
+      renderFaceRects();
+      return;
+    }
     const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.textDragOffsetX;
     const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.textDragOffsetY;
-    const txt = faceEditor.textOverlays[faceEditor.activeTextIdx];
     txt.x = Math.max(0, Math.min(r.width - 24, xPx)) / Math.max(1, r.width);
     txt.y = Math.max(0, Math.min(r.height - 18, yPx)) / Math.max(1, r.height);
     renderFaceRects();
@@ -2697,6 +2824,7 @@ window.addEventListener('pointerup', () => { faceEditor.draggingIdx = -1;
   faceEditor.cropDragging = false;
   faceEditor.cropMode = "move";
   faceEditor.textDragging = false;
+  faceEditor.textDragMode = "move";
 });
 el.btnFaceSave.onclick = async () => {
   if (!faceEditor.imageItem) return;
