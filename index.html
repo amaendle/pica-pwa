@@ -191,9 +191,10 @@
           <button id="btnAlbumRemoveSelected">Remove selected album(s)</button>
           <button id="btnAlbumCreate">Create album from input</button>
         </div>
-        <div style="display:flex; gap:8px;">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnCropMode">Crop</button>
           <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
+          <button id="btnTiltMode">Tilt</button>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
@@ -206,6 +207,8 @@
             <button class="btnAspect" data-ratio="4:3">4:3</button>
             <button class="btnAspect" data-ratio="16:9">16:9</button>
           </div>
+        </div>
+        <div id="tiltControls" class="hidden">
           <label>Tilt value <span id="faceTiltValue" class="mono">0.00</span><input id="faceTiltSlider" type="range" min="-1" max="1" step="0.01" value="0"></label>
           <button id="btnApplyTiltFilter">Apply tilt filter</button>
         </div>
@@ -851,6 +854,7 @@ const el = {
   faceKeywordsInput: document.getElementById("faceKeywordsInput"),
   btnFaceStarToggle: document.getElementById("btnFaceStarToggle"),
   cropControls: document.getElementById("cropControls"),
+  tiltControls: document.getElementById("tiltControls"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
   faceFaceSelect: document.getElementById("faceFaceSelect"),
@@ -894,6 +898,7 @@ const el = {
   btnRemoveSelectedFilters: document.getElementById("btnRemoveSelectedFilters"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnCropMode: document.getElementById("btnCropMode"),
+  btnTiltMode: document.getElementById("btnTiltMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnApplyCropFilter: document.getElementById("btnApplyCropFilter"),
   btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
@@ -1141,6 +1146,7 @@ const faceEditor = {
   displayH: 1,
   cropRect64: "",
   cropUiVisible: false,
+  tiltUiVisible: false,
   cropDragging: false,
   cropMode: "move",
   textDragging: false,
@@ -1159,6 +1165,7 @@ const faceEditor = {
   selectedAlbumTokens: new Set(),
   previewUrl: "",
   previewKey: "",
+  previewDraftUrl: "",
   filters: []
 };
 function rect64ToBox(rect64) {
@@ -1315,18 +1322,30 @@ function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
 }
 
 
-async function refreshEditorPreview() {
+async function refreshEditorPreview(previewFilters = null) {
   if (!faceEditor.imageItem) return;
-  const key = JSON.stringify({ f: faceEditor.filters || [] });
-  if (faceEditor.previewKey === key && faceEditor.previewUrl) {
+  const effectiveFilters = Array.isArray(previewFilters)
+    ? previewFilters.map((f) => String(f || "")).filter(Boolean)
+    : (faceEditor.filters || []);
+  const isDraft = Array.isArray(previewFilters);
+  const key = JSON.stringify({ f: effectiveFilters, draft: isDraft });
+  if (!isDraft && faceEditor.previewKey === key && faceEditor.previewUrl) {
     el.faceCanvasImg.src = faceEditor.previewUrl;
     return;
   }
   try {
-    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, faceEditor.filters || [], 2048, faceEditor.cropRect64 || "");
-    if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
-    faceEditor.previewUrl = url;
-    faceEditor.previewKey = key;
+    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, effectiveFilters, 2048, faceEditor.cropRect64 || "");
+    if (!isDraft) {
+      if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
+      if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
+      faceEditor.previewDraftUrl = "";
+      faceEditor.previewUrl = url;
+      faceEditor.previewKey = key;
+      el.faceCanvasImg.src = url;
+      return;
+    }
+    if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
+    faceEditor.previewDraftUrl = url;
     el.faceCanvasImg.src = url;
   } catch {
     if (!faceEditor.imageItem.url) faceEditor.imageItem.url = URL.createObjectURL(faceEditor.imageItem.file);
@@ -1438,7 +1457,10 @@ function openFaceEditor(imageItem) {
   el.faceCropRow.classList.add("hidden");
   el.btnApplyCropFilter.classList.add("hidden");
   el.cropControls.classList.add("hidden");
+  faceEditor.tiltUiVisible = false;
+  el.tiltControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
+  el.btnTiltMode.textContent = "Tilt";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
   el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
@@ -1449,7 +1471,7 @@ function openFaceEditor(imageItem) {
   const safeTilt = Number.isFinite(tiltVal) ? Math.max(-1, Math.min(1, tiltVal)) : 0;
   el.faceTiltSlider.value = safeTilt.toFixed(2);
   el.faceTiltValue.textContent = safeTilt.toFixed(2);
-  el.faceCanvasImg.style.transform = `rotate(${(safeTilt * 15).toFixed(2)}deg)`;
+  el.faceCanvasImg.style.transform = "";
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
   syncFaceSelectFromState();
@@ -1489,13 +1511,18 @@ function closeFaceEditor() {
   faceEditor.draggingIdx = -1;
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
+  faceEditor.tiltUiVisible = false;
+  el.tiltControls.classList.add("hidden");
+  el.btnTiltMode.textContent = "Tilt";
   faceEditor.textDragging = false;
   faceEditor.textDragMode = "move";
   faceEditor.activeTextIdx = -1;
   faceEditor.activeFaceIdx = -1;
   faceEditor.selectedAlbumTokens = new Set();
   if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
+  if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
   faceEditor.previewUrl = "";
+  faceEditor.previewDraftUrl = "";
   faceEditor.previewKey = "";
   renderFilterList();
 }
@@ -2635,12 +2662,24 @@ el.btnCropMode.onclick = () => {
   el.btnCropMode.textContent = faceEditor.cropUiVisible ? "Hide crop" : "Crop";
   renderFaceRects();
 };
+el.btnTiltMode.onclick = () => {
+  faceEditor.tiltUiVisible = !faceEditor.tiltUiVisible;
+  el.tiltControls.classList.toggle("hidden", !faceEditor.tiltUiVisible);
+  el.btnTiltMode.textContent = faceEditor.tiltUiVisible ? "Hide tilt" : "Tilt";
+  if (!faceEditor.tiltUiVisible) refreshEditorPreview();
+};
 el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
   faceEditor.filters.push(`crop64=1,${c}`);
+  faceEditor.cropUiVisible = true;
+  el.faceCropRow.classList.remove("hidden");
+  el.btnApplyCropFilter.classList.remove("hidden");
+  el.cropControls.classList.remove("hidden");
+  el.btnCropMode.textContent = "Hide crop";
   renderFilterList();
   refreshEditorPreview();
+  renderFaceRects();
   el.faceEditorStatus.textContent = `Applied filter: crop64 (${faceEditor.filters.length})`;
 };
 el.btnApplyTiltFilter.onclick = () => {
@@ -2649,12 +2688,17 @@ el.btnApplyTiltFilter.onclick = () => {
   faceEditor.filters.push(`tilt=1,${t.toFixed(6)},0.000000`);
   renderFilterList();
   refreshEditorPreview();
+  faceEditor.tiltUiVisible = false;
+  el.tiltControls.classList.add("hidden");
+  el.btnTiltMode.textContent = "Tilt";
   el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
 };
 el.faceTiltSlider.oninput = () => {
   const t = Number(el.faceTiltSlider.value || "0");
   el.faceTiltValue.textContent = Number.isFinite(t) ? t.toFixed(2) : "0.00";
-  el.faceCanvasImg.style.transform = "";
+  if (!Number.isFinite(t)) return;
+  const draftFilters = (faceEditor.filters || []).concat([`tilt=1,${t.toFixed(6)},0.000000`]);
+  refreshEditorPreview(draftFilters);
 };
 el.faceFaceSelect.onmousedown = (ev) => {
   const opt = ev.target.closest("option");
