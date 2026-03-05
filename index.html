@@ -68,7 +68,7 @@
     .tileImageWrap { position:relative; }
     .tileTextOverlay { position:absolute; pointer-events:none; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); font-weight:600; left:8%; top:8%; font-size:14px; max-width:80%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
-    .faceEditorSide { display:flex; flex-direction:column; gap:8px; min-height:0; overflow:auto; padding-right:4px; }
+    .faceEditorSide { display:flex; flex-direction:column; gap:8px; min-height:0; overflow-y:auto; overflow-x:hidden; padding-right:4px; }
     .faceEditorSide input, .faceEditorSide textarea, .faceEditorSide select { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
     .editorTextBox { position:absolute; min-width:24px; min-height:18px; display:flex; align-items:center; justify-content:center; user-select:none; cursor:move; }
     .editorTextBox.active { outline:1px dashed #f1c40f; }
@@ -78,7 +78,7 @@
     .warn { color: #ffda9e; }
     .ok { color: #a9f7c5; }
     .err { color: #ffb4b4; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; word-break: break-word; }
     /* Slideshow overlay */
     .overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,.92);
@@ -232,7 +232,8 @@
         <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
         <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
         <div><b>Applied filters</b></div>
-        <div id="faceFilterList" class="mono" style="max-height:120px; overflow:auto; border:1px solid #333; border-radius:6px; padding:6px;"></div>
+        <select id="faceFilterList" class="mono" multiple size="5"></select>
+        <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
         <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
@@ -670,6 +671,46 @@ async function makeThumbURL(file, size = 320, cropRect64 = "") {
   const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.82));
   return URL.createObjectURL(blob);
 }
+
+async function makeTiltThenCropURL(file, size = 2048, cropRect64 = "", tiltVal = 0) {
+  const blob = file instanceof Blob ? file : new Blob([file]);
+  const src = URL.createObjectURL(blob);
+  const img = await new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = rej;
+    im.src = src;
+  });
+  URL.revokeObjectURL(src);
+  const w = img.naturalWidth || 1;
+  const h = img.naturalHeight || 1;
+  const rad = (Number(tiltVal) || 0) * (Math.PI / 12); // 15deg factor
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const rw = Math.max(1, Math.ceil(Math.abs(cos * w) + Math.abs(sin * h)));
+  const rh = Math.max(1, Math.ceil(Math.abs(sin * w) + Math.abs(cos * h)));
+  const rotCanvas = document.createElement("canvas");
+  rotCanvas.width = rw; rotCanvas.height = rh;
+  const rctx = rotCanvas.getContext("2d");
+  rctx.translate(rw / 2, rh / 2);
+  rctx.rotate(rad);
+  rctx.drawImage(img, -w / 2, -h / 2);
+
+  const b = cropRect64 ? rect64ToBox(cropRect64) : { x: 0, y: 0, w: 1, h: 1 };
+  const sx = Math.max(0, Math.round(b.x * rw));
+  const sy = Math.max(0, Math.round(b.y * rh));
+  const sw = Math.max(1, Math.round(b.w * rw));
+  const sh = Math.max(1, Math.round(b.h * rh));
+
+  const scale = Math.min(size / sw, size / sh);
+  const tw = Math.max(1, Math.round(sw * scale));
+  const th = Math.max(1, Math.round(sh * scale));
+  const out = document.createElement("canvas");
+  out.width = tw; out.height = th;
+  out.getContext("2d").drawImage(rotCanvas, sx, sy, sw, sh, 0, 0, tw, th);
+  const outBlob = await new Promise((res) => out.toBlob(res, "image/jpeg", 0.9));
+  return URL.createObjectURL(outBlob);
+}
+
 /** ===========================
  *  App state
  *  =========================== */
@@ -783,6 +824,7 @@ const el = {
   faceTextAnchorFlagsInput: document.getElementById("faceTextAnchorFlagsInput"),
   faceTextRenderFlagsInput: document.getElementById("faceTextRenderFlagsInput"),
   faceFilterList: document.getElementById("faceFilterList"),
+  btnRemoveSelectedFilters: document.getElementById("btnRemoveSelectedFilters"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnCropMode: document.getElementById("btnCropMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
@@ -813,6 +855,7 @@ function clearGrid() {
     if (it.thumbUrl?.startsWith("blob:")) URL.revokeObjectURL(it.thumbUrl);
     if (it.url?.startsWith("blob:")) URL.revokeObjectURL(it.url);
     if (it.cropUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropUrl);
+    if (it.cropTiltUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropTiltUrl);
   }
   state.currentImages = [];
   el.grid.innerHTML = "";
@@ -913,31 +956,22 @@ function normalizeFilterOrder(filters) {
 }
 function renderFilterList() {
   if (!el.faceFilterList) return;
+  el.faceFilterList.innerHTML = "";
   if (!faceEditor.filters.length) {
-    el.faceFilterList.innerHTML = "(none)";
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "(none)";
+    el.faceFilterList.appendChild(opt);
     return;
   }
-  el.faceFilterList.innerHTML = "";
   faceEditor.filters.forEach((flt, idx) => {
-    const row = document.createElement("div");
-    row.style.display = "flex";
-    row.style.gap = "8px";
-    row.style.alignItems = "center";
-    const txt = document.createElement("span");
-    txt.textContent = `${idx + 1}. ${flt}`;
-    txt.style.flex = "1";
-    const btn = document.createElement("button");
-    btn.textContent = "Remove";
-    btn.className = "miniBtn";
-    btn.onclick = () => {
-      faceEditor.filters.splice(idx, 1);
-      renderFilterList();
-    };
-    row.appendChild(txt);
-    row.appendChild(btn);
-    el.faceFilterList.appendChild(row);
+    const opt = document.createElement("option");
+    opt.value = String(idx);
+    opt.textContent = `${idx + 1}. ${flt}`;
+    el.faceFilterList.appendChild(opt);
   });
 }
+
 
 function albumTokensForImage(picasa, imageName) {
   const tokens = [];
@@ -2190,27 +2224,40 @@ function renderSlideFaceRects(item) {
 async function updateSlide() {
   const it = state.currentImages[state.slideshow.index];
   if (!it) return;
-  // Ensure full-size url
   if (!it.url) it.url = URL.createObjectURL(it.file);
   const tiltVal = lastTiltFromFilters(it.filters || []);
+  const tiltDeg = (Number.isFinite(tiltVal) ? tiltVal : 0) * 15;
   if (state.slideshow.showCrop) {
-    if (it.cropRect64) {
+    if (it.cropRect64 && Number.isFinite(tiltVal) && Math.abs(tiltVal) > 1e-6) {
+      const cacheKey = `${it.cropRect64}|${tiltVal.toFixed(6)}`;
+      if (!it.cropTiltUrl || it.cropTiltKey !== cacheKey) {
+        if (it.cropTiltUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropTiltUrl);
+        it.cropTiltUrl = await makeTiltThenCropURL(it.file, 2048, it.cropRect64, tiltVal);
+        it.cropTiltKey = cacheKey;
+      }
+      el.slideImg.src = it.cropTiltUrl || it.url;
+      el.slideImg.style.transform = "";
+    } else if (it.cropRect64) {
       if (!it.cropUrl) it.cropUrl = await makeThumbURL(it.file, 2048, it.cropRect64);
       el.slideImg.src = it.cropUrl || it.url;
+      el.slideImg.style.transform = `rotate(${tiltDeg.toFixed(2)}deg)`;
     } else {
       el.slideImg.src = it.url;
+      el.slideImg.style.transform = `rotate(${tiltDeg.toFixed(2)}deg)`;
     }
-    el.slideImg.style.transform = `rotate(${((Number.isFinite(tiltVal) ? tiltVal : 0) * 15).toFixed(2)}deg)`;
   } else {
     el.slideImg.src = it.url;
     el.slideImg.style.transform = "";
   }
+  await (el.slideImg.decode ? el.slideImg.decode().catch(()=>{}) : Promise.resolve());
+
   const faces = (it.faces || []).map((f) => f.label).filter(Boolean);
   const caption = it.caption ? ` | caption: ${it.caption}` : "";
   const faceText = faces.length ? ` | faces: ${faces.join(", ")}` : "";
   const tagText = (it.keywords || []).length ? ` | tags: ${(it.keywords || []).join(", ")}` : "";
   const starText = it.star ? " | ★ starred" : "";
   el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}${tagText}${starText}`;
+
   if ((it.albumTokens || []).length) {
     el.slideAlbums.innerHTML = `Albums: ` + it.albumTokens.map((tok, i) => `<a href="#" data-token="${tok}" class="mono">${it.albumNames?.[i] || tok}</a>`).join(" | ");
     el.slideAlbums.querySelectorAll("a[data-token]").forEach((a) => {
@@ -2219,37 +2266,45 @@ async function updateSlide() {
   } else {
     el.slideAlbums.textContent = "Albums: (none)";
   }
+
   if (state.slideshow.showText && (it.textOverlays || []).length) {
     const activeText = (it.textOverlays || []).filter((t) => t.enabled !== false);
     const chosen = activeText.length ? activeText[0] : it.textOverlay;
-    if (!chosen) { el.slideTextOverlay.style.display = "none"; } else {
-    el.slideTextOverlay.textContent = chosen.caption;
-    el.slideTextOverlay.style.left = `${Math.max(0, Math.min(1, chosen.x || 0.08)) * 100}%`;
-    el.slideTextOverlay.style.top = `${Math.max(0, Math.min(1, chosen.y || 0.08)) * 100}%`;
-    el.slideTextOverlay.style.fontFamily = chosen.fontFamily || "Arial";
-    const sizeFromCode = Number.isFinite(chosen.sizeCode) && chosen.sizeCode > 0 ? Math.max(10, chosen.sizeCode / 4) : 0;
-    const sizeFromRel = Math.max(16, (chosen.sizeRel || 0.04) * Math.max(300, el.slideImg.clientWidth || 300));
-    el.slideTextOverlay.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
-    const noSolidFill = (Number(chosen.renderFlags || 0) & 0x1) !== 0;
-    const solidFillMode = (Number(chosen.renderFlags || 0) & 0x2) !== 0;
-    el.slideTextOverlay.style.color = noSolidFill && !solidFillMode ? "transparent" : (chosen.colorPrimary || "#fff");
-    el.slideTextOverlay.style.opacity = `${Math.max(0, Math.min(1, (Number(chosen.opacity255 ?? 255) || 255) / 255))}`;
-    el.slideTextOverlay.style.fontWeight = String(Number(chosen.fontWeight || 400) || 400);
-    el.slideTextOverlay.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
-    el.slideTextOverlay.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
-    el.slideTextOverlay.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
-    el.slideTextOverlay.style.transform = `rotate(${(chosen.rotation || 0) * 360}deg)`;
-    el.slideTextOverlay.style.transformOrigin = "top left";
-    el.slideTextOverlay.style.display = "block";
+    if (!chosen) {
+      el.slideTextOverlay.style.display = "none";
+    } else {
+      const imgRect = el.slideImg.getBoundingClientRect();
+      const layerRect = el.slideFaceLayer.getBoundingClientRect();
+      const offsetX = imgRect.left - layerRect.left;
+      const offsetY = imgRect.top - layerRect.top;
+      el.slideTextOverlay.textContent = chosen.caption;
+      el.slideTextOverlay.style.left = `${offsetX + Math.max(0, Math.min(1, chosen.x || 0.08)) * imgRect.width}px`;
+      el.slideTextOverlay.style.top = `${offsetY + Math.max(0, Math.min(1, chosen.y || 0.08)) * imgRect.height}px`;
+      el.slideTextOverlay.style.fontFamily = chosen.fontFamily || "Arial";
+      const sizeFromCode = Number.isFinite(chosen.sizeCode) && chosen.sizeCode > 0 ? Math.max(10, chosen.sizeCode / 4) : 0;
+      const sizeFromRel = Math.max(16, (chosen.sizeRel || 0.04) * Math.max(300, imgRect.width || 300));
+      el.slideTextOverlay.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
+      const noSolidFill = (Number(chosen.renderFlags || 0) & 0x1) !== 0;
+      const solidFillMode = (Number(chosen.renderFlags || 0) & 0x2) !== 0;
+      el.slideTextOverlay.style.color = noSolidFill && !solidFillMode ? "transparent" : (chosen.colorPrimary || "#fff");
+      el.slideTextOverlay.style.opacity = `${Math.max(0, Math.min(1, (Number(chosen.opacity255 ?? 255) || 255) / 255))}`;
+      el.slideTextOverlay.style.fontWeight = String(Number(chosen.fontWeight || 400) || 400);
+      el.slideTextOverlay.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+      el.slideTextOverlay.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+      el.slideTextOverlay.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
+      const textRot = (chosen.rotation || 0) * 360 + (state.slideshow.showCrop ? tiltDeg : 0);
+      el.slideTextOverlay.style.transform = `rotate(${textRot}deg)`;
+      el.slideTextOverlay.style.transformOrigin = "top left";
+      el.slideTextOverlay.style.display = "block";
     }
   } else {
     el.slideTextOverlay.style.display = "none";
   }
+
   el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
   el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
   el.btnToggleText.textContent = state.slideshow.showText ? "Text: On" : "Text: Off";
   el.btnToggleStar.textContent = it.star ? "Star: On" : "Star: Off";
-  // Prefetch next/prev (browser cache will handle blob URLs fine)
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
   if (prev && !prev.url) prev.url = URL.createObjectURL(prev.file);
@@ -2257,6 +2312,7 @@ async function updateSlide() {
   el.btnPlay.textContent = state.slideshow.playing ? "⏸ Pause" : "▶ Play";
   renderSlideFaceRects(it);
 }
+
 function prevSlide() {
   if (!state.currentImages.length) return;
   state.slideshow.index = (state.slideshow.index - 1 + state.currentImages.length) % state.currentImages.length;
@@ -2534,6 +2590,12 @@ el.faceFaceLabelInput.oninput = () => {
   updateTextOverlayFromInputs();
   renderFaceRects();
 }));
+el.btnRemoveSelectedFilters.onclick = () => {
+  const selected = Array.from(el.faceFilterList.selectedOptions || []).map((o)=>Number(o.value)).filter((n)=>Number.isFinite(n)).sort((a,b)=>b-a);
+  for (const idx of selected) { if (idx >= 0 && idx < faceEditor.filters.length) faceEditor.filters.splice(idx, 1); }
+  faceEditor.filters = normalizeFilterOrder(faceEditor.filters);
+  renderFilterList();
+};
 el.btnUndoFilter.onclick = () => {
   const removed = faceEditor.filters.pop();
   faceEditor.filters = normalizeFilterOrder(faceEditor.filters);
