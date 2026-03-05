@@ -677,6 +677,14 @@ async function makeThumbURL(file, size = 320, cropRect64 = "") {
   return URL.createObjectURL(blob);
 }
 
+function tiltValueToDeg(tiltVal) {
+  const t = Number(tiltVal);
+  return (Number.isFinite(t) ? -t : 0) * 15;
+}
+function tiltValueToRad(tiltVal) {
+  return tiltValueToDeg(tiltVal) * (Math.PI / 180);
+}
+
 async function makeTiltThenCropURL(file, size = 2048, cropRect64 = "", tiltVal = 0) {
   const blob = file instanceof Blob ? file : new Blob([file]);
   const src = URL.createObjectURL(blob);
@@ -689,7 +697,7 @@ async function makeTiltThenCropURL(file, size = 2048, cropRect64 = "", tiltVal =
   URL.revokeObjectURL(src);
   const w = img.naturalWidth || 1;
   const h = img.naturalHeight || 1;
-  const rad = (Number(tiltVal) || 0) * (Math.PI / 12); // 15deg factor
+  const rad = tiltValueToRad(tiltVal);
   const cos = Math.cos(rad), sin = Math.sin(rad);
   const rw = Math.max(1, Math.ceil(Math.abs(cos * w) + Math.abs(sin * h)));
   const rh = Math.max(1, Math.ceil(Math.abs(sin * w) + Math.abs(cos * h)));
@@ -735,7 +743,7 @@ function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = 
     let m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
     if (m) {
       const tiltVal = Number(m[1]);
-      const rad = (Number.isFinite(tiltVal) ? tiltVal : 0) * (Math.PI / 12);
+      const rad = tiltValueToRad(tiltVal);
       const cos = Math.cos(rad), sin = Math.sin(rad);
       const rw = Math.max(1, Math.ceil(Math.abs(cos * w) + Math.abs(sin * h)));
       const rh = Math.max(1, Math.ceil(Math.abs(sin * w) + Math.abs(cos * h)));
@@ -744,7 +752,7 @@ function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = 
       x = (dx * cos - dy * sin) + rw / 2;
       y = (dx * sin + dy * cos) + rh / 2;
       w = rw; h = rh;
-      tiltDeg += (Number.isFinite(tiltVal) ? tiltVal : 0) * 15;
+      tiltDeg += tiltValueToDeg(tiltVal);
       continue;
     }
     m = String(f).match(/^crop64=1,(.+)$/i);
@@ -786,7 +794,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     let m = f.match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
     if (m) {
       const tiltVal = Number(m[1]);
-      const rad = (Number.isFinite(tiltVal) ? tiltVal : 0) * (Math.PI / 12);
+      const rad = tiltValueToRad(tiltVal);
       const w = canvas.width, h = canvas.height;
       const cos = Math.cos(rad), sin = Math.sin(rad);
       const rw = Math.max(1, Math.ceil(Math.abs(cos * w) + Math.abs(sin * h)));
@@ -1666,18 +1674,20 @@ function parseColorU32ToCss(v) {
 
 function parseOneTextOverlayChunk(chunk) {
   const parts = String(chunk || "").split(";");
-  const enabled = String(parts[0] || "1").trim() !== "0";
-  const sizeCode = Number(parts[1] || "0");
-  const styleCode = Number(parts[2] || "0");
-  const caption = (parts[3] || "").trim();
-  const fontFamily = (parts[4] || "Arial").trim() || "Arial";
-  const geom = (parts[5] || "").split(",").map((x) => Number(x.trim()));
+  const hasEnabledPrefix = String(parts[0] || "").trim() === "0" || String(parts[0] || "").trim() === "1";
+  const base = hasEnabledPrefix ? 1 : 0;
+  const enabled = hasEnabledPrefix ? String(parts[0] || "1").trim() !== "0" : true;
+  const sizeCode = Number(parts[base + 0] || "0");
+  const styleCode = Number(parts[base + 1] || "0");
+  const caption = (parts[base + 2] || "").trim();
+  const fontFamily = (parts[base + 3] || "Arial").trim() || "Arial";
+  const geom = (parts[base + 4] || "").split(",").map((x) => Number(x.trim()));
   const x = Number.isFinite(geom[0]) ? geom[0] : 0.08;
   const y = Number.isFinite(geom[1]) ? geom[1] : 0.08;
   const sizeRel = Number.isFinite(geom[2]) ? geom[2] : 0.04;
   const rotation = Number.isFinite(geom[3]) ? geom[3] : 0;
 
-  const style = (parts[6] || "").split(",").map((x) => x.trim());
+  const style = (parts[base + 5] || "").split(",").map((x) => x.trim());
   const fillARGB = Number(style[1]);
   const strokeARGB = Number(style[2]);
   const opacity255 = Number(style[3]);
@@ -1716,9 +1726,17 @@ function parseOneTextOverlayChunk(chunk) {
   };
 }
 
+
 function parseTextOverlays(textValue) {
   const src = String(textValue || "");
   const chunks = src.split(";;").map((x)=>x.trim()).filter(Boolean);
+  if (chunks.length) {
+    const firstParts = chunks[0].split(";");
+    const declaredCount = Number(firstParts[0]);
+    if (Number.isFinite(declaredCount) && declaredCount >= 1 && declaredCount <= chunks.length) {
+      chunks[0] = firstParts.slice(1).join(";");
+    }
+  }
   const out = chunks.map(parseOneTextOverlayChunk).filter((x) => x && x.caption);
   if (out.length) return out;
   const one = parseOneTextOverlayChunk(src);
@@ -2447,7 +2465,7 @@ async function updateSlide() {
   if (!it) return;
   if (!it.url) it.url = URL.createObjectURL(it.file);
   const tiltVal = state.slideshow.showCrop ? lastTiltFromFilters(it.filters || []) : 0;
-  const tiltDeg = (Number.isFinite(tiltVal) ? tiltVal : 0) * 15;
+  const tiltDeg = tiltValueToDeg(tiltVal);
   if (state.slideshow.showCrop) {
     const chain = Array.isArray(it.filters) ? it.filters.map((f) => String(f || "")).filter(Boolean) : [];
     const fallbackCrop = chain.length ? "" : String(it.cropRect64 || "").trim();
@@ -2778,7 +2796,7 @@ el.faceTiltSlider.oninput = () => {
   const t = Number(el.faceTiltSlider.value || "0");
   el.faceTiltValue.textContent = Number.isFinite(t) ? t.toFixed(2) : "0.00";
   if (!Number.isFinite(t)) return;
-  el.faceCanvasImg.style.transform = `rotate(${(t * 15).toFixed(2)}deg)`;
+  el.faceCanvasImg.style.transform = `rotate(${tiltValueToDeg(t).toFixed(2)}deg)`;
   const draftFilters = (faceEditor.filters || []).concat([`tilt=1,${t.toFixed(6)},0.000000`]);
   refreshEditorPreview(draftFilters);
 };
