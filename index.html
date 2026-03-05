@@ -176,7 +176,13 @@
       <div class="faceEditorSide">
         <div><b>Edit image metadata</b></div>
         <label>Caption<input id="faceCaptionInput" type="text"></label>
-        <label>Album tokens (comma)<input id="faceAlbumsInput" type="text"></label>
+        <label>Albums (names, comma)<input id="faceAlbumNamesInput" type="text"></label>
+        <label>Existing albums<select id="faceAlbumSelect" multiple size="5"></select></label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnAlbumAddSelected">Add selected album(s)</button>
+          <button id="btnAlbumRemoveSelected">Remove selected album(s)</button>
+          <button id="btnAlbumCreate">Create album from input</button>
+        </div>
         <div style="display:flex; gap:8px;">
           <button id="btnCropMode">Crop</button>
           <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
@@ -184,8 +190,17 @@
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
         <button id="btnFaceStarToggle" title="Toggle star">☆ Star</button>
-        <label>Tilt value <span id="faceTiltValue" class="mono">0.00</span><input id="faceTiltSlider" type="range" min="-1" max="1" step="0.01" value="0"></label>
-        <button id="btnApplyTiltFilter">Apply tilt filter</button>
+        <div id="cropControls" class="hidden">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btnAspect" data-ratio="">Free</button>
+            <button class="btnAspect" data-ratio="1:1">1:1</button>
+            <button class="btnAspect" data-ratio="10:15">10:15</button>
+            <button class="btnAspect" data-ratio="4:3">4:3</button>
+            <button class="btnAspect" data-ratio="16:9">16:9</button>
+          </div>
+          <label>Tilt value <span id="faceTiltValue" class="mono">0.00</span><input id="faceTiltSlider" type="range" min="-1" max="1" step="0.01" value="0"></label>
+          <button id="btnApplyTiltFilter">Apply tilt filter</button>
+        </div>
         <label>Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
         <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -701,11 +716,16 @@ const el = {
   faceCanvasWrap: document.getElementById("faceCanvasWrap"),
   faceCanvasImg: document.getElementById("faceCanvasImg"),
   faceCaptionInput: document.getElementById("faceCaptionInput"),
-  faceAlbumsInput: document.getElementById("faceAlbumsInput"),
+  faceAlbumNamesInput: document.getElementById("faceAlbumNamesInput"),
+  faceAlbumSelect: document.getElementById("faceAlbumSelect"),
+  btnAlbumAddSelected: document.getElementById("btnAlbumAddSelected"),
+  btnAlbumRemoveSelected: document.getElementById("btnAlbumRemoveSelected"),
+  btnAlbumCreate: document.getElementById("btnAlbumCreate"),
   faceCropRow: document.getElementById("faceCropRow"),
   faceCropInput: document.getElementById("faceCropInput"),
   faceKeywordsInput: document.getElementById("faceKeywordsInput"),
   btnFaceStarToggle: document.getElementById("btnFaceStarToggle"),
+  cropControls: document.getElementById("cropControls"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
   faceFaceSelect: document.getElementById("faceFaceSelect"),
@@ -896,7 +916,7 @@ function serializePicasaInfo(picasa) {
   }
   return lines.join("\n");
 }
-async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = [], textOverlays = null) {
+async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = [], textOverlays = null, albumNameByToken = null) {
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   if (!dirHandle) throw new Error("Missing directory handle for metadata save");
@@ -917,7 +937,8 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
     picasa.membersByToken.get(token).add(imageItem.name);
-    if (!picasa.albumNamesByToken.has(token)) picasa.albumNamesByToken.set(token, token);
+    const nm = albumNameByToken && albumNameByToken[token] ? albumNameByToken[token] : token;
+    picasa.albumNamesByToken.set(token, nm || token);
   }
   const fileHandle = await dirHandle.getFileHandle(".picasa.info", { create: true });
   const writable = await fileHandle.createWritable();
@@ -951,6 +972,10 @@ const faceEditor = {
   textOverlays: [],
   activeTextIdx: -1,
   star: false,
+  cropAspectRatio: null,
+  albumNameToToken: new Map(),
+  albumTokenToName: new Map(),
+  selectedAlbumTokens: new Set(),
   filters: []
 };
 function rect64ToBox(rect64) {
@@ -979,6 +1004,31 @@ function cssColorToHex(color, fallback = "#ffffff") {
   if (!m) return fallback;
   return `#${[m[1], m[2], m[3]].map((n)=>Math.max(0,Math.min(255,Number(n))).toString(16).padStart(2, "0")).join("")}`;
 }
+
+function parseAspectRatio(text) {
+  const m = String(text || "").match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!m) return null;
+  const a = Number(m[1]); const b = Number(m[2]);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return null;
+  return a / b;
+}
+function renderAlbumSelectFromState() {
+  el.faceAlbumSelect.innerHTML = "";
+  const entries = Array.from(faceEditor.albumTokenToName.entries()).sort((a,b)=>a[1].localeCompare(b[1], undefined, { sensitivity:"base" }));
+  for (const [token, name] of entries) {
+    const opt = document.createElement("option");
+    opt.value = token;
+    opt.textContent = name || token;
+    opt.selected = faceEditor.selectedAlbumTokens.has(token);
+    el.faceAlbumSelect.appendChild(opt);
+  }
+  const names = Array.from(faceEditor.selectedAlbumTokens).map((tok) => faceEditor.albumTokenToName.get(tok) || tok);
+  el.faceAlbumNamesInput.value = names.join(", ");
+}
+function makeAlbumToken(name) {
+  return String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || `album_${Date.now()}`;
+}
+
 function updateSelectionRows() {
   const hasFace = faceEditor.activeFaceIdx >= 0 && !!faceEditor.faces[faceEditor.activeFaceIdx];
   el.faceLabelRow.classList.toggle("hidden", !hasFace);
@@ -1113,12 +1163,15 @@ function openFaceEditor(imageItem) {
   faceEditor.imageItem = imageItem;
   faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
   faceEditor.activeFaceIdx = -1;
+  faceEditor.selectedAlbumTokens = new Set();
   el.faceCaptionInput.value = imageItem.caption || '';
   faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
   faceEditor.cropUiVisible = false;
+  faceEditor.cropAspectRatio = null;
   el.faceCropInput.value = faceEditor.cropRect64;
   el.faceCropRow.classList.add("hidden");
   el.btnApplyCropFilter.classList.add("hidden");
+  el.cropControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -1136,9 +1189,19 @@ function openFaceEditor(imageItem) {
   syncTextInputsFromState();
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
+  faceEditor.albumNameToToken = new Map();
+  faceEditor.albumTokenToName = new Map();
+  faceEditor.selectedAlbumTokens = new Set();
   Promise.resolve(dirHandle ? getPicasaMetaForFolder(relDir, dirHandle) : null).then((picasa) => {
-    const toks = picasa ? albumTokensForImage(picasa, imageItem.name) : [];
-    el.faceAlbumsInput.value = toks.join(',');
+    if (picasa) {
+      for (const [token, name] of picasa.albumNamesByToken.entries()) {
+        const nm = String(name || token || "").trim() || token;
+        faceEditor.albumTokenToName.set(token, nm);
+        faceEditor.albumNameToToken.set(nm.toLowerCase(), token);
+      }
+      for (const tok of albumTokensForImage(picasa, imageItem.name)) faceEditor.selectedAlbumTokens.add(tok);
+    }
+    renderAlbumSelectFromState();
   });
   if (!imageItem.url) imageItem.url = URL.createObjectURL(imageItem.file);
   el.faceCanvasImg.src = imageItem.url;
@@ -1161,6 +1224,7 @@ function closeFaceEditor() {
   faceEditor.textDragging = false;
   faceEditor.activeTextIdx = -1;
   faceEditor.activeFaceIdx = -1;
+  faceEditor.selectedAlbumTokens = new Set();
 }
 async function editImageMetadata(imageItem) {
   const captionInput = window.prompt("Caption", imageItem.caption || "");
@@ -1701,6 +1765,7 @@ function escapeHtml(s) {
 async function selectAlbum(idx) {
   const album = state.albums[idx];
   if (!album) return;
+  console.log("[selectAlbum]", { idx, source: album.source || "pmp", token: album.token, pathRel: album.pathRel, hasRefs: Array.isArray(album.imageRefs) ? album.imageRefs.length : null });
   state.currentViewMode = "albums";
   state.activeListIndex = idx;
   renderNavigation();
@@ -1710,10 +1775,15 @@ async function selectAlbum(idx) {
   refreshAlbumNameEditor();
   if (album.source === "ini") {
     const refs = Array.isArray(album.imageRefs) ? album.imageRefs : [];
-    const images = await listImagesForAlbumRefs(refs);
+    let images = await listImagesForAlbumRefs(refs);
+    if (!images.length && album.pathRel && state.dirIndex?.has(album.pathRel)) {
+      const loaded = await listImagesInDirectory(state.dirIndex.get(album.pathRel), album.pathRel, { album });
+      images = loaded.images;
+    }
     setPicasaLog(`INI album token=${album.token} refs=${refs.length}`);
     el.resolvePill.textContent = `INI album (${refs.length} refs)`;
     await renderTiles(images);
+    console.log("[selectAlbum] ini images loaded", { count: images.length, token: album.token, pathRel: album.pathRel });
     setStatus(images.length ? "Ready." : "No images found for this INI album.", images.length ? "ok" : "warn");
     return;
   }
@@ -1723,6 +1793,7 @@ async function selectAlbum(idx) {
     return;
   }
   await showImagesForResolvedPath(album.pathRel, `Resolved: ${album.pathRel}`, { album });
+  console.log("[selectAlbum] pmp album loaded", { token: album.token, pathRel: album.pathRel });
 }
 async function selectFolder(idx) {
   const folder = state.folderNavItems[idx];
@@ -1969,11 +2040,18 @@ async function updateSlide() {
   if (!it) return;
   // Ensure full-size url
   if (!it.url) it.url = URL.createObjectURL(it.file);
-  if (state.slideshow.showCrop && it.cropRect64) {
-    if (!it.cropUrl) it.cropUrl = await makeThumbURL(it.file, 2048, it.cropRect64);
-    el.slideImg.src = it.cropUrl || it.url;
+  const tiltVal = lastTiltFromFilters(it.filters || []);
+  if (state.slideshow.showCrop) {
+    if (it.cropRect64) {
+      if (!it.cropUrl) it.cropUrl = await makeThumbURL(it.file, 2048, it.cropRect64);
+      el.slideImg.src = it.cropUrl || it.url;
+    } else {
+      el.slideImg.src = it.url;
+    }
+    el.slideImg.style.transform = `rotate(${((Number.isFinite(tiltVal) ? tiltVal : 0) * 15).toFixed(2)}deg)`;
   } else {
     el.slideImg.src = it.url;
+    el.slideImg.style.transform = "";
   }
   const faces = (it.faces || []).map((f) => f.label).filter(Boolean);
   const caption = it.caption ? ` | caption: ${it.caption}` : "";
@@ -2136,6 +2214,7 @@ el.btnRenameAlbum.onclick = async () => {
   const idx = state.activeListIndex;
   const album = state.albums[idx];
   if (!album) return;
+  console.log("[selectAlbum]", { idx, source: album.source || "pmp", token: album.token, pathRel: album.pathRel, hasRefs: Array.isArray(album.imageRefs) ? album.imageRefs.length : null });
   const newName = String(el.albumNameInput.value || "").trim();
   if (!newName) return;
   album.name = newName;
@@ -2155,6 +2234,27 @@ el.btnRenameAlbum.onclick = async () => {
   setStatus("Album name updated.", "ok");
 };
 el.albumNameInput.addEventListener("keydown", (ev) => { if (ev.key === "Enter") el.btnRenameAlbum.click(); });
+el.btnAlbumAddSelected.onclick = () => {
+  const selected = Array.from(el.faceAlbumSelect.selectedOptions || []).map((o) => o.value).filter(Boolean);
+  for (const tok of selected) faceEditor.selectedAlbumTokens.add(tok);
+  renderAlbumSelectFromState();
+};
+el.btnAlbumRemoveSelected.onclick = () => {
+  const selected = Array.from(el.faceAlbumSelect.selectedOptions || []).map((o) => o.value).filter(Boolean);
+  for (const tok of selected) faceEditor.selectedAlbumTokens.delete(tok);
+  renderAlbumSelectFromState();
+};
+el.btnAlbumCreate.onclick = () => {
+  const names = String(el.faceAlbumNamesInput.value || "").split(",").map((x)=>x.trim()).filter(Boolean);
+  for (const nm of names) {
+    const existingTok = faceEditor.albumNameToToken.get(nm.toLowerCase());
+    const tok = existingTok || makeAlbumToken(nm);
+    faceEditor.albumNameToToken.set(nm.toLowerCase(), tok);
+    faceEditor.albumTokenToName.set(tok, nm);
+    faceEditor.selectedAlbumTokens.add(tok);
+  }
+  renderAlbumSelectFromState();
+};
 el.btnViewFolders.onclick = () => {
   if (!state.libraryRoot || !state.dirIndex) {
     setStatus("Choose a Library folder first to browse subfolders.", "warn");
@@ -2207,6 +2307,7 @@ el.btnCropMode.onclick = () => {
   faceEditor.cropUiVisible = !faceEditor.cropUiVisible;
   el.faceCropRow.classList.toggle("hidden", !faceEditor.cropUiVisible);
   el.btnApplyCropFilter.classList.toggle("hidden", !faceEditor.cropUiVisible);
+  el.cropControls.classList.toggle("hidden", !faceEditor.cropUiVisible);
   el.btnCropMode.textContent = faceEditor.cropUiVisible ? "Hide crop" : "Crop";
   renderFaceRects();
 };
@@ -2277,6 +2378,23 @@ el.btnTextAdd.onclick = () => {
   syncTextInputsFromState();
   renderFaceRects();
 };
+document.querySelectorAll(".btnAspect").forEach((btn) => {
+  btn.onclick = () => {
+    faceEditor.cropAspectRatio = parseAspectRatio(btn.dataset.ratio || "");
+    document.querySelectorAll(".btnAspect").forEach((b)=>b.classList.remove("active"));
+    btn.classList.add("active");
+  };
+});
+el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
+  const target = ev.target;
+  if (target === el.faceCanvasWrap || target === el.faceCanvasImg) {
+    if (faceEditor.activeTextIdx >= 0) {
+      faceEditor.activeTextIdx = -1;
+      syncTextInputsFromState();
+      renderFaceRects();
+    }
+  }
+});
 el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
   if (faceEditor.draggingIdx < 0 && !faceEditor.cropDragging && !faceEditor.textDragging) return;
   const r = el.faceCanvasImg.getBoundingClientRect();
@@ -2286,8 +2404,14 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
     if (faceEditor.cropMode === "resize") {
       const rightPx = ev.clientX - p.left - (r.left - p.left);
       const bottomPx = ev.clientY - p.top - (r.top - p.top);
-      const w = Math.max(0.03, Math.min(1 - cb.x, rightPx / Math.max(1, r.width) - cb.x));
-      const h = Math.max(0.03, Math.min(1 - cb.y, bottomPx / Math.max(1, r.height) - cb.y));
+      let w = Math.max(0.03, Math.min(1 - cb.x, rightPx / Math.max(1, r.width) - cb.x));
+      let h = Math.max(0.03, Math.min(1 - cb.y, bottomPx / Math.max(1, r.height) - cb.y));
+      if (faceEditor.cropAspectRatio) {
+        const ar = faceEditor.cropAspectRatio;
+        if ((w / h) > ar) w = h * ar; else h = w / ar;
+        w = Math.max(0.03, Math.min(1 - cb.x, w));
+        h = Math.max(0.03, Math.min(1 - cb.y, h));
+      }
       faceEditor.cropRect64 = boxToRect64({ x: cb.x, y: cb.y, w, h });
     } else {
       const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.dragOffsetX;
@@ -2339,12 +2463,13 @@ el.btnFaceSave.onclick = async () => {
   if (!faceEditor.imageItem) return;
   try {
     const caption = el.faceCaptionInput.value.trim();
-    const albumTokens = el.faceAlbumsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
+    const albumTokens = Array.from(faceEditor.selectedAlbumTokens);
     const keywords = el.faceKeywordsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
     updateTextOverlayFromInputs();
     const faceEntries = faceEditor.faces.slice();
     const textOverlays = faceEditor.textOverlays.filter((t) => t && String(t.caption || "").trim());
-    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays);
+    const albumNameByToken = Object.fromEntries(Array.from(faceEditor.albumTokenToName.entries()));
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays, albumNameByToken);
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
     setStatus('Saved caption/faces/crop/albums/tags to .picasa.info', 'ok');
