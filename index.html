@@ -231,6 +231,8 @@
         <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
         <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
         <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
+        <div><b>Applied filters</b></div>
+        <div id="faceFilterList" class="mono" style="max-height:120px; overflow:auto; border:1px solid #333; border-radius:6px; padding:6px;"></div>
         <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
@@ -780,6 +782,7 @@ const el = {
   faceTextSolidFillModeInput: document.getElementById("faceTextSolidFillModeInput"),
   faceTextAnchorFlagsInput: document.getElementById("faceTextAnchorFlagsInput"),
   faceTextRenderFlagsInput: document.getElementById("faceTextRenderFlagsInput"),
+  faceFilterList: document.getElementById("faceFilterList"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnCropMode: document.getElementById("btnCropMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
@@ -894,6 +897,48 @@ function cssColorToU32(color, fallback = 4294967295) {
   return ((255 << 24) | (r << 16) | (g << 8) | b) >>> 0;
 }
 
+function normalizeFilterOrder(filters) {
+  const arr = Array.isArray(filters) ? filters.map((f, i) => ({ f: String(f || ""), i })) : [];
+  const rank = (v) => {
+    if (/^tilt=1,/i.test(v)) return 0;
+    if (/^crop64=1,/i.test(v)) return 1;
+    return 2;
+  };
+  arr.sort((a, b) => {
+    const ra = rank(a.f), rb = rank(b.f);
+    if (ra !== rb) return ra - rb;
+    return a.i - b.i;
+  });
+  return arr.map((x) => x.f);
+}
+function renderFilterList() {
+  if (!el.faceFilterList) return;
+  if (!faceEditor.filters.length) {
+    el.faceFilterList.innerHTML = "(none)";
+    return;
+  }
+  el.faceFilterList.innerHTML = "";
+  faceEditor.filters.forEach((flt, idx) => {
+    const row = document.createElement("div");
+    row.style.display = "flex";
+    row.style.gap = "8px";
+    row.style.alignItems = "center";
+    const txt = document.createElement("span");
+    txt.textContent = `${idx + 1}. ${flt}`;
+    txt.style.flex = "1";
+    const btn = document.createElement("button");
+    btn.textContent = "Remove";
+    btn.className = "miniBtn";
+    btn.onclick = () => {
+      faceEditor.filters.splice(idx, 1);
+      renderFilterList();
+    };
+    row.appendChild(txt);
+    row.appendChild(btn);
+    el.faceFilterList.appendChild(row);
+  });
+}
+
 function albumTokensForImage(picasa, imageName) {
   const tokens = [];
   for (const [token, members] of picasa.membersByToken.entries()) {
@@ -974,7 +1019,7 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
   const normalizedTextOverlays = Array.isArray(textOverlays)
     ? textOverlays.filter((x) => x && String(x.caption || "").trim())
     : (oldMeta.textOverlays || []);
-  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: Array.isArray(filters) ? filters.slice() : [] });
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: normalizeFilterOrder(Array.isArray(filters) ? filters.slice() : []) });
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
@@ -1260,7 +1305,8 @@ function openFaceEditor(imageItem) {
   faceEditor.star = !!imageItem.star;
   el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
   el.btnFaceStarToggle.textContent = faceEditor.star ? "★ Star" : "☆ Star";
-  faceEditor.filters = Array.isArray(imageItem.filters) ? imageItem.filters.slice() : [];
+  faceEditor.filters = normalizeFilterOrder(Array.isArray(imageItem.filters) ? imageItem.filters.slice() : []);
+  renderFilterList();
   const tiltVal = lastTiltFromFilters(faceEditor.filters);
   const safeTilt = Number.isFinite(tiltVal) ? Math.max(-1, Math.min(1, tiltVal)) : 0;
   el.faceTiltSlider.value = safeTilt.toFixed(2);
@@ -1308,6 +1354,7 @@ function closeFaceEditor() {
   faceEditor.activeTextIdx = -1;
   faceEditor.activeFaceIdx = -1;
   faceEditor.selectedAlbumTokens = new Set();
+  renderFilterList();
 }
 async function editImageMetadata(imageItem) {
   const captionInput = window.prompt("Caption", imageItem.caption || "");
@@ -2191,7 +2238,8 @@ async function updateSlide() {
     el.slideTextOverlay.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
     el.slideTextOverlay.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
     el.slideTextOverlay.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
-    el.slideTextOverlay.style.transform = `translate(-50%, -50%) rotate(${(chosen.rotation || 0) * 360}deg)`;
+    el.slideTextOverlay.style.transform = `rotate(${(chosen.rotation || 0) * 360}deg)`;
+    el.slideTextOverlay.style.transformOrigin = "top left";
     el.slideTextOverlay.style.display = "block";
     }
   } else {
@@ -2426,12 +2474,16 @@ el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
   faceEditor.filters.push(`crop64=1,${c}`);
+  faceEditor.filters = normalizeFilterOrder(faceEditor.filters);
+  renderFilterList();
   el.faceEditorStatus.textContent = `Applied filter: crop64 (${faceEditor.filters.length})`;
 };
 el.btnApplyTiltFilter.onclick = () => {
   const t = Number(el.faceTiltSlider.value || "0");
   if (!Number.isFinite(t)) return;
   faceEditor.filters.push(`tilt=1,${t.toFixed(6)},0.000000`);
+  faceEditor.filters = normalizeFilterOrder(faceEditor.filters);
+  renderFilterList();
   el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
 };
 el.faceTiltSlider.oninput = () => {
@@ -2484,6 +2536,8 @@ el.faceFaceLabelInput.oninput = () => {
 }));
 el.btnUndoFilter.onclick = () => {
   const removed = faceEditor.filters.pop();
+  faceEditor.filters = normalizeFilterOrder(faceEditor.filters);
+  renderFilterList();
   el.faceEditorStatus.textContent = removed ? `Undo filter: ${removed}` : 'No filter to undo';
 };
 
