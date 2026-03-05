@@ -684,6 +684,10 @@ function tiltValueToDeg(tiltVal) {
 function tiltValueToRad(tiltVal) {
   return tiltValueToDeg(tiltVal) * (Math.PI / 180);
 }
+function textRotationToDeg(rotationValue) {
+  const r = Number(rotationValue);
+  return (Number.isFinite(r) ? -r : 0) * 360;
+}
 
 async function makeTiltThenCropURL(file, size = 2048, cropRect64 = "", tiltVal = 0) {
   const blob = file instanceof Blob ? file : new Blob([file]);
@@ -782,44 +786,67 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     im.src = src;
   });
   URL.revokeObjectURL(src);
+
+  const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
+  const cropFilter = chain.find((f) => /^crop64=1,/i.test(f));
+  const cropRect = cropFilter ? rect64ToBox(String(cropFilter).replace(/^crop64=1,/i, "").trim()) : null;
+  const tiltVals = chain
+    .map((f) => {
+      const m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+      return m ? Number(m[1]) : null;
+    })
+    .filter((v) => Number.isFinite(v));
+
   let canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth || 1;
   canvas.height = img.naturalHeight || 1;
   let ctx = canvas.getContext("2d");
   ctx.drawImage(img, 0, 0);
 
-  const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
-
-  for (const f of chain) {
-    let m = f.match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
-    if (m) {
-      const tiltVal = Number(m[1]);
-      const rad = tiltValueToRad(tiltVal);
-      const w = canvas.width, h = canvas.height;
-      const cos = Math.cos(rad), sin = Math.sin(rad);
-      const rw = Math.max(1, Math.ceil(Math.abs(cos * w) + Math.abs(sin * h)));
-      const rh = Math.max(1, Math.ceil(Math.abs(sin * w) + Math.abs(cos * h)));
-      const out = document.createElement("canvas");
-      out.width = rw; out.height = rh;
-      const octx = out.getContext("2d");
-      octx.translate(rw / 2, rh / 2);
-      octx.rotate(rad);
-      octx.drawImage(canvas, -w / 2, -h / 2);
-      canvas = out; ctx = octx;
-      continue;
-    }
-    m = f.match(/^crop64=1,(.+)$/i);
-    if (m) {
-      const b = rect64ToBox(m[1].trim());
-      const w = canvas.width, h = canvas.height;
-      const sx = Math.max(0, Math.round(b.x * w));
-      const sy = Math.max(0, Math.round(b.y * h));
-      const sw = Math.max(1, Math.round(b.w * w));
-      const sh = Math.max(1, Math.round(b.h * h));
-      const out = document.createElement("canvas");
-      out.width = sw; out.height = sh;
-      out.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
-      canvas = out; ctx = out.getContext("2d");
+  if (cropRect && tiltVals.length) {
+    const w = canvas.width, h = canvas.height;
+    const tilted = document.createElement("canvas");
+    tilted.width = w; tilted.height = h;
+    const tctx = tilted.getContext("2d");
+    tctx.translate(w / 2, h / 2);
+    for (const tv of tiltVals) tctx.rotate(tiltValueToRad(tv));
+    tctx.drawImage(canvas, -w / 2, -h / 2);
+    const sx = Math.max(0, Math.round(cropRect.x * w));
+    const sy = Math.max(0, Math.round(cropRect.y * h));
+    const sw = Math.max(1, Math.round(cropRect.w * w));
+    const sh = Math.max(1, Math.round(cropRect.h * h));
+    const out = document.createElement("canvas");
+    out.width = sw; out.height = sh;
+    out.getContext("2d").drawImage(tilted, sx, sy, sw, sh, 0, 0, sw, sh);
+    canvas = out;
+  } else {
+    for (const f of chain) {
+      let m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+      if (m) {
+        const rad = tiltValueToRad(Number(m[1]));
+        const w = canvas.width, h = canvas.height;
+        const out = document.createElement("canvas");
+        out.width = w; out.height = h;
+        const octx = out.getContext("2d");
+        octx.translate(w / 2, h / 2);
+        octx.rotate(rad);
+        octx.drawImage(canvas, -w / 2, -h / 2);
+        canvas = out;
+        continue;
+      }
+      m = String(f).match(/^crop64=1,(.+)$/i);
+      if (m) {
+        const b = rect64ToBox(m[1].trim());
+        const w = canvas.width, h = canvas.height;
+        const sx = Math.max(0, Math.round(b.x * w));
+        const sy = Math.max(0, Math.round(b.y * h));
+        const sw = Math.max(1, Math.round(b.w * w));
+        const sh = Math.max(1, Math.round(b.h * h));
+        const out = document.createElement("canvas");
+        out.width = sw; out.height = sh;
+        out.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+        canvas = out;
+      }
     }
   }
 
@@ -1478,7 +1505,7 @@ function renderFaceRects() {
     box.style.fontStyle = ((Number(t.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
     box.style.textDecoration = ((Number(t.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
     box.style.webkitTextStroke = `${Math.max(0, Number(t.strokeWidthFactor ?? (t.outlineWidth || 0)) * 6)}px ${t.colorSecondary || "#000"}`;
-    box.style.transform = `rotate(${((t.rotation || 0) * 360 + (mapped.tiltDeg || 0)).toFixed(2)}deg)`;
+    box.style.transform = `rotate(${textRotationToDeg(t.rotation).toFixed(2)}deg)`;
     box.style.transformOrigin = "top left";
     box.onpointerdown = (ev) => {
       ev.preventDefault();
@@ -2402,7 +2429,7 @@ async function renderTiles(images) {
           t.style.fontStyle = ((Number(tx.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
           t.style.textDecoration = ((Number(tx.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
           t.style.webkitTextStroke = `${Math.max(0, Number(tx.strokeWidthFactor ?? (tx.outlineWidth || 0)) * 6)}px ${tx.colorSecondary || "#000"}`;
-          t.style.transform = `rotate(${((tx.rotation || 0) * 360 + (mapped.tiltDeg || 0)).toFixed(2)}deg)`;
+          t.style.transform = `rotate(${textRotationToDeg(tx.rotation).toFixed(2)}deg)`;
           t.style.transformOrigin = "top left";
           imgWrap.appendChild(t);
         }
@@ -2526,7 +2553,7 @@ async function updateSlide() {
       d.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
       d.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
       d.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
-      d.style.transform = `rotate(${((chosen.rotation || 0) * 360 + (mapped.tiltDeg || 0)).toFixed(2)}deg)`;
+      d.style.transform = `rotate(${textRotationToDeg(chosen.rotation).toFixed(2)}deg)`;
       d.style.transformOrigin = "top left";
       el.slideFaceLayer.appendChild(d);
     }
