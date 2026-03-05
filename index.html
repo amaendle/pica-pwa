@@ -928,6 +928,7 @@ function clearGrid() {
     if (it.url?.startsWith("blob:")) URL.revokeObjectURL(it.url);
     if (it.cropUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropUrl);
     if (it.cropTiltUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropTiltUrl);
+    if (it.slidePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(it.slidePreviewUrl);
   }
   state.currentImages = [];
   el.grid.innerHTML = "";
@@ -2374,26 +2375,19 @@ async function updateSlide() {
   const it = state.currentImages[state.slideshow.index];
   if (!it) return;
   if (!it.url) it.url = URL.createObjectURL(it.file);
-  const tiltVal = lastTiltFromFilters(it.filters || []);
+  const tiltVal = state.slideshow.showCrop ? lastTiltFromFilters(it.filters || []) : 0;
   const tiltDeg = (Number.isFinite(tiltVal) ? tiltVal : 0) * 15;
   if (state.slideshow.showCrop) {
-    if (it.cropRect64 && Number.isFinite(tiltVal) && Math.abs(tiltVal) > 1e-6) {
-      const cacheKey = `${it.cropRect64}|${tiltVal.toFixed(6)}`;
-      if (!it.cropTiltUrl || it.cropTiltKey !== cacheKey) {
-        if (it.cropTiltUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropTiltUrl);
-        it.cropTiltUrl = await makeTiltThenCropURL(it.file, 2048, it.cropRect64, tiltVal);
-        it.cropTiltKey = cacheKey;
-      }
-      el.slideImg.src = it.cropTiltUrl || it.url;
-      el.slideImg.style.transform = "";
-    } else if (it.cropRect64) {
-      if (!it.cropUrl) it.cropUrl = await makeThumbURL(it.file, 2048, it.cropRect64);
-      el.slideImg.src = it.cropUrl || it.url;
-      el.slideImg.style.transform = `rotate(${tiltDeg.toFixed(2)}deg)`;
-    } else {
-      el.slideImg.src = it.url;
-      el.slideImg.style.transform = `rotate(${tiltDeg.toFixed(2)}deg)`;
+    const chain = Array.isArray(it.filters) ? it.filters.map((f) => String(f || "")).filter(Boolean) : [];
+    const fallbackCrop = chain.length ? "" : String(it.cropRect64 || "").trim();
+    const cacheKey = JSON.stringify({ filters: chain, crop: fallbackCrop });
+    if (!it.slidePreviewUrl || it.slidePreviewKey !== cacheKey) {
+      if (it.slidePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(it.slidePreviewUrl);
+      it.slidePreviewUrl = await makeFilteredPreviewURL(it.file, chain, 2048, fallbackCrop);
+      it.slidePreviewKey = cacheKey;
     }
+    el.slideImg.src = it.slidePreviewUrl || it.url;
+    el.slideImg.style.transform = "";
   } else {
     el.slideImg.src = it.url;
     el.slideImg.style.transform = "";
@@ -2818,7 +2812,8 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
       let h = Math.max(0.03, Math.min(1 - cb.y, bottomPx / Math.max(1, r.height) - cb.y));
       if (faceEditor.cropAspectRatio) {
         const ar = faceEditor.cropAspectRatio;
-        if ((w / h) > ar) w = h * ar; else h = w / ar;
+        const normalizedAr = ar * (r.height / Math.max(1, r.width));
+        if ((w / h) > normalizedAr) w = h * normalizedAr; else h = w / normalizedAr;
         w = Math.max(0.03, Math.min(1 - cb.x, w));
         h = Math.max(0.03, Math.min(1 - cb.y, h));
       }
