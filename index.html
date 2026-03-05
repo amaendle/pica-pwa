@@ -215,7 +215,16 @@
         <label id="textSizeRow" class="hidden">Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
         <label id="textColorRow" class="hidden">Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
         <label id="textOutlineColorRow" class="hidden">Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
-        <label id="textOutlineWidthRow" class="hidden">Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="1" value="2"></label>
+        <label id="textOutlineWidthRow" class="hidden">Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="0.1" value="1"></label>
+        <label id="textOpacityRow" class="hidden">Opacity (0-255)<input id="faceTextOpacityInput" type="range" min="0" max="255" step="1" value="128"></label>
+        <label id="textScaleXRow" class="hidden">ScaleX (raw)<input id="faceTextScaleXInput" type="number" min="0" max="5" step="0.01" value="1"></label>
+        <label id="textScaleYRow" class="hidden">ScaleY (raw)<input id="faceTextScaleYInput" type="number" min="0" max="5" step="0.01" value="1"></label>
+        <label id="textStrokeFactorRow" class="hidden">Stroke width factor (0..1)<input id="faceTextStrokeFactorInput" type="range" min="0" max="1" step="0.01" value="0"></label>
+        <label id="textWeightRow" class="hidden">Font weight<input id="faceTextWeightInput" type="number" min="100" max="900" step="100" value="400"></label>
+        <label id="textAlignRow" class="hidden">Paragraph align<select id="faceTextAlignInput"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+        <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
+        <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
+        <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
         <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
@@ -738,12 +747,33 @@ const el = {
   textColorRow: document.getElementById("textColorRow"),
   textOutlineColorRow: document.getElementById("textOutlineColorRow"),
   textOutlineWidthRow: document.getElementById("textOutlineWidthRow"),
+  textOpacityRow: document.getElementById("textOpacityRow"),
+  textScaleXRow: document.getElementById("textScaleXRow"),
+  textScaleYRow: document.getElementById("textScaleYRow"),
+  textStrokeFactorRow: document.getElementById("textStrokeFactorRow"),
+  textWeightRow: document.getElementById("textWeightRow"),
+  textAlignRow: document.getElementById("textAlignRow"),
+  textFlagsRow: document.getElementById("textFlagsRow"),
+  textAnchorFlagsRow: document.getElementById("textAnchorFlagsRow"),
+  textRenderFlagsRow: document.getElementById("textRenderFlagsRow"),
   faceTextInput: document.getElementById("faceTextInput"),
   faceTextFontInput: document.getElementById("faceTextFontInput"),
   faceTextSizeInput: document.getElementById("faceTextSizeInput"),
   faceTextColorInput: document.getElementById("faceTextColorInput"),
   faceTextOutlineColorInput: document.getElementById("faceTextOutlineColorInput"),
   faceTextOutlineWidthInput: document.getElementById("faceTextOutlineWidthInput"),
+  faceTextOpacityInput: document.getElementById("faceTextOpacityInput"),
+  faceTextScaleXInput: document.getElementById("faceTextScaleXInput"),
+  faceTextScaleYInput: document.getElementById("faceTextScaleYInput"),
+  faceTextStrokeFactorInput: document.getElementById("faceTextStrokeFactorInput"),
+  faceTextWeightInput: document.getElementById("faceTextWeightInput"),
+  faceTextAlignInput: document.getElementById("faceTextAlignInput"),
+  faceTextItalicInput: document.getElementById("faceTextItalicInput"),
+  faceTextUnderlineInput: document.getElementById("faceTextUnderlineInput"),
+  faceTextNoSolidFillInput: document.getElementById("faceTextNoSolidFillInput"),
+  faceTextSolidFillModeInput: document.getElementById("faceTextSolidFillModeInput"),
+  faceTextAnchorFlagsInput: document.getElementById("faceTextAnchorFlagsInput"),
+  faceTextRenderFlagsInput: document.getElementById("faceTextRenderFlagsInput"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnCropMode: document.getElementById("btnCropMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
@@ -881,10 +911,16 @@ function serializePicasaInfo(picasa) {
     lines.push(`[${name}]`);
     if (meta.textOverlays?.length) {
       const txt = meta.textOverlays.map((t) => {
-        const primary = cssColorToU32(t.colorPrimary, 4294967295);
-        const secondary = cssColorToU32(t.colorSecondary, 4278190080);
-        const outlineCode = (Math.max(0, Number(t.outlineWidth || 2)) * 64).toFixed(6);
-        return `${t.enabled ? 1 : 0};${t.sizeCode || 128};${t.styleCode || 8};${t.caption};${t.fontFamily || "Arial"};${t.x},${t.y},${t.sizeRel},${t.rotation};v1,${primary},${secondary},${outlineCode},1.000000,0.000000,1.000000,400,0,49152`;
+        const primary = Number.isFinite(Number(t.fillARGB)) ? Number(t.fillARGB) : cssColorToU32(t.colorPrimary, 4294967295);
+        const secondary = Number.isFinite(Number(t.strokeARGB)) ? Number(t.strokeARGB) : cssColorToU32(t.colorSecondary, 4278190080);
+        const opacity255 = Number.isFinite(Number(t.opacity255)) ? Number(t.opacity255) : 128;
+        const scaleXUnknown = Number.isFinite(Number(t.scaleXUnknown)) ? Number(t.scaleXUnknown) : 1;
+        const strokeWidthFactor = Number.isFinite(Number(t.strokeWidthFactor)) ? Number(t.strokeWidthFactor) : (Math.max(0, Number(t.outlineWidth || 1)) / 6);
+        const scaleYUnknown = Number.isFinite(Number(t.scaleYUnknown)) ? Number(t.scaleYUnknown) : 1;
+        const fontWeight = Number.isFinite(Number(t.fontWeight)) ? Number(t.fontWeight) : 400;
+        const renderFlags = Number.isFinite(Number(t.renderFlags)) ? Number(t.renderFlags) : 0;
+        const textStyleAnchorFlags = Number.isFinite(Number(t.textStyleAnchorFlags)) ? Number(t.textStyleAnchorFlags) : 49152;
+        return `${t.enabled ? 1 : 0};${t.sizeCode || 128};${t.styleCode || 8};${t.caption};${t.fontFamily || "Arial"};${t.x},${t.y},${t.sizeRel},${t.rotation};v1,${primary},${secondary},${opacity255.toFixed(6)},${scaleXUnknown.toFixed(6)},${strokeWidthFactor.toFixed(6)},${scaleYUnknown.toFixed(6)},${Math.round(fontWeight)},${Math.round(renderFlags)},${Math.round(textStyleAnchorFlags)}`;
       }).join(";;") + ";;";
       lines.push(`text=${txt}`);
     } else if (meta.caption) lines.push(`text=1;128;8;${meta.caption};${meta.textOverlay?.fontFamily || "Arial"};${meta.textOverlay ? `${meta.textOverlay.x},${meta.textOverlay.y},${meta.textOverlay.sizeRel},${meta.textOverlay.rotation}` : ""};v1,4294967295,4278190080,128.000000,1.000000,0.000000,1.000000,400,0,49152;;`);
@@ -1033,7 +1069,7 @@ function updateSelectionRows() {
   const hasFace = faceEditor.activeFaceIdx >= 0 && !!faceEditor.faces[faceEditor.activeFaceIdx];
   el.faceLabelRow.classList.toggle("hidden", !hasFace);
   const hasText = faceEditor.activeTextIdx >= 0 && !!faceEditor.textOverlays[faceEditor.activeTextIdx];
-  [el.textInputRow, el.textFontRow, el.textSizeRow, el.textColorRow, el.textOutlineColorRow, el.textOutlineWidthRow].forEach((n)=>n.classList.toggle("hidden", !hasText));
+  [el.textInputRow, el.textFontRow, el.textSizeRow, el.textColorRow, el.textOutlineColorRow, el.textOutlineWidthRow, el.textOpacityRow, el.textScaleXRow, el.textScaleYRow, el.textStrokeFactorRow, el.textWeightRow, el.textAlignRow, el.textFlagsRow, el.textAnchorFlagsRow, el.textRenderFlagsRow].forEach((n)=>n.classList.toggle("hidden", !hasText));
 }
 function syncFaceSelectFromState() {
   const select = el.faceFaceSelect;
@@ -1064,7 +1100,20 @@ function syncTextInputsFromState() {
   el.faceTextSizeInput.value = String(initialSizePx);
   el.faceTextColorInput.value = cssColorToHex(t.colorPrimary, "#ffffff");
   el.faceTextOutlineColorInput.value = cssColorToHex(t.colorSecondary, "#000000");
-  el.faceTextOutlineWidthInput.value = String(Math.max(0, Number(t.outlineWidth || 2) || 0));
+  el.faceTextOutlineWidthInput.value = String(Math.max(0, Number(t.outlineWidth || 1) || 0));
+  el.faceTextOpacityInput.value = String(Math.max(0, Math.min(255, Number(t.opacity255 ?? 128) || 128)));
+  el.faceTextScaleXInput.value = String(Number.isFinite(Number(t.scaleXUnknown)) ? Number(t.scaleXUnknown) : 1);
+  el.faceTextScaleYInput.value = String(Number.isFinite(Number(t.scaleYUnknown)) ? Number(t.scaleYUnknown) : 1);
+  el.faceTextStrokeFactorInput.value = String(Math.max(0, Math.min(1, Number(t.strokeWidthFactor ?? 0) || 0)));
+  el.faceTextWeightInput.value = String(Number.isFinite(Number(t.fontWeight)) ? Number(t.fontWeight) : 400);
+  const alignCode = Number(t.renderFlags || 0) & 0x300;
+  el.faceTextAlignInput.value = alignCode === 0x100 ? "center" : alignCode === 0x200 ? "right" : "left";
+  el.faceTextItalicInput.checked = (Number(t.textStyleAnchorFlags || 0) & 0x8) !== 0;
+  el.faceTextUnderlineInput.checked = (Number(t.textStyleAnchorFlags || 0) & 0x1) !== 0;
+  el.faceTextNoSolidFillInput.checked = (Number(t.renderFlags || 0) & 0x1) !== 0;
+  el.faceTextSolidFillModeInput.checked = (Number(t.renderFlags || 0) & 0x2) !== 0;
+  el.faceTextAnchorFlagsInput.value = String(Number.isFinite(Number(t.textStyleAnchorFlags)) ? Number(t.textStyleAnchorFlags) : 49152);
+  el.faceTextRenderFlagsInput.value = String(Number.isFinite(Number(t.renderFlags)) ? Number(t.renderFlags) : 0);
   updateSelectionRows();
 }
 function updateTextOverlayFromInputs() {
@@ -1078,7 +1127,29 @@ function updateTextOverlayFromInputs() {
   t.sizeRel = Math.max(0.02, Math.min(0.4, sizePx / 900));
   t.colorPrimary = el.faceTextColorInput.value || "#ffffff";
   t.colorSecondary = el.faceTextOutlineColorInput.value || "#000000";
-  t.outlineWidth = Math.max(0, Number(el.faceTextOutlineWidthInput.value || "2") || 0);
+  t.fillARGB = cssColorToU32(t.colorPrimary, 4294967295);
+  t.strokeARGB = cssColorToU32(t.colorSecondary, 4278190080);
+  t.outlineWidth = Math.max(0, Number(el.faceTextOutlineWidthInput.value || "1") || 0);
+  t.opacity255 = Math.max(0, Math.min(255, Number(el.faceTextOpacityInput.value || "128") || 128));
+  t.scaleXUnknown = Number(el.faceTextScaleXInput.value || "1");
+  t.scaleYUnknown = Number(el.faceTextScaleYInput.value || "1");
+  t.strokeWidthFactor = Math.max(0, Math.min(1, Number(el.faceTextStrokeFactorInput.value || "0") || 0));
+  t.fontWeight = Math.max(100, Math.min(900, Number(el.faceTextWeightInput.value || "400") || 400));
+  let renderFlags = Number(el.faceTextRenderFlagsInput.value || "0") || 0;
+  renderFlags = renderFlags & ~0x303;
+  if (el.faceTextNoSolidFillInput.checked) renderFlags |= 0x1;
+  if (el.faceTextSolidFillModeInput.checked) renderFlags |= 0x2;
+  const align = el.faceTextAlignInput.value;
+  if (align === "center") renderFlags |= 0x100;
+  else if (align === "right") renderFlags |= 0x200;
+  t.renderFlags = renderFlags;
+  let anchorFlags = Number(el.faceTextAnchorFlagsInput.value || "49152") || 0;
+  anchorFlags = anchorFlags & ~0x9;
+  if (el.faceTextItalicInput.checked) anchorFlags |= 0x8;
+  if (el.faceTextUnderlineInput.checked) anchorFlags |= 0x1;
+  t.textStyleAnchorFlags = anchorFlags;
+  el.faceTextRenderFlagsInput.value = String(Math.round(t.renderFlags));
+  el.faceTextAnchorFlagsInput.value = String(Math.round(t.textStyleAnchorFlags));
 }
 
 
@@ -1145,8 +1216,14 @@ function renderFaceRects() {
     box.style.fontFamily = t.fontFamily || "Arial";
     const fontPx = Math.max(8, Number((t.sizeCode || 128) / 6) || 36);
     box.style.fontSize = `${fontPx}px`;
-    box.style.color = t.colorPrimary || "#ffffff";
-    box.style.webkitTextStroke = `${Math.max(0, t.outlineWidth || 0)}px ${t.colorSecondary || "#000"}`;
+    const noSolidFill = (Number(t.renderFlags || 0) & 0x1) !== 0;
+    const solidFillMode = (Number(t.renderFlags || 0) & 0x2) !== 0;
+    box.style.color = noSolidFill && !solidFillMode ? "transparent" : (t.colorPrimary || "#ffffff");
+    box.style.opacity = `${Math.max(0, Math.min(1, (Number(t.opacity255 ?? 255) || 255) / 255))}`;
+    box.style.fontWeight = String(Number(t.fontWeight || 400) || 400);
+    box.style.fontStyle = ((Number(t.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+    box.style.textDecoration = ((Number(t.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+    box.style.webkitTextStroke = `${Math.max(0, Number(t.strokeWidthFactor ?? (t.outlineWidth || 0)) * 6)}px ${t.colorSecondary || "#000"}`;
     box.onpointerdown = (ev) => {
       ev.preventDefault();
       faceEditor.activeTextIdx = idx;
@@ -1314,9 +1391,17 @@ function parseOneTextOverlayChunk(chunk) {
   const rotation = Number.isFinite(geom[3]) ? geom[3] : 0;
 
   const style = (parts[6] || "").split(",").map((x) => x.trim());
-  const colorPrimary = parseColorU32ToCss(style[1]);
-  const colorSecondary = parseColorU32ToCss(style[2]);
-  const opacityHint = Number(style[3]);
+  const fillARGB = Number(style[1]);
+  const strokeARGB = Number(style[2]);
+  const opacity255 = Number(style[3]);
+  const scaleXUnknown = Number(style[4]);
+  const strokeWidthFactor = Number(style[5]);
+  const scaleYUnknown = Number(style[6]);
+  const fontWeight = Number(style[7]);
+  const renderFlags = Number(style[8]);
+  const textStyleAnchorFlags = Number(style[9]);
+  const colorPrimary = parseColorU32ToCss(fillARGB);
+  const colorSecondary = parseColorU32ToCss(strokeARGB);
 
   return {
     raw: String(chunk || ""),
@@ -1329,10 +1414,18 @@ function parseOneTextOverlayChunk(chunk) {
     y,
     sizeRel,
     rotation,
+    fillARGB,
+    strokeARGB,
+    opacity255: Number.isFinite(opacity255) ? opacity255 : 128,
+    scaleXUnknown: Number.isFinite(scaleXUnknown) ? scaleXUnknown : 1,
+    strokeWidthFactor: Number.isFinite(strokeWidthFactor) ? strokeWidthFactor : 0,
+    scaleYUnknown: Number.isFinite(scaleYUnknown) ? scaleYUnknown : 1,
+    fontWeight: Number.isFinite(fontWeight) ? fontWeight : 400,
+    renderFlags: Number.isFinite(renderFlags) ? renderFlags : 0,
+    textStyleAnchorFlags: Number.isFinite(textStyleAnchorFlags) ? textStyleAnchorFlags : 49152,
     colorPrimary,
     colorSecondary,
-    opacityHint,
-    outlineWidth: Number.isFinite(opacityHint) ? Math.max(0, Math.min(12, opacityHint / 64)) : 2
+    outlineWidth: Number.isFinite(strokeWidthFactor) ? Math.max(0, strokeWidthFactor * 6) : 1
   };
 }
 
@@ -1978,8 +2071,14 @@ async function renderTiles(images) {
         t.style.fontFamily = it.textOverlay.fontFamily || "Arial";
         const tileSizeCode = Number.isFinite(it.textOverlay.sizeCode) && it.textOverlay.sizeCode > 0 ? Math.max(10, it.textOverlay.sizeCode / 6) : 0;
         t.style.fontSize = `${Math.max(tileSizeCode, Math.max(10, (it.textOverlay.sizeRel || 0.04) * 220))}px`;
-        t.style.color = it.textOverlay.colorPrimary || "#fff";
-        t.style.webkitTextStroke = `${Math.max(0, it.textOverlay.outlineWidth || 0)}px ${it.textOverlay.colorSecondary || "#000"}`;
+        const noSolidFill = (Number(it.textOverlay.renderFlags || 0) & 0x1) !== 0;
+        const solidFillMode = (Number(it.textOverlay.renderFlags || 0) & 0x2) !== 0;
+        t.style.color = noSolidFill && !solidFillMode ? "transparent" : (it.textOverlay.colorPrimary || "#fff");
+        t.style.opacity = `${Math.max(0, Math.min(1, (Number(it.textOverlay.opacity255 ?? 255) || 255) / 255))}`;
+        t.style.fontWeight = String(Number(it.textOverlay.fontWeight || 400) || 400);
+        t.style.fontStyle = ((Number(it.textOverlay.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+        t.style.textDecoration = ((Number(it.textOverlay.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+        t.style.webkitTextStroke = `${Math.max(0, Number(it.textOverlay.strokeWidthFactor ?? (it.textOverlay.outlineWidth || 0)) * 6)}px ${it.textOverlay.colorSecondary || "#000"}`;
         imgWrap.appendChild(t);
       }
       tile.appendChild(imgWrap);
@@ -2078,8 +2177,14 @@ async function updateSlide() {
     const sizeFromCode = Number.isFinite(chosen.sizeCode) && chosen.sizeCode > 0 ? Math.max(10, chosen.sizeCode / 4) : 0;
     const sizeFromRel = Math.max(16, (chosen.sizeRel || 0.04) * Math.max(300, el.slideImg.clientWidth || 300));
     el.slideTextOverlay.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
-    el.slideTextOverlay.style.color = chosen.colorPrimary || "#fff";
-    el.slideTextOverlay.style.webkitTextStroke = `${Math.max(0, chosen.outlineWidth || 0)}px ${chosen.colorSecondary || "#000"}`;
+    const noSolidFill = (Number(chosen.renderFlags || 0) & 0x1) !== 0;
+    const solidFillMode = (Number(chosen.renderFlags || 0) & 0x2) !== 0;
+    el.slideTextOverlay.style.color = noSolidFill && !solidFillMode ? "transparent" : (chosen.colorPrimary || "#fff");
+    el.slideTextOverlay.style.opacity = `${Math.max(0, Math.min(1, (Number(chosen.opacity255 ?? 255) || 255) / 255))}`;
+    el.slideTextOverlay.style.fontWeight = String(Number(chosen.fontWeight || 400) || 400);
+    el.slideTextOverlay.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+    el.slideTextOverlay.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+    el.slideTextOverlay.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
     el.slideTextOverlay.style.transform = `translate(-50%, -50%) rotate(${(chosen.rotation || 0) * 360}deg)`;
     el.slideTextOverlay.style.display = "block";
     }
@@ -2354,7 +2459,19 @@ el.faceFaceLabelInput.oninput = () => {
   el.faceTextSizeInput,
   el.faceTextColorInput,
   el.faceTextOutlineColorInput,
-  el.faceTextOutlineWidthInput
+  el.faceTextOutlineWidthInput,
+  el.faceTextOpacityInput,
+  el.faceTextScaleXInput,
+  el.faceTextScaleYInput,
+  el.faceTextStrokeFactorInput,
+  el.faceTextWeightInput,
+  el.faceTextAlignInput,
+  el.faceTextItalicInput,
+  el.faceTextUnderlineInput,
+  el.faceTextNoSolidFillInput,
+  el.faceTextSolidFillModeInput,
+  el.faceTextAnchorFlagsInput,
+  el.faceTextRenderFlagsInput
 ].forEach((node) => node.addEventListener("input", () => {
   updateTextOverlayFromInputs();
   renderFaceRects();
@@ -2373,7 +2490,7 @@ el.btnFaceAdd.onclick = () => {
   renderFaceRects();
 };
 el.btnTextAdd.onclick = () => {
-  faceEditor.textOverlays.push({ enabled: true, caption: "New text", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 2 });
+  faceEditor.textOverlays.push({ enabled: true, caption: "New text", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, fillARGB: 4294967295, strokeARGB: 4278190080, opacity255: 128, scaleXUnknown: 1, strokeWidthFactor: 0, scaleYUnknown: 1, fontWeight: 400, renderFlags: 0, textStyleAnchorFlags: 49152, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 1 });
   faceEditor.activeTextIdx = faceEditor.textOverlays.length - 1;
   syncTextInputsFromState();
   renderFaceRects();
