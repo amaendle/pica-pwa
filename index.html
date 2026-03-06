@@ -57,7 +57,7 @@
     .tileMetaRow { display:flex; gap:8px; align-items:center; padding: 0 8px 8px; }
     .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
     .faceEditorBox { background:#1a1a1a; border:1px solid #333; border-radius:10px; padding:10px; width:min(90vw,1000px); height:min(90vh,760px); max-height:calc(100vh - 36px); display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:10px; }
-    #faceEditorOverlay .faceEditorBox { width:calc(100vw - 24px); height:calc(100vh - 24px); max-width:none; max-height:none; }
+    #faceEditorOverlay .faceEditorBox { width:calc(100vw - 16px); height:calc(100vh - 16px); max-width:none; max-height:none; }
     .faceCanvasWrap { position:relative; min-height:0; background:#000; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; touch-action:none; }
     .faceCanvasImg { max-width:100%; max-height:100%; user-select:none; }
     .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; touch-action:none; }
@@ -91,7 +91,7 @@
       display: none; align-items: center; justify-content: center; z-index: 999;
     }
     .overlay.show { display: flex; }
-    #faceEditorOverlay { overflow:auto; align-items:center; padding:16px; }
+    #faceEditorOverlay { overflow:hidden; align-items:center; padding:8px; }
     .slideWrap { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
     .slideImg { max-width: 100%; max-height: 100%; object-fit: contain; }
     .overlayBar {
@@ -108,7 +108,7 @@
     .kbd { border: 1px solid #444; padding: 2px 6px; border-radius: 6px; font-size: 11px; color: #ccc; }
     @media (max-width: 980px) {
       .faceEditorBox { grid-template-columns: 1fr; height:auto; max-height:calc(100vh - 36px); }
-      #faceEditorOverlay .faceEditorBox { height:calc(100vh - 12px); width:calc(100vw - 12px); max-height:none; }
+      #faceEditorOverlay .faceEditorBox { height:calc(100vh - 8px); width:calc(100vw - 8px); max-height:none; }
       .faceCanvasWrap { min-height: 38vh; }
       .faceEditorSide { max-height: 44vh; }
     }
@@ -194,16 +194,14 @@
         <input id="faceAlbumTokenInput" type="text" list="faceAlbumSuggestions" placeholder="Type album name, Enter/comma to add">
         <datalist id="faceAlbumSuggestions"></datalist>
         <input id="faceAlbumNamesInput" type="hidden">
-        <label>Existing albums<select id="faceAlbumSelect" multiple size="5"></select></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="btnAlbumAddSelected">Add selected album(s)</button>
-          <button id="btnAlbumRemoveSelected">Remove selected album(s)</button>
-          <button id="btnAlbumCreate">Create album from input</button>
+          <button id="btnAlbumCreate">Add album from input</button>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnCropMode">Crop</button>
           <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
           <button id="btnTiltMode">Tilt</button>
+          <button id="btnFillLightMode">Fill Light</button>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
@@ -220,7 +218,10 @@
         <div id="tiltControls" class="hidden">
           <label>Tilt value <span id="faceTiltValue" class="mono">0.00</span><input id="faceTiltSlider" type="range" min="-1" max="1" step="0.01" value="0"></label>
           <button id="btnApplyTiltFilter">Apply tilt filter</button>
+          </div>
+        <div id="fillLightControls" class="hidden">
           <label>Fill Light <span id="faceFillLightValue" class="mono">0.00</span><input id="faceFillLightSlider" type="range" min="0" max="1" step="0.01" value="0"></label>
+          <button id="btnApplyFillLightFilter">Apply fill light filter</button>
         </div>
         <label>Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
         <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
@@ -765,6 +766,11 @@ function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = 
       view = { x: sx, y: sy, w: sw, h: sh };
       continue;
     }
+    m = String(f).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
+    if (m) {
+      applyFillLightOnCanvas(canvas, Number(m[1]));
+      continue;
+    }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
     if (m) {
       const tiltVal = Number(m[1]);
@@ -786,7 +792,28 @@ function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = 
 }
 
 
-async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "", fillLight = 0) {
+
+function applyFillLightOnCanvas(canvas, strength = 0) {
+  const fl = Math.max(0, Math.min(1, Number(strength) || 0));
+  if (!(fl > 0)) return canvas;
+  const k = 2.4;
+  const ctx = canvas.getContext("2d");
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imgData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+    const lum = Math.max(0, Math.min(1, 0.2126 * r + 0.7152 * g + 0.0722 * b));
+    const y = Math.max(0, Math.min(1, lum + fl * (1 - lum) * (1 - Math.pow(lum, k))));
+    const gain = lum > 1e-6 ? (y / lum) : (1 + fl);
+    data[i] = Math.max(0, Math.min(255, Math.round(data[i] * gain)));
+    data[i + 1] = Math.max(0, Math.min(255, Math.round(data[i + 1] * gain)));
+    data[i + 2] = Math.max(0, Math.min(255, Math.round(data[i + 2] * gain)));
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "") {
   const src = URL.createObjectURL(file instanceof Blob ? file : new Blob([file]));
   const img = await new Promise((res, rej) => {
     const im = new Image();
@@ -815,6 +842,11 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       view = { x: sx, y: sy, w: sw, h: sh };
       continue;
     }
+    m = String(f).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
+    if (m) {
+      applyFillLightOnCanvas(canvas, Number(m[1]));
+      continue;
+    }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
     if (m) {
       const rad = tiltValueToRad(Number(m[1]));
@@ -841,24 +873,6 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   cropped.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
   canvas = cropped;
 
-
-  const fl = Math.max(0, Math.min(1, Number(fillLight) || 0));
-  if (fl > 0) {
-    const k = 2.4;
-    const ctx = canvas.getContext("2d");
-    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-    const data = imgData.data;
-    for (let i = 0; i < data.length; i += 4) {
-      const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
-      const lum = Math.max(0, Math.min(1, 0.2126 * r + 0.7152 * g + 0.0722 * b));
-      const y = Math.max(0, Math.min(1, lum + fl * (1 - lum) * (1 - Math.pow(lum, k))));
-      const gain = lum > 1e-6 ? (y / lum) : (1 + fl);
-      data[i] = Math.max(0, Math.min(255, Math.round(data[i] * gain)));
-      data[i + 1] = Math.max(0, Math.min(255, Math.round(data[i + 1] * gain)));
-      data[i + 2] = Math.max(0, Math.min(255, Math.round(data[i + 2] * gain)));
-    }
-    ctx.putImageData(imgData, 0, 0);
-  }
 
   const maxDim = Math.max(canvas.width, canvas.height);
   if (maxDim > size) {
@@ -950,6 +964,7 @@ const el = {
   btnFaceStarToggle: document.getElementById("btnFaceStarToggle"),
   cropControls: document.getElementById("cropControls"),
   tiltControls: document.getElementById("tiltControls"),
+  fillLightControls: document.getElementById("fillLightControls"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
   faceFillLightSlider: document.getElementById("faceFillLightSlider"),
@@ -996,9 +1011,11 @@ const el = {
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnCropMode: document.getElementById("btnCropMode"),
   btnTiltMode: document.getElementById("btnTiltMode"),
+  btnFillLightMode: document.getElementById("btnFillLightMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnApplyCropFilter: document.getElementById("btnApplyCropFilter"),
   btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
+  btnApplyFillLightFilter: document.getElementById("btnApplyFillLightFilter"),
   btnUndoFilter: document.getElementById("btnUndoFilter"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
@@ -1265,7 +1282,6 @@ const faceEditor = {
   previewKey: "",
   previewDraftUrl: "",
   previewRequestId: 0,
-  fillLight: 0,
   filters: []
 };
 function rect64ToBox(rect64) {
@@ -1340,14 +1356,16 @@ function parseAspectRatio(text) {
   return a / b;
 }
 function renderAlbumSelectFromState() {
-  el.faceAlbumSelect.innerHTML = "";
   const entries = Array.from(faceEditor.albumTokenToName.entries()).sort((a,b)=>a[1].localeCompare(b[1], undefined, { sensitivity:"base" }));
-  for (const [token, name] of entries) {
-    const opt = document.createElement("option");
-    opt.value = token;
-    opt.textContent = name || token;
-    opt.selected = faceEditor.selectedAlbumTokens.has(token);
-    el.faceAlbumSelect.appendChild(opt);
+  if (el.faceAlbumSelect) {
+    el.faceAlbumSelect.innerHTML = "";
+    for (const [token, name] of entries) {
+      const opt = document.createElement("option");
+      opt.value = token;
+      opt.textContent = name || token;
+      opt.selected = faceEditor.selectedAlbumTokens.has(token);
+      el.faceAlbumSelect.appendChild(opt);
+    }
   }
   const names = Array.from(faceEditor.selectedAlbumTokens).map((tok) => faceEditor.albumTokenToName.get(tok) || tok);
   el.faceAlbumNamesInput.value = names.join(", ");
@@ -1468,14 +1486,13 @@ function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
 }
 
 
-async function refreshEditorPreview(previewFilters = null, fillLight = null) {
+async function refreshEditorPreview(previewFilters = null) {
   if (!faceEditor.imageItem) return;
   const effectiveFilters = Array.isArray(previewFilters)
     ? previewFilters.map((f) => String(f || "")).filter(Boolean)
     : (faceEditor.filters || []);
-  const effectiveFillLight = Number.isFinite(Number(fillLight)) ? Math.max(0, Math.min(1, Number(fillLight))) : Math.max(0, Math.min(1, Number(faceEditor.fillLight || 0)));
   const isDraft = Array.isArray(previewFilters);
-  const key = JSON.stringify({ f: effectiveFilters, draft: isDraft, fl: effectiveFillLight.toFixed(3) });
+  const key = JSON.stringify({ f: effectiveFilters, draft: isDraft });
   if (!isDraft && faceEditor.previewKey === key && faceEditor.previewUrl) {
     el.faceCanvasImg.style.transform = "";
     el.faceCanvasImg.src = faceEditor.previewUrl;
@@ -1483,7 +1500,7 @@ async function refreshEditorPreview(previewFilters = null, fillLight = null) {
   }
   const requestId = ++faceEditor.previewRequestId;
   try {
-    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, effectiveFilters, 2048, faceEditor.cropRect64 || "", effectiveFillLight);
+    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, effectiveFilters, 2048, faceEditor.cropRect64 || "");
     if (requestId !== faceEditor.previewRequestId) {
       if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
       return;
@@ -1619,8 +1636,10 @@ function openFaceEditor(imageItem) {
   el.cropControls.classList.add("hidden");
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
+  el.fillLightControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
+  el.btnFillLightMode.textContent = "Fill Light";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
   el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
@@ -1631,9 +1650,9 @@ function openFaceEditor(imageItem) {
   const safeTilt = Number.isFinite(tiltVal) ? Math.max(-1, Math.min(1, tiltVal)) : 0;
   el.faceTiltSlider.value = safeTilt.toFixed(2);
   el.faceTiltValue.textContent = safeTilt.toFixed(2);
-  faceEditor.fillLight = 0;
-  el.faceFillLightSlider.value = "0";
-  el.faceFillLightValue.textContent = "0.00";
+  const fillVal = Math.max(0, Math.min(1, Number(lastFillLightFromFilters(faceEditor.filters)) || 0));
+  el.faceFillLightSlider.value = fillVal.toFixed(2);
+  el.faceFillLightValue.textContent = fillVal.toFixed(2);
   el.faceCanvasImg.style.transform = "";
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
@@ -1677,7 +1696,9 @@ function closeFaceEditor() {
   faceEditor.cropDragging = false;
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
+  el.fillLightControls.classList.add("hidden");
   el.btnTiltMode.textContent = "Tilt";
+  el.btnFillLightMode.textContent = "Fill Light";
   faceEditor.textDragging = false;
   faceEditor.textDragMode = "move";
   faceEditor.activeTextIdx = -1;
@@ -2061,15 +2082,22 @@ async function listImagesForAlbumRefs(imageRefs = []) {
   const byFolder = new Map();
   for (const ref of imageRefs) {
     if (!ref?.pathRel || !ref?.imageName) continue;
-    if (!byFolder.has(ref.pathRel)) byFolder.set(ref.pathRel, new Set());
-    byFolder.get(ref.pathRel).add(ref.imageName);
+    const rel = String(ref.pathRel).replaceAll("\\", "/").replace(/^\.\//, "");
+    const nm = String(ref.imageName).split(/[\\/]/).pop().trim();
+    if (!rel || !nm) continue;
+    if (!byFolder.has(rel)) byFolder.set(rel, new Set());
+    byFolder.get(rel).add(nm.toLowerCase());
   }
   for (const [pathRel, namesSet] of byFolder.entries()) {
-    const dirHandle = state.dirIndex.get(pathRel);
+    let dirHandle = state.dirIndex.get(pathRel);
+    if (!dirHandle) {
+      const k = Array.from(state.dirIndex.keys()).find((x) => String(x).toLowerCase() === String(pathRel).toLowerCase());
+      if (k) dirHandle = state.dirIndex.get(k);
+    }
     if (!dirHandle) continue;
     const picasa = await getPicasaMetaForFolder(pathRel, dirHandle);
     for await (const [name, handle] of dirHandle.entries()) {
-      if (handle.kind !== "file" || !isImageName(name) || !namesSet.has(name)) continue;
+      if (handle.kind !== "file" || !isImageName(name) || !namesSet.has(String(name).toLowerCase())) continue;
       const file = await handle.getFile();
       const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
       const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
@@ -2773,16 +2801,6 @@ el.btnRenameAlbum.onclick = async () => {
   setStatus("Album name updated.", "ok");
 };
 el.albumNameInput.addEventListener("keydown", (ev) => { if (ev.key === "Enter") el.btnRenameAlbum.click(); });
-el.btnAlbumAddSelected.onclick = () => {
-  const selected = Array.from(el.faceAlbumSelect.selectedOptions || []).map((o) => o.value).filter(Boolean);
-  for (const tok of selected) faceEditor.selectedAlbumTokens.add(tok);
-  renderAlbumSelectFromState();
-};
-el.btnAlbumRemoveSelected.onclick = () => {
-  const selected = Array.from(el.faceAlbumSelect.selectedOptions || []).map((o) => o.value).filter(Boolean);
-  for (const tok of selected) faceEditor.selectedAlbumTokens.delete(tok);
-  renderAlbumSelectFromState();
-};
 el.btnAlbumCreate.onclick = () => {
   const raw = (el.faceAlbumTokenInput?.value || el.faceAlbumNamesInput.value || "");
   commitAlbumInputTokens(raw);
@@ -2814,10 +2832,42 @@ el.faceAlbumTokenInput.addEventListener("change", () => {
 });
 el.faceFillLightSlider.oninput = () => {
   const fl = Math.max(0, Math.min(1, Number(el.faceFillLightSlider.value || "0")));
-  faceEditor.fillLight = Number.isFinite(fl) ? fl : 0;
-  el.faceFillLightValue.textContent = faceEditor.fillLight.toFixed(2);
-  refreshEditorPreview();
+  el.faceFillLightValue.textContent = fl.toFixed(2);
+  const draftFilters = (faceEditor.filters || []).concat([`filllight=1,${fl.toFixed(6)}`]);
+  refreshEditorPreview(draftFilters);
 };
+el.btnApplyFillLightFilter.onclick = () => {
+  const fl = Math.max(0, Math.min(1, Number(el.faceFillLightSlider.value || "0")));
+  faceEditor.filters.push(`filllight=1,${fl.toFixed(6)}`);
+  renderFilterList();
+  refreshEditorPreview();
+  el.fillLightControls.classList.add("hidden");
+  el.btnFillLightMode.textContent = "Fill Light";
+  el.faceEditorStatus.textContent = `Applied filter: filllight (${faceEditor.filters.length})`;
+};
+el.btnSettings.onclick = () => {
+  el.settingsOverlay.classList.add("show");
+  el.settingsOverlay.setAttribute("aria-hidden", "false");
+};
+el.btnSettingsClose.onclick = () => {
+  el.settingsOverlay.classList.remove("show");
+  el.settingsOverlay.setAttribute("aria-hidden", "true");
+};
+el.btnSettingsSave.onclick = () => {
+  state.prefs.readCaption = el.selReadCaptionPref.value;
+  state.prefs.readKeywords = el.selReadKeywordsPref.value;
+  state.prefs.writeCaption = el.selWriteCaptionPref.value;
+  state.prefs.writeKeywords = el.selWriteKeywordsPref.value;
+  el.settingsOverlay.classList.remove("show");
+  el.settingsOverlay.setAttribute("aria-hidden", "true");
+  setStatus("Settings saved.", "ok");
+};
+el.settingsOverlay.addEventListener("click", (ev) => {
+  if (ev.target === el.settingsOverlay) {
+    el.settingsOverlay.classList.remove("show");
+    el.settingsOverlay.setAttribute("aria-hidden", "true");
+  }
+});
 el.btnViewFolders.onclick = () => {
   if (!state.libraryRoot || !state.dirIndex) {
     setStatus("Choose a Library folder first to browse subfolders.", "warn");
@@ -2883,6 +2933,11 @@ el.btnTiltMode.onclick = () => {
     refreshEditorPreview();
   }
 };
+el.btnFillLightMode.onclick = () => {
+  const show = el.fillLightControls.classList.contains("hidden");
+  el.fillLightControls.classList.toggle("hidden", !show);
+  el.btnFillLightMode.textContent = show ? "Hide Fill Light" : "Fill Light";
+};
 el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
@@ -2906,7 +2961,9 @@ el.btnApplyTiltFilter.onclick = () => {
   refreshEditorPreview();
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
+  el.fillLightControls.classList.add("hidden");
   el.btnTiltMode.textContent = "Tilt";
+  el.btnFillLightMode.textContent = "Fill Light";
   el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
 };
 el.faceTiltSlider.oninput = () => {
