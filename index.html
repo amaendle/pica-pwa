@@ -25,22 +25,73 @@
     .item .broken { color: #ffb4b4; }
     .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #222; background: #141414; position: sticky; top: 0; z-index: 5; }
     .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 12px; }
+    .logPanel {
+      margin: 0 12px 12px;
+      border: 1px solid #2a2a2a;
+      border-radius: 10px;
+      background: #151515;
+      overflow: hidden;
+    }
+    .logTitle {
+      padding: 8px 10px;
+      border-bottom: 1px solid #222;
+      color: #cfcfcf;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .logBody {
+      margin: 0;
+      padding: 10px;
+      color: #aeb7c2;
+      font-size: 12px;
+      line-height: 1.45;
+      max-height: 220px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
     .tile { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; cursor: pointer; }
     .tile:hover { border-color: #3a3a3a; }
     .thumb { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #0f0f0f; }
     .caption { padding: 8px 10px; font-size: 12px; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .tileMetaRow { display:flex; gap:8px; align-items:center; padding: 0 8px 8px; }
+    .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
+    .faceEditorBox { background:#1a1a1a; border:1px solid #333; border-radius:10px; padding:10px; width:min(90vw,1000px); height:min(90vh,760px); max-height:calc(100vh - 36px); display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:10px; }
+    #faceEditorOverlay .faceEditorBox { width:calc(100vw - 16px); height:calc(100vh - 16px); max-width:none; max-height:none; }
+    .faceCanvasWrap { position:relative; min-height:0; background:#000; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; touch-action:none; }
+    .faceCanvasImg { max-width:100%; max-height:100%; user-select:none; }
+    .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; touch-action:none; }
+    .faceRectHandle { position:absolute; width:18px; height:18px; right:-10px; bottom:-10px; background:#fff; border:1px solid #111; border-radius:50%; cursor:nwse-resize; touch-action:none; }
+    .cropRect { position:absolute; border:2px solid #8ce99a; background:rgba(140,233,154,.16); cursor:move; touch-action:none; }
+    .slideFaceLayer { position:absolute; inset:0; pointer-events:none; }
+    .slideFaceRect { position:absolute; border:2px solid #ffd166; background:rgba(255,209,102,.18); }
+    .slideTextOverlay { position:absolute; pointer-events:none; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); font-weight:600; }
+    .tileImageWrap { position:relative; }
+    .tileTextOverlay { position:absolute; pointer-events:none; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); font-weight:600; left:8%; top:8%; font-size:14px; max-width:80%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+    .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
+    .faceEditorSide { display:flex; flex-direction:column; gap:8px; min-height:0; overflow-y:auto; overflow-x:hidden; padding-right:4px; }
+    .faceEditorSide input, .faceEditorSide textarea, .faceEditorSide select { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
+    .albumChipWrap { display:flex; flex-wrap:wrap; gap:6px; min-height:36px; padding:6px; border:1px solid #333; border-radius:8px; background:#111; }
+    .albumChip { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid #444; border-radius:999px; background:#1f1f1f; font-size:12px; }
+    .albumChip button { all:unset; cursor:pointer; color:#ff9a9a; font-size:12px; line-height:1; }
+    #faceFilterList { flex: 0 0 220px; min-height:220px; }
+    .editorTextBox { position:absolute; min-width:24px; min-height:18px; display:flex; align-items:center; justify-content:center; user-select:none; cursor:move; }
+    .editorTextBox.active { outline:1px dashed #f1c40f; }
+    .textRotateHandle { position:absolute; width:16px; height:16px; right:-8px; top:-8px; background:#ffd43b; border:1px solid #111; border-radius:50%; cursor:grab; }
+    .starActive { color:#ffd43b; border-color:#ffd43b; }
+    .hidden { display:none !important; }
     .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
     .warn { color: #ffda9e; }
     .ok { color: #a9f7c5; }
     .err { color: #ffb4b4; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; }
-
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace; word-break: break-word; }
     /* Slideshow overlay */
     .overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,.92);
       display: none; align-items: center; justify-content: center; z-index: 999;
     }
     .overlay.show { display: flex; }
+    #faceEditorOverlay { overflow:hidden; align-items:center; padding:8px; }
     .slideWrap { position: relative; width: 100%; height: 100%; display: flex; align-items: center; justify-content: center; }
     .slideImg { max-width: 100%; max-height: 100%; object-fit: contain; }
     .overlayBar {
@@ -55,17 +106,24 @@
       color: #ddd; font-size: 12px;
     }
     .kbd { border: 1px solid #444; padding: 2px 6px; border-radius: 6px; font-size: 11px; color: #ccc; }
+    @media (max-width: 980px) {
+      .faceEditorBox { grid-template-columns: 1fr; height:auto; max-height:calc(100vh - 36px); }
+      #faceEditorOverlay .faceEditorBox { height:calc(100vh - 8px); width:calc(100vw - 8px); max-height:none; }
+      .faceCanvasWrap { min-height: 38vh; }
+      .faceEditorSide { max-height: 44vh; }
+    }
   </style>
 </head>
 <body>
   <header>
     <button id="btnPick">Open Library Folder</button>
+    <button id="btnPickPmp">Open PMP Import Folder</button>
     <button id="btnExport" disabled>Export IndexedDB Library</button>
     <button id="btnReload" disabled>Reload PMP</button>
+    <button id="btnSettings">Settings</button>
     <span class="pill" id="pillState">No library selected</span>
     <span class="pill mono" id="pillInfo"></span>
   </header>
-
   <div class="layout">
     <aside>
       <div class="sectionTitle">Navigation (from db/*.pmp)</div>
@@ -79,34 +137,141 @@
         <div>• This is a frontend-only prototype using the File System Access API (Chrome/Edge).</div>
         <div>• Your PMP contains absolute paths — this prototype resolves them by matching the <b>deepest suffix</b> under the chosen library root.</div>
         <div>• Run from a local server (secure context) for <span class="mono">showDirectoryPicker()</span> to work.</div>
+        <div>• Metadata can be read from <span class="mono">.picasa.info</span> / <span class="mono">.picasa.ini</span>; edits are saved to <span class="mono">.picasa.info</span>.</div>
       </div>
     </aside>
-
     <main>
       <div class="toolbar">
         <span id="viewTitle">No selection</span>
+        <input id="albumNameInput" class="hidden" type="text" style="max-width:220px;" placeholder="Album name">
+        <button id="btnRenameAlbum" class="hidden">Rename album</button>
         <span class="pill" id="countPill"></span>
         <span class="pill" id="resolvePill"></span>
         <span style="margin-left:auto" class="pill">Slideshow: <span class="kbd">←</span>/<span class="kbd">→</span> <span class="kbd">Space</span> <span class="kbd">Esc</span></span>
       </div>
-
       <div class="grid" id="grid"></div>
+      <div class="logPanel" id="picasaLogPanel" hidden>
+        <div class="logTitle">.picasa.ini log</div>
+        <pre class="logBody mono" id="picasaLog"></pre>
+      </div>
       <div class="status" id="mainStatus"></div>
     </main>
   </div>
-
   <!-- Slideshow -->
   <div class="overlay" id="overlay" aria-hidden="true">
     <div class="slideWrap">
       <img id="slideImg" class="slideImg" alt="">
+      <div id="slideFaceLayer" class="slideFaceLayer"></div>
+      <div id="slideTextOverlay" class="slideTextOverlay"></div>
       <div class="overlayTop">
-        <div id="slideMeta" class="mono"></div>
-        <button id="btnClose">Close (Esc)</button>
+        <div><div id="slideMeta" class="mono"></div><div id="slideAlbums" style="margin-top:4px"></div></div>
+        <div style="display:flex; gap:8px;">
+          <button id="btnToggleFaces">Faces: On</button>
+          <button id="btnToggleCrop">Crop: On</button>
+          <button id="btnToggleText">Text: On</button>
+          <button id="btnToggleStar">Star: Off</button>
+          <button id="btnClose">Close (Esc)</button>
+        </div>
       </div>
       <div class="overlayBar">
         <button id="btnPrev">◀ Prev</button>
         <button id="btnPlay">▶ Play</button>
         <button id="btnNext">Next ▶</button>
+      </div>
+    </div>
+  </div>
+  <!-- Face editor -->
+  <div class="overlay" id="faceEditorOverlay" aria-hidden="true">
+    <div class="faceEditorBox">
+      <div class="faceCanvasWrap" id="faceCanvasWrap">
+        <img id="faceCanvasImg" class="faceCanvasImg" alt="">
+      </div>
+      <div class="faceEditorSide">
+        <div><b>Edit image metadata</b></div>
+        <label>Caption<input id="faceCaptionInput" type="text"></label>
+        <div><b>Albums</b></div>
+        <div id="faceAlbumChips" class="albumChipWrap"></div>
+        <input id="faceAlbumTokenInput" type="text" list="faceAlbumSuggestions" placeholder="Type album name, Enter/comma to add">
+        <datalist id="faceAlbumSuggestions"></datalist>
+        <input id="faceAlbumNamesInput" type="hidden">
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnAlbumCreate">Add album from input</button>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnCropMode">Crop</button>
+          <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
+          <button id="btnTiltMode">Tilt</button>
+          <button id="btnFillLightMode">Fill Light</button>
+        </div>
+        <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
+        <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
+        <button id="btnFaceStarToggle" title="Toggle star">☆ Star</button>
+        <div id="cropControls" class="hidden">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button class="btnAspect" data-ratio="">Free</button>
+            <button class="btnAspect" data-ratio="1:1">1:1</button>
+            <button class="btnAspect" data-ratio="10:15">10:15</button>
+            <button class="btnAspect" data-ratio="4:3">4:3</button>
+            <button class="btnAspect" data-ratio="16:9">16:9</button>
+          </div>
+        </div>
+        <div id="tiltControls" class="hidden">
+          <label>Tilt value <span id="faceTiltValue" class="mono">0.00</span><input id="faceTiltSlider" type="range" min="-1" max="1" step="0.01" value="0"></label>
+          <button id="btnApplyTiltFilter">Apply tilt filter</button>
+          </div>
+        <div id="fillLightControls" class="hidden">
+          <label>Fill Light <span id="faceFillLightValue" class="mono">0.00</span><input id="faceFillLightSlider" type="range" min="0" max="1" step="0.01" value="0"></label>
+          <button id="btnApplyFillLightFilter">Apply fill light filter</button>
+        </div>
+        <label>Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
+        <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnFaceAdd">Add face rectangle</button>
+          <button id="btnTextAdd">Add text</button>
+          <button id="btnUndoFilter">Undo filter</button>
+          <button id="btnFaceSave">Save</button>
+          <button id="btnFaceCancel">Cancel</button>
+        </div>
+        <label id="textInputRow" class="hidden">Text overlay<input id="faceTextInput" type="text"></label>
+        <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
+        <label id="textSizeRow" class="hidden">Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
+        <label id="textColorRow" class="hidden">Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
+        <label id="textOutlineColorRow" class="hidden">Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
+        <label id="textOutlineWidthRow" class="hidden">Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="0.1" value="1"></label>
+        <label id="textOpacityRow" class="hidden">Opacity (0-255)<input id="faceTextOpacityInput" type="range" min="0" max="255" step="1" value="128"></label>
+        <label id="textScaleXRow" class="hidden">ScaleX (raw)<input id="faceTextScaleXInput" type="number" min="0" max="5" step="0.01" value="1"></label>
+        <label id="textScaleYRow" class="hidden">ScaleY (raw)<input id="faceTextScaleYInput" type="number" min="0" max="5" step="0.01" value="1"></label>
+        <label id="textStrokeFactorRow" class="hidden">Stroke width factor (0..1)<input id="faceTextStrokeFactorInput" type="range" min="0" max="1" step="0.01" value="0"></label>
+        <label id="textWeightRow" class="hidden">Font weight<input id="faceTextWeightInput" type="number" min="100" max="900" step="100" value="400"></label>
+        <label id="textAlignRow" class="hidden">Paragraph align<select id="faceTextAlignInput"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+        <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
+        <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
+        <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
+        <div><b>Applied filters</b></div>
+        <select id="faceFilterList" class="mono" multiple size="10" style="width:100%; height:220px;"></select>
+        <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
+        <div class="mono" id="faceEditorStatus"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="overlay" id="settingsOverlay" aria-hidden="true">
+    <div class="faceEditorBox" style="grid-template-columns:1fr; max-width:640px; height:auto;">
+      <div class="faceEditorSide">
+        <div><b>Metadata settings</b></div>
+        <label>Read caption preference
+          <select id="selReadCaptionPref"><option value="ini">.ini/.info first</option><option value="iptc">IPTC first</option></select>
+        </label>
+        <label>Read keywords preference
+          <select id="selReadKeywordsPref"><option value="ini">.ini/.info first</option><option value="iptc">IPTC first</option></select>
+        </label>
+        <label>Save caption preference
+          <select id="selWriteCaptionPref"><option value="ini">.ini/.info</option><option value="iptc">IPTC (fallback to .ini/.info)</option></select>
+        </label>
+        <label>Save keywords preference
+          <select id="selWriteKeywordsPref"><option value="ini">.ini/.info</option><option value="iptc">IPTC (fallback to .ini/.info)</option></select>
+        </label>
+        <div style="display:flex; gap:8px;"><button id="btnSettingsSave">Save settings</button><button id="btnSettingsClose">Close</button></div>
       </div>
     </div>
   </div>
@@ -132,6 +297,79 @@ function isImageName(name) {
   return IMG_EXTS.has(name.slice(idx+1).toLowerCase());
 }
 
+function parseIptcKeywordsFromJpegBuffer(buf) {
+  const bytes = new Uint8Array(buf);
+  const out = [];
+  if (bytes.length < 4 || bytes[0] !== 0xFF || bytes[1] !== 0xD8) return out;
+
+  let pos = 2;
+  while (pos + 4 < bytes.length) {
+    if (bytes[pos] !== 0xFF) { pos += 1; continue; }
+    const marker = bytes[pos + 1];
+    if (marker === 0xDA || marker === 0xD9) break;
+    const len = (bytes[pos + 2] << 8) | bytes[pos + 3];
+    if (len < 2 || pos + 2 + len > bytes.length) break;
+
+    if (marker === 0xED) {
+      const segStart = pos + 4;
+      const segEnd = pos + 2 + len;
+      let i = segStart;
+      while (i + 14 < segEnd) {
+        if (!(bytes[i] === 0x38 && bytes[i+1] === 0x42 && bytes[i+2] === 0x49 && bytes[i+3] === 0x4D)) {
+          i += 1;
+          continue;
+        }
+        const resourceId = (bytes[i+4] << 8) | bytes[i+5];
+        let nameLen = bytes[i+6];
+        let nameEnd = i + 7 + nameLen;
+        if (((1 + nameLen) & 1) === 1) nameEnd += 1;
+        if (nameEnd + 4 > segEnd) break;
+        const dataLen = (bytes[nameEnd] << 24) | (bytes[nameEnd+1] << 16) | (bytes[nameEnd+2] << 8) | bytes[nameEnd+3];
+        const dataStart = nameEnd + 4;
+        let dataEnd = dataStart + dataLen;
+        if (dataEnd > segEnd) break;
+
+        if (resourceId === 0x0404) {
+          let p = dataStart;
+          while (p + 5 <= dataEnd) {
+            if (bytes[p] !== 0x1C) { p += 1; continue; }
+            const record = bytes[p+1];
+            const dataset = bytes[p+2];
+            const size = (bytes[p+3] << 8) | bytes[p+4];
+            const vStart = p + 5;
+            const vEnd = vStart + size;
+            if (vEnd > dataEnd) break;
+            if (record === 2 && dataset === 25) {
+              try {
+                const txt = new TextDecoder('utf-8').decode(bytes.slice(vStart, vEnd)).trim();
+                if (txt) out.push(txt);
+              } catch {}
+            }
+            p = vEnd;
+          }
+        }
+
+        i = dataEnd + (dataLen & 1);
+      }
+    }
+
+    pos += 2 + len;
+  }
+
+  return Array.from(new Set(out));
+}
+
+async function extractIptcKeywordsFromFile(file) {
+  const name = String(file?.name || "").toLowerCase();
+  if (!name.endsWith('.jpg') && !name.endsWith('.jpeg')) return [];
+  try {
+    const buf = await file.arrayBuffer();
+    return parseIptcKeywordsFromJpegBuffer(buf);
+  } catch {
+    return [];
+  }
+}
+
 /** ===========================
  *  Minimal PMP Reader (JS)
  *  Mirrors your Python PMPReader
@@ -140,12 +378,10 @@ class PMPReaderJS {
   static MAGIC = 0x3fcccccd;
   static C1332 = 0x1332;
   static C2 = 0x00000002;
-
   /** @param {ArrayBuffer} buf */
   static read(buf) {
     const dv = new DataView(buf);
     let off = 0;
-
     const u32 = () => { const v = dv.getUint32(off, true); off += 4; return v; };
     const u16 = () => { const v = dv.getUint16(off, true); off += 2; return v; };
     const u8  = () => { const v = dv.getUint8(off); off += 1; return v; };
@@ -156,19 +392,14 @@ class PMPReaderJS {
       off += 8;
       return (BigInt(hi) << 32n) | BigInt(lo);
     };
-
     const magic = u32();
     if (magic !== PMPReaderJS.MAGIC) throw new Error(`Invalid PMP magic: 0x${magic.toString(16)}`);
-
     const fieldType = u16();
-
     if (u16() !== PMPReaderJS.C1332) throw new Error("Invalid constant after type");
     if (u32() !== PMPReaderJS.C2)    throw new Error("Invalid second constant");
     if (u16() !== fieldType)         throw new Error("Type mismatch");
     if (u16() !== PMPReaderJS.C1332) throw new Error("Invalid second 0x1332 constant");
-
     const n = u32();
-
     const entries = [];
     if (fieldType === 0x0 || fieldType === 0x6) {
       // null-terminated utf-8 strings
@@ -207,11 +438,9 @@ class PMPReaderJS {
     } else {
       throw new Error(`Unknown PMP field type: ${fieldType}`);
     }
-
     return { type: fieldType, n_entries: n, entries };
   }
 }
-
 /** ===========================
  *  File System Access helpers
  *  =========================== */
@@ -227,13 +456,10 @@ async function getFileHandleByPath(rootDirHandle, relPath) {
   }
   throw new Error("Invalid path");
 }
-
 async function readFileAsArrayBuffer(fileHandle) {
   const file = await fileHandle.getFile();
   return await file.arrayBuffer();
 }
-
-
 /** ===========================
  *  IndexedDB persistence
  *  =========================== */
@@ -244,7 +470,6 @@ const STORES = {
   albums: "albums",
   folders: "folders"
 };
-
 function openLibraryDB() {
   return new Promise((resolve, reject) => {
     const req = indexedDB.open(DB_NAME, DB_VERSION);
@@ -266,7 +491,6 @@ function openLibraryDB() {
     req.onerror = () => reject(req.error || new Error("Failed to open IndexedDB"));
   });
 }
-
 function txDone(tx) {
   return new Promise((resolve, reject) => {
     tx.oncomplete = () => resolve();
@@ -274,29 +498,68 @@ function txDone(tx) {
     tx.onabort = () => reject(tx.error || new Error("IndexedDB transaction aborted"));
   });
 }
-
 async function saveLibrarySnapshot(snapshot) {
-  const db = await openLibraryDB();
-  const tx = db.transaction([STORES.libraries, STORES.albums, STORES.folders], "readwrite");
-  const libraries = tx.objectStore(STORES.libraries);
-  const albums = tx.objectStore(STORES.albums);
-  const folders = tx.objectStore(STORES.folders);
-
-  libraries.put({
-    id: snapshot.libraryId,
-    label: snapshot.label,
-    savedAt: Date.now(),
-    rootName: snapshot.rootName,
-    stats: snapshot.stats
+  const libraryId = String(snapshot?.libraryId || snapshot?.id || state.libraryId || "default").trim() || "default";
+  const rawAlbums = Array.isArray(snapshot?.albums) ? snapshot.albums : [];
+  const rawFolders = Array.isArray(snapshot?.folders) ? snapshot.folders : [];
+  const albumsNorm = rawAlbums.map((album, idx) => {
+    const token = String(album?.token || "").trim();
+    const pathRel = String(album?.pathRel || "").trim();
+    const fallbackId = `album:${libraryId}:${token || pathRel || idx}`;
+    const id = String(album?.id || fallbackId).trim() || fallbackId;
+    return { ...album, id, libraryId };
+  });
+  const foldersNorm = rawFolders.map((folder, idx) => {
+    const pathRel = String(folder?.pathRel || "").trim();
+    const fallbackId = `folder:${libraryId}:${pathRel || idx}`;
+    const id = String(folder?.id || fallbackId).trim() || fallbackId;
+    return { ...folder, id, libraryId };
   });
 
-  for (const album of snapshot.albums) albums.put(album);
-  for (const folder of snapshot.folders) folders.put(folder);
+  console.log("[saveLibrarySnapshot] begin", {
+    libraryId,
+    albums: albumsNorm.length,
+    folders: foldersNorm.length,
+    snapshotKeys: Object.keys(snapshot || {})
+  });
 
-  await txDone(tx);
-  db.close();
+  const badAlbum = albumsNorm.find((a) => !a.id);
+  const badFolder = foldersNorm.find((f) => !f.id);
+  if (badAlbum || badFolder) {
+    console.log("[saveLibrarySnapshot] invalid normalized entries", { badAlbum, badFolder });
+  }
+
+  const db = await openLibraryDB();
+  try {
+    const tx = db.transaction([STORES.libraries, STORES.albums, STORES.folders], "readwrite");
+    const libraries = tx.objectStore(STORES.libraries);
+    const albums = tx.objectStore(STORES.albums);
+    const folders = tx.objectStore(STORES.folders);
+    const libraryRow = {
+      id: libraryId,
+      label: snapshot?.label,
+      savedAt: Date.now(),
+      rootName: snapshot?.rootName,
+      stats: snapshot?.stats
+    };
+    console.log("[saveLibrarySnapshot] put library", libraryRow);
+    libraries.put(libraryRow);
+    for (const album of albumsNorm) albums.put(album);
+    for (const folder of foldersNorm) folders.put(folder);
+    await txDone(tx);
+    console.log("[saveLibrarySnapshot] done", { libraryId });
+  } catch (e) {
+    console.log("[saveLibrarySnapshot] failed", {
+      libraryId,
+      error: String(e?.message || e),
+      firstAlbum: albumsNorm[0] || null,
+      firstFolder: foldersNorm[0] || null
+    });
+    throw e;
+  } finally {
+    db.close();
+  }
 }
-
 async function loadLibrarySnapshot(libraryId = "default") {
   const db = await openLibraryDB();
   try {
@@ -304,7 +567,6 @@ async function loadLibrarySnapshot(libraryId = "default") {
     const libraryReq = tx.objectStore(STORES.libraries).get(libraryId);
     const albumsReq = tx.objectStore(STORES.albums).index("libraryId").getAll(libraryId);
     const foldersReq = tx.objectStore(STORES.folders).index("libraryId").getAll(libraryId);
-
     const out = await new Promise((resolve, reject) => {
       tx.oncomplete = () => resolve({
         library: libraryReq.result || null,
@@ -319,29 +581,42 @@ async function loadLibrarySnapshot(libraryId = "default") {
     db.close();
   }
 }
-
 /** ===========================
  *  Directory index + path resolver
  *  =========================== */
-async function buildDirectoryIndex(rootDirHandle) {
+async function buildDirectoryIndex(rootDirHandle, onProgress = null) {
   // Returns Map<relativePath, FileSystemDirectoryHandle>
   const map = new Map();
   map.set("", rootDirHandle);
-
+  let discovered = 1;
+  let sinceYield = 0;
+  const report = async (lastPath = "", done = false) => {
+    if (!onProgress) return;
+    await onProgress({ count: discovered, lastPath, done });
+  };
+  await report("", false);
   async function walk(dirHandle, rel) {
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind === "directory") {
         const childRel = rel ? `${rel}/${name}` : name;
         map.set(childRel, handle);
+        discovered += 1;
+        sinceYield += 1;
+        if (discovered <= 25 || discovered % 25 === 0) {
+          await report(childRel, false);
+        }
+        if (sinceYield >= 25) {
+          sinceYield = 0;
+          await new Promise((r) => setTimeout(r, 0));
+        }
         await walk(handle, childRel);
       }
     }
   }
-
   await walk(rootDirHandle, "");
+  await report("", true);
   return map;
 }
-
 function resolveAbsoluteToRelative(absPath, dirIndex) {
   // absPath like "C:\Users\...\Pictures\Trips\Berlin"
   // We match the deepest suffix that exists under the chosen library root
@@ -361,11 +636,10 @@ function resolveAbsoluteToRelative(absPath, dirIndex) {
   }
   return null;
 }
-
 /** ===========================
  *  Thumbnail generation (in-memory)
  *  =========================== */
-async function makeThumbURL(file, size = 320) {
+async function makeThumbURL(file, size = 320, cropRect64 = "") {
   // fast path: createImageBitmap resize
   let bmp = null;
   try {
@@ -375,14 +649,18 @@ async function makeThumbURL(file, size = 320) {
   }
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d", { alpha: false });
-
   if (bmp) {
     const w = bmp.width, h = bmp.height;
-    const scale = Math.min(size / w, size / h);
-    const tw = Math.max(1, Math.round(w * scale));
-    const th = Math.max(1, Math.round(h * scale));
+    const b = cropRect64 ? rect64ToBox(cropRect64) : null;
+    const sx = b ? Math.max(0, Math.round(b.x * w)) : 0;
+    const sy = b ? Math.max(0, Math.round(b.y * h)) : 0;
+    const sw = b ? Math.max(1, Math.round(b.w * w)) : w;
+    const sh = b ? Math.max(1, Math.round(b.h * h)) : h;
+    const scale = Math.min(size / sw, size / sh);
+    const tw = Math.max(1, Math.round(sw * scale));
+    const th = Math.max(1, Math.round(sh * scale));
     canvas.width = tw; canvas.height = th;
-    ctx.drawImage(bmp, 0, 0, tw, th);
+    ctx.drawImage(bmp, sx, sy, sw, sh, 0, 0, tw, th);
     bmp.close?.();
   } else {
     // fallback: load via object URL
@@ -395,14 +673,217 @@ async function makeThumbURL(file, size = 320) {
     });
     URL.revokeObjectURL(url);
     const w = img.naturalWidth, h = img.naturalHeight;
-    const scale = Math.min(size / w, size / h);
-    const tw = Math.max(1, Math.round(w * scale));
-    const th = Math.max(1, Math.round(h * scale));
+    const b = cropRect64 ? rect64ToBox(cropRect64) : null;
+    const sx = b ? Math.max(0, Math.round(b.x * w)) : 0;
+    const sy = b ? Math.max(0, Math.round(b.y * h)) : 0;
+    const sw = b ? Math.max(1, Math.round(b.w * w)) : w;
+    const sh = b ? Math.max(1, Math.round(b.h * h)) : h;
+    const scale = Math.min(size / sw, size / sh);
+    const tw = Math.max(1, Math.round(sw * scale));
+    const th = Math.max(1, Math.round(sh * scale));
     canvas.width = tw; canvas.height = th;
-    ctx.drawImage(img, 0, 0, tw, th);
+    ctx.drawImage(img, sx, sy, sw, sh, 0, 0, tw, th);
+  }
+  const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.82));
+  return URL.createObjectURL(blob);
+}
+
+function tiltValueToDeg(tiltVal) {
+  const t = Number(tiltVal);
+  return (Number.isFinite(t) ? -t : 0) * 15;
+}
+function tiltValueToRad(tiltVal) {
+  return tiltValueToDeg(tiltVal) * (Math.PI / 180);
+}
+function textRotationToDeg(rotationValue) {
+  const r = Number(rotationValue);
+  return (Number.isFinite(r) ? -r : 0) * (180 / Math.PI);
+}
+
+async function makeTiltThenCropURL(file, size = 2048, cropRect64 = "", tiltVal = 0) {
+  const blob = file instanceof Blob ? file : new Blob([file]);
+  const src = URL.createObjectURL(blob);
+  const img = await new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = rej;
+    im.src = src;
+  });
+  URL.revokeObjectURL(src);
+  const w = img.naturalWidth || 1;
+  const h = img.naturalHeight || 1;
+  const rad = tiltValueToRad(tiltVal);
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const rw = Math.max(1, Math.ceil(Math.abs(cos * w) + Math.abs(sin * h)));
+  const rh = Math.max(1, Math.ceil(Math.abs(sin * w) + Math.abs(cos * h)));
+  const rotCanvas = document.createElement("canvas");
+  rotCanvas.width = rw; rotCanvas.height = rh;
+  const rctx = rotCanvas.getContext("2d");
+  rctx.translate(rw / 2, rh / 2);
+  rctx.rotate(rad);
+  rctx.drawImage(img, -w / 2, -h / 2);
+
+  const b = cropRect64 ? rect64ToBox(cropRect64) : { x: 0, y: 0, w: 1, h: 1 };
+  const sx = Math.max(0, Math.round(b.x * rw));
+  const sy = Math.max(0, Math.round(b.y * rh));
+  const sw = Math.max(1, Math.round(b.w * rw));
+  const sh = Math.max(1, Math.round(b.h * rh));
+
+  const scale = Math.min(size / sw, size / sh);
+  const tw = Math.max(1, Math.round(sw * scale));
+  const th = Math.max(1, Math.round(sh * scale));
+  const out = document.createElement("canvas");
+  out.width = tw; out.height = th;
+  out.getContext("2d").drawImage(rotCanvas, sx, sy, sw, sh, 0, 0, tw, th);
+  const outBlob = await new Promise((res) => out.toBlob(res, "image/jpeg", 0.9));
+  return URL.createObjectURL(outBlob);
+}
+
+
+
+function buildEffectiveFilterChain(filters = [], fallbackCropRect64 = "") {
+  const chain = Array.isArray(filters) ? filters.map((f) => String(f || "").trim()).filter(Boolean) : [];
+  if (!chain.length && fallbackCropRect64) chain.push(`crop64=1,${fallbackCropRect64}`);
+  return chain;
+}
+
+function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = [], fallbackCropRect64 = "") {
+  const baseW = Math.max(1, Number(naturalW) || 1);
+  const baseH = Math.max(1, Number(naturalH) || 1);
+  let x = Math.max(0, Math.min(1, Number(xNorm) || 0)) * baseW;
+  let y = Math.max(0, Math.min(1, Number(yNorm) || 0)) * baseH;
+  let view = { x: 0, y: 0, w: baseW, h: baseH };
+  let tiltDeg = 0;
+  const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
+  for (const f of chain) {
+    let m = String(f).match(/^crop64=1,(.+)$/i);
+    if (m) {
+      const b = rect64ToBox(m[1].trim());
+      const sx = view.x + b.x * view.w;
+      const sy = view.y + b.y * view.h;
+      const sw = Math.max(1, b.w * view.w);
+      const sh = Math.max(1, b.h * view.h);
+      view = { x: sx, y: sy, w: sw, h: sh };
+      continue;
+    }
+    m = String(f).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
+    if (m) {
+      applyFillLightOnCanvas(canvas, Number(m[1]));
+      continue;
+    }
+    m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+    if (m) {
+      const tiltVal = Number(m[1]);
+      const rad = tiltValueToRad(tiltVal);
+      const cos = Math.cos(rad), sin = Math.sin(rad);
+      const cx = view.x + view.w / 2;
+      const cy = view.y + view.h / 2;
+      const dx = x - cx, dy = y - cy;
+      x = (dx * cos - dy * sin) + cx;
+      y = (dx * sin + dy * cos) + cy;
+      tiltDeg += tiltValueToDeg(tiltVal);
+    }
+  }
+  return {
+    x: (x - view.x) / Math.max(1, view.w),
+    y: (y - view.y) / Math.max(1, view.h),
+    tiltDeg
+  };
+}
+
+
+
+function applyFillLightOnCanvas(canvas, strength = 0) {
+  const fl = Math.max(0, Math.min(1, Number(strength) || 0));
+  if (!(fl > 0)) return canvas;
+  const k = 2.4;
+  const ctx = canvas.getContext("2d");
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imgData.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const r = data[i] / 255, g = data[i + 1] / 255, b = data[i + 2] / 255;
+    const lum = Math.max(0, Math.min(1, 0.2126 * r + 0.7152 * g + 0.0722 * b));
+    const y = Math.max(0, Math.min(1, lum + fl * (1 - lum) * (1 - Math.pow(lum, k))));
+    const gain = lum > 1e-6 ? (y / lum) : (1 + fl);
+    data[i] = Math.max(0, Math.min(255, Math.round(data[i] * gain)));
+    data[i + 1] = Math.max(0, Math.min(255, Math.round(data[i + 1] * gain)));
+    data[i + 2] = Math.max(0, Math.min(255, Math.round(data[i + 2] * gain)));
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "") {
+  const src = URL.createObjectURL(file instanceof Blob ? file : new Blob([file]));
+  const img = await new Promise((res, rej) => {
+    const im = new Image();
+    im.onload = () => res(im);
+    im.onerror = rej;
+    im.src = src;
+  });
+  URL.revokeObjectURL(src);
+
+  const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
+  let canvas = document.createElement("canvas");
+  canvas.width = img.naturalWidth || 1;
+  canvas.height = img.naturalHeight || 1;
+  canvas.getContext("2d").drawImage(img, 0, 0);
+
+  let view = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+
+  for (const f of chain) {
+    let m = String(f).match(/^crop64=1,(.+)$/i);
+    if (m) {
+      const b = rect64ToBox(m[1].trim());
+      const sx = view.x + b.x * view.w;
+      const sy = view.y + b.y * view.h;
+      const sw = Math.max(1, b.w * view.w);
+      const sh = Math.max(1, b.h * view.h);
+      view = { x: sx, y: sy, w: sw, h: sh };
+      continue;
+    }
+    m = String(f).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
+    if (m) {
+      applyFillLightOnCanvas(canvas, Number(m[1]));
+      continue;
+    }
+    m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+    if (m) {
+      const rad = tiltValueToRad(Number(m[1]));
+      const out = document.createElement("canvas");
+      out.width = canvas.width;
+      out.height = canvas.height;
+      const octx = out.getContext("2d");
+      const cx = view.x + view.w / 2;
+      const cy = view.y + view.h / 2;
+      octx.translate(cx, cy);
+      octx.rotate(rad);
+      octx.drawImage(canvas, -cx, -cy);
+      canvas = out;
+    }
   }
 
-  const blob = await new Promise(res => canvas.toBlob(res, "image/jpeg", 0.82));
+  const sx = Math.max(0, Math.round(view.x));
+  const sy = Math.max(0, Math.round(view.y));
+  const sw = Math.max(1, Math.round(view.w));
+  const sh = Math.max(1, Math.round(view.h));
+  const cropped = document.createElement("canvas");
+  cropped.width = sw;
+  cropped.height = sh;
+  cropped.getContext("2d").drawImage(canvas, sx, sy, sw, sh, 0, 0, sw, sh);
+  canvas = cropped;
+
+
+  const maxDim = Math.max(canvas.width, canvas.height);
+  if (maxDim > size) {
+    const scale = size / maxDim;
+    const out = document.createElement("canvas");
+    out.width = Math.max(1, Math.round(canvas.width * scale));
+    out.height = Math.max(1, Math.round(canvas.height * scale));
+    out.getContext("2d").drawImage(canvas, 0, 0, out.width, out.height);
+    canvas = out;
+  }
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.9));
   return URL.createObjectURL(blob);
 }
 
@@ -410,26 +891,33 @@ async function makeThumbURL(file, size = 320) {
  *  App state
  *  =========================== */
 const state = {
-  root: null,                 // FileSystemDirectoryHandle
-  dirIndex: null,             // Map<relPath, dirHandle>
+  libraryRoot: null,          // FileSystemDirectoryHandle for image browsing
+  pmpRoot: null,              // FileSystemDirectoryHandle for db/*.pmp import
+  dirIndex: null,             // Map<relPath, dirHandle> from libraryRoot
   albums: [],                 // Album[]
   folderItems: [],            // Folder[]
+  folderNavItems: [],         // Folder browser entries for current folder path
+  folderBrowserPath: "",      // Current relative path when in folder view
+  picasaByFolder: new Map(),  // Map<pathRel, parsed .picasa.ini metadata>
+  iniAlbumsByToken: new Map(),
   currentImages: [],          // ImageItem[]
   currentTitle: "",
   currentResolved: "",
   currentViewMode: "albums",
   activeListIndex: -1,
   libraryId: "default",
-  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500 }
+  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true },
+  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini" }
 };
-
 /** ===========================
  *  UI elements
  *  =========================== */
 const el = {
   btnPick: document.getElementById("btnPick"),
+  btnPickPmp: document.getElementById("btnPickPmp"),
   btnExport: document.getElementById("btnExport"),
   btnReload: document.getElementById("btnReload"),
+  btnSettings: document.getElementById("btnSettings"),
   btnViewAlbums: document.getElementById("btnViewAlbums"),
   btnViewFolders: document.getElementById("btnViewFolders"),
   pillState: document.getElementById("pillState"),
@@ -437,10 +925,13 @@ const el = {
   albumList: document.getElementById("albumList"),
   grid: document.getElementById("grid"),
   viewTitle: document.getElementById("viewTitle"),
+  albumNameInput: document.getElementById("albumNameInput"),
+  btnRenameAlbum: document.getElementById("btnRenameAlbum"),
   countPill: document.getElementById("countPill"),
   resolvePill: document.getElementById("resolvePill"),
   mainStatus: document.getElementById("mainStatus"),
-
+  picasaLogPanel: document.getElementById("picasaLogPanel"),
+  picasaLog: document.getElementById("picasaLog"),
   overlay: document.getElementById("overlay"),
   slideImg: document.getElementById("slideImg"),
   slideMeta: document.getElementById("slideMeta"),
@@ -448,8 +939,94 @@ const el = {
   btnPrev: document.getElementById("btnPrev"),
   btnNext: document.getElementById("btnNext"),
   btnPlay: document.getElementById("btnPlay"),
+  btnToggleFaces: document.getElementById("btnToggleFaces"),
+  btnToggleCrop: document.getElementById("btnToggleCrop"),
+  btnToggleText: document.getElementById("btnToggleText"),
+  btnToggleStar: document.getElementById("btnToggleStar"),
+  slideFaceLayer: document.getElementById("slideFaceLayer"),
+  slideTextOverlay: document.getElementById("slideTextOverlay"),
+  slideAlbums: document.getElementById("slideAlbums"),
+  faceEditorOverlay: document.getElementById("faceEditorOverlay"),
+  faceCanvasWrap: document.getElementById("faceCanvasWrap"),
+  faceCanvasImg: document.getElementById("faceCanvasImg"),
+  faceCaptionInput: document.getElementById("faceCaptionInput"),
+  faceAlbumNamesInput: document.getElementById("faceAlbumNamesInput"),
+  faceAlbumChips: document.getElementById("faceAlbumChips"),
+  faceAlbumTokenInput: document.getElementById("faceAlbumTokenInput"),
+  faceAlbumSuggestions: document.getElementById("faceAlbumSuggestions"),
+  faceAlbumSelect: document.getElementById("faceAlbumSelect"),
+  btnAlbumAddSelected: document.getElementById("btnAlbumAddSelected"),
+  btnAlbumRemoveSelected: document.getElementById("btnAlbumRemoveSelected"),
+  btnAlbumCreate: document.getElementById("btnAlbumCreate"),
+  faceCropRow: document.getElementById("faceCropRow"),
+  faceCropInput: document.getElementById("faceCropInput"),
+  faceKeywordsInput: document.getElementById("faceKeywordsInput"),
+  btnFaceStarToggle: document.getElementById("btnFaceStarToggle"),
+  cropControls: document.getElementById("cropControls"),
+  tiltControls: document.getElementById("tiltControls"),
+  fillLightControls: document.getElementById("fillLightControls"),
+  faceTiltSlider: document.getElementById("faceTiltSlider"),
+  faceTiltValue: document.getElementById("faceTiltValue"),
+  faceFillLightSlider: document.getElementById("faceFillLightSlider"),
+  faceFillLightValue: document.getElementById("faceFillLightValue"),
+  faceFaceSelect: document.getElementById("faceFaceSelect"),
+  faceLabelRow: document.getElementById("faceLabelRow"),
+  faceFaceLabelInput: document.getElementById("faceFaceLabelInput"),
+  btnTextAdd: document.getElementById("btnTextAdd"),
+  textInputRow: document.getElementById("textInputRow"),
+  textFontRow: document.getElementById("textFontRow"),
+  textSizeRow: document.getElementById("textSizeRow"),
+  textColorRow: document.getElementById("textColorRow"),
+  textOutlineColorRow: document.getElementById("textOutlineColorRow"),
+  textOutlineWidthRow: document.getElementById("textOutlineWidthRow"),
+  textOpacityRow: document.getElementById("textOpacityRow"),
+  textScaleXRow: document.getElementById("textScaleXRow"),
+  textScaleYRow: document.getElementById("textScaleYRow"),
+  textStrokeFactorRow: document.getElementById("textStrokeFactorRow"),
+  textWeightRow: document.getElementById("textWeightRow"),
+  textAlignRow: document.getElementById("textAlignRow"),
+  textFlagsRow: document.getElementById("textFlagsRow"),
+  textAnchorFlagsRow: document.getElementById("textAnchorFlagsRow"),
+  textRenderFlagsRow: document.getElementById("textRenderFlagsRow"),
+  faceTextInput: document.getElementById("faceTextInput"),
+  faceTextFontInput: document.getElementById("faceTextFontInput"),
+  faceTextSizeInput: document.getElementById("faceTextSizeInput"),
+  faceTextColorInput: document.getElementById("faceTextColorInput"),
+  faceTextOutlineColorInput: document.getElementById("faceTextOutlineColorInput"),
+  faceTextOutlineWidthInput: document.getElementById("faceTextOutlineWidthInput"),
+  faceTextOpacityInput: document.getElementById("faceTextOpacityInput"),
+  faceTextScaleXInput: document.getElementById("faceTextScaleXInput"),
+  faceTextScaleYInput: document.getElementById("faceTextScaleYInput"),
+  faceTextStrokeFactorInput: document.getElementById("faceTextStrokeFactorInput"),
+  faceTextWeightInput: document.getElementById("faceTextWeightInput"),
+  faceTextAlignInput: document.getElementById("faceTextAlignInput"),
+  faceTextItalicInput: document.getElementById("faceTextItalicInput"),
+  faceTextUnderlineInput: document.getElementById("faceTextUnderlineInput"),
+  faceTextNoSolidFillInput: document.getElementById("faceTextNoSolidFillInput"),
+  faceTextSolidFillModeInput: document.getElementById("faceTextSolidFillModeInput"),
+  faceTextAnchorFlagsInput: document.getElementById("faceTextAnchorFlagsInput"),
+  faceTextRenderFlagsInput: document.getElementById("faceTextRenderFlagsInput"),
+  faceFilterList: document.getElementById("faceFilterList"),
+  btnRemoveSelectedFilters: document.getElementById("btnRemoveSelectedFilters"),
+  faceEditorStatus: document.getElementById("faceEditorStatus"),
+  btnCropMode: document.getElementById("btnCropMode"),
+  btnTiltMode: document.getElementById("btnTiltMode"),
+  btnFillLightMode: document.getElementById("btnFillLightMode"),
+  btnFaceAdd: document.getElementById("btnFaceAdd"),
+  btnApplyCropFilter: document.getElementById("btnApplyCropFilter"),
+  btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
+  btnApplyFillLightFilter: document.getElementById("btnApplyFillLightFilter"),
+  btnUndoFilter: document.getElementById("btnUndoFilter"),
+  btnFaceSave: document.getElementById("btnFaceSave"),
+  btnFaceCancel: document.getElementById("btnFaceCancel"),
+  settingsOverlay: document.getElementById("settingsOverlay"),
+  selReadCaptionPref: document.getElementById("selReadCaptionPref"),
+  selReadKeywordsPref: document.getElementById("selReadKeywordsPref"),
+  selWriteCaptionPref: document.getElementById("selWriteCaptionPref"),
+  selWriteKeywordsPref: document.getElementById("selWriteKeywordsPref"),
+  btnSettingsSave: document.getElementById("btnSettingsSave"),
+  btnSettingsClose: document.getElementById("btnSettingsClose"),
 };
-
 function setStatus(msg, cls = "") {
   el.mainStatus.className = "status " + cls;
   el.mainStatus.textContent = msg || "";
@@ -463,19 +1040,1092 @@ function clearGrid() {
   for (const it of state.currentImages) {
     if (it.thumbUrl?.startsWith("blob:")) URL.revokeObjectURL(it.thumbUrl);
     if (it.url?.startsWith("blob:")) URL.revokeObjectURL(it.url);
+    if (it.cropUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropUrl);
+    if (it.cropTiltUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropTiltUrl);
+    if (it.slidePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(it.slidePreviewUrl);
   }
   state.currentImages = [];
   el.grid.innerHTML = "";
   el.countPill.textContent = "";
   el.resolvePill.textContent = "";
+  setPicasaLog("");
+}
+function setPicasaLog(text) {
+  const body = String(text || "").trim();
+  if (!body) {
+    el.picasaLog.textContent = "";
+    el.picasaLogPanel.hidden = true;
+    return;
+  }
+  el.picasaLog.textContent = body;
+  el.picasaLogPanel.hidden = false;
+}
+function folderOfRelPath(relPath) {
+  const s = String(relPath || "");
+  const idx = s.lastIndexOf("/");
+  return idx >= 0 ? s.slice(0, idx) : "";
+}
+function buildContactIdFromLabel(label) {
+  return "manual_" + String(label || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+}
+function parseFaceEntriesInput(rawInput, existingFaces = []) {
+  const defaults = (existingFaces || []).map((f) => ({
+    label: String(f.label || "").trim(),
+    rect64: String(f.rect64 || "0").trim() || "0"
+  })).filter((x) => x.label);
+  const out = [];
+  const src = String(rawInput || "").trim();
+  if (!src) return out;
+  for (const rawLine of src.split(/\n|;/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const sep = line.indexOf("@");
+    const label = (sep >= 0 ? line.slice(0, sep) : line).trim();
+    if (!label) continue;
+    const rectPart = sep >= 0 ? line.slice(sep + 1).trim() : "";
+    const existing = defaults.find((x) => x.label.toLowerCase() === label.toLowerCase());
+    const rect64 = String(rectPart || existing?.rect64 || "0").trim() || "0";
+    out.push({ label, rect64 });
+  }
+  return out;
+}
+function parseFiltersValue(val) {
+  return String(val || "").split(";").map((x) => x.trim()).filter(Boolean);
+}
+function lastCropFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const m = String(filters[i]).match(/^crop64=1,([0-9a-f]+)$/i);
+    if (m) return m[1];
+  }
+  return "";
+}
+function lastTiltFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const m = String(filters[i]).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
+    if (m) return Number(m[1]);
+  }
+  return null;
+}
+function cssColorToU32(color, fallback = 4294967295) {
+  const s = String(color || "").trim();
+  const hex = s.match(/^#([0-9a-f]{6})$/i);
+  let r = 255, g = 255, b = 255;
+  if (hex) {
+    r = parseInt(hex[1].slice(0,2), 16);
+    g = parseInt(hex[1].slice(2,4), 16);
+    b = parseInt(hex[1].slice(4,6), 16);
+  } else {
+    const m = s.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+    if (m) {
+      r = Math.max(0, Math.min(255, Number(m[1])));
+      g = Math.max(0, Math.min(255, Number(m[2])));
+      b = Math.max(0, Math.min(255, Number(m[3])));
+    } else {
+      return fallback;
+    }
+  }
+  return ((255 << 24) | (r << 16) | (g << 8) | b) >>> 0;
+}
+
+function normalizeFilterOrder(filters) {
+  return Array.isArray(filters) ? filters.map((f) => String(f || "")) : [];
+}
+function renderFilterList() {
+  if (!el.faceFilterList) return;
+  el.faceFilterList.innerHTML = "";
+  if (!faceEditor.filters.length) {
+    const opt = document.createElement("option");
+    opt.value = "";
+    opt.textContent = "(none)";
+    el.faceFilterList.appendChild(opt);
+    return;
+  }
+  faceEditor.filters.forEach((flt, idx) => {
+    const opt = document.createElement("option");
+    opt.value = String(idx);
+    opt.textContent = `${idx + 1}. ${flt}`;
+    el.faceFilterList.appendChild(opt);
+  });
+}
+
+
+function albumTokensForImage(picasa, imageName) {
+  const tokens = [];
+  for (const [token, members] of picasa.membersByToken.entries()) {
+    if (members.has(imageName)) tokens.push(token);
+  }
+  tokens.sort((a,b)=>a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+  return tokens;
+}
+function serializePicasaInfo(picasa) {
+  const lines = [];
+  const imageNames = Array.from(picasa.imageMeta.keys()).sort((a,b)=>a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+  const tokensByImage = new Map();
+  for (const [token, members] of picasa.membersByToken.entries()) {
+    for (const img of members) {
+      if (!tokensByImage.has(img)) tokensByImage.set(img, []);
+      tokensByImage.get(img).push(token);
+    }
+  }
+  for (const name of imageNames) {
+    const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
+    lines.push(`[${name}]`);
+    if (meta.textOverlays?.length) {
+      const txt = meta.textOverlays.map((t) => {
+        const primary = Number.isFinite(Number(t.fillARGB)) ? Number(t.fillARGB) : cssColorToU32(t.colorPrimary, 4294967295);
+        const secondary = Number.isFinite(Number(t.strokeARGB)) ? Number(t.strokeARGB) : cssColorToU32(t.colorSecondary, 4278190080);
+        const opacity255 = Number.isFinite(Number(t.opacity255)) ? Number(t.opacity255) : 128;
+        const scaleXUnknown = Number.isFinite(Number(t.scaleXUnknown)) ? Number(t.scaleXUnknown) : 1;
+        const strokeWidthFactor = Number.isFinite(Number(t.strokeWidthFactor)) ? Number(t.strokeWidthFactor) : (Math.max(0, Number(t.outlineWidth || 1)) / 6);
+        const scaleYUnknown = Number.isFinite(Number(t.scaleYUnknown)) ? Number(t.scaleYUnknown) : 1;
+        const fontWeight = Number.isFinite(Number(t.fontWeight)) ? Number(t.fontWeight) : 400;
+        const renderFlags = Number.isFinite(Number(t.renderFlags)) ? Number(t.renderFlags) : 0;
+        const textStyleAnchorFlags = Number.isFinite(Number(t.textStyleAnchorFlags)) ? Number(t.textStyleAnchorFlags) : 49152;
+        return `${t.enabled ? 1 : 0};${t.sizeCode || 128};${t.styleCode || 8};${t.caption};${t.fontFamily || "Arial"};${t.x},${t.y},${t.sizeRel},${t.rotation};v1,${primary},${secondary},${opacity255.toFixed(6)},${scaleXUnknown.toFixed(6)},${strokeWidthFactor.toFixed(6)},${scaleYUnknown.toFixed(6)},${Math.round(fontWeight)},${Math.round(renderFlags)},${Math.round(textStyleAnchorFlags)}`;
+      }).join(";;") + ";;";
+      lines.push(`text=${txt}`);
+    } else if (meta.caption) lines.push(`text=1;128;8;${meta.caption};${meta.textOverlay?.fontFamily || "Arial"};${meta.textOverlay ? `${meta.textOverlay.x},${meta.textOverlay.y},${meta.textOverlay.sizeRel},${meta.textOverlay.rotation}` : ""};v1,4294967295,4278190080,128.000000,1.000000,0.000000,1.000000,400,0,49152;;`);
+    if (meta.star) lines.push(`star=yes`);
+    if ((meta.filters || []).length) lines.push(`filters=${meta.filters.join(";")};`);
+    if (meta.cropRect64) lines.push(`crop=rect64(${meta.cropRect64})`);
+    if ((meta.keywords || []).length) lines.push(`keywords=${meta.keywords.join(",")}`);
+    if ((meta.faces || []).length) {
+      const parts = meta.faces.map((f) => `rect64(${f.rect64 || "0"}),${f.contactId || buildContactIdFromLabel(f.label || "unknown")}`);
+      lines.push(`faces=${parts.join(";")}`);
+    }
+    const toks = (tokensByImage.get(name) || []).filter(Boolean);
+    if (toks.length) lines.push(`albums=${toks.join(",")}`);
+    lines.push("");
+  }
+  const albumTokens = Array.from(picasa.membersByToken.keys()).sort((a,b)=>a.localeCompare(b));
+  for (const token of albumTokens) {
+    lines.push(`[.album:${token}]`);
+    const nm = picasa.albumNamesByToken.get(token);
+    if (nm) lines.push(`name=${nm}`);
+    lines.push(`token=${token}`);
+    lines.push("");
+  }
+  const contacts = Array.from(picasa.contacts.entries()).sort((a,b)=>a[0].localeCompare(b[0]));
+  if (contacts.length) {
+    lines.push("[Contacts2]");
+    for (const [id, label] of contacts) lines.push(`${id}=${label};;`);
+    lines.push("");
+  }
+  return lines.join("\n");
+}
+async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = [], textOverlays = null, albumNameByToken = null) {
+  const relDir = folderOfRelPath(imageItem.relPath);
+  const dirHandle = state.dirIndex?.get(relDir);
+  if (!dirHandle) throw new Error("Missing directory handle for metadata save");
+  const picasa = await getPicasaMetaForFolder(relDir, dirHandle);
+  const faces = faceEntries.map((entry) => {
+    const label = String(entry.label || "").trim();
+    const existing = Array.from(picasa.contacts.entries()).find(([, v]) => v.toLowerCase() === label.toLowerCase());
+    const contactId = existing ? existing[0] : buildContactIdFromLabel(label);
+    picasa.contacts.set(contactId, label);
+    return { rect64: String(entry.rect64 || "0"), contactId, label };
+  });
+  const oldMeta = picasa.imageMeta.get(imageItem.name) || {};
+  const normalizedTextOverlays = Array.isArray(textOverlays)
+    ? textOverlays.filter((x) => x && String(x.caption || "").trim())
+    : (oldMeta.textOverlays || []);
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: (Array.isArray(filters) ? filters.slice() : []) });
+  for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
+  for (const token of albumTokens) {
+    if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
+    picasa.membersByToken.get(token).add(imageItem.name);
+    const nm = albumNameByToken && albumNameByToken[token] ? albumNameByToken[token] : token;
+    picasa.albumNamesByToken.set(token, nm || token);
+  }
+  const fileHandle = await dirHandle.getFileHandle(".picasa.info", { create: true });
+  const writable = await fileHandle.createWritable();
+  await writable.write(serializePicasaInfo(picasa));
+  await writable.close();
+  picasa.sourceFile = ".picasa.info";
+  picasa.detection = "manual-write";
+  picasa.missing = false;
+  if (!Array.isArray(picasa.scannedFileNames)) picasa.scannedFileNames = [];
+  if (!picasa.scannedFileNames.includes(".picasa.info")) picasa.scannedFileNames.push(".picasa.info");
+}
+const faceEditor = {
+  imageItem: null,
+  faces: [],
+  activeFaceIdx: -1,
+  draggingIdx: -1,
+  dragMode: "move",
+  dragOffsetX: 0,
+  dragOffsetY: 0,
+  naturalW: 1,
+  naturalH: 1,
+  displayW: 1,
+  displayH: 1,
+  cropRect64: "",
+  cropUiVisible: false,
+  tiltUiVisible: false,
+  cropDragging: false,
+  cropMode: "move",
+  textDragging: false,
+  textDragOffsetX: 0,
+  textDragOffsetY: 0,
+  textDragMode: "move",
+  textResizeBasePx: 36,
+  textRotateOriginX: 0,
+  textRotateOriginY: 0,
+  textOverlays: [],
+  activeTextIdx: -1,
+  star: false,
+  cropAspectRatio: null,
+  albumNameToToken: new Map(),
+  albumTokenToName: new Map(),
+  selectedAlbumTokens: new Set(),
+  previewUrl: "",
+  previewKey: "",
+  previewDraftUrl: "",
+  previewRequestId: 0,
+  filters: []
+};
+function rect64ToBox(rect64) {
+  const s = String(rect64 || "");
+  if (s.startsWith("gui:")) {
+    const nums = s.slice(4).split("|").map((x) => Number(x.trim()));
+    if (nums.length === 4 && nums.every((n) => Number.isFinite(n))) return { x: nums[0], y: nums[1], w: nums[2], h: nums[3] };
+  }
+  if (/^[0-9a-f]{16}$/i.test(s)) {
+    const a = parseInt(s.slice(0,4),16) / 65535;
+    const b = parseInt(s.slice(4,8),16) / 65535;
+    const c = parseInt(s.slice(8,12),16) / 65535;
+    const d = parseInt(s.slice(12,16),16) / 65535;
+    return { x: Math.max(0, Math.min(a, 1)), y: Math.max(0, Math.min(b, 1)), w: Math.max(0.01, Math.min(1, c - a)), h: Math.max(0.01, Math.min(1, d - b)) };
+  }
+  return { x: 0.1, y: 0.1, w: 0.2, h: 0.2 };
+}
+function boxToRect64(box) {
+  const clamp = (n) => Math.max(0, Math.min(1, n));
+  return `gui:${clamp(box.x).toFixed(6)}|${clamp(box.y).toFixed(6)}|${clamp(box.w).toFixed(6)}|${clamp(box.h).toFixed(6)}`;
+}
+function cssColorToHex(color, fallback = "#ffffff") {
+  const s = String(color || "").trim();
+  if (/^#[0-9a-f]{6}$/i.test(s)) return s;
+  const m = s.match(/^rgba?\((\d+),\s*(\d+),\s*(\d+)/i);
+  if (!m) return fallback;
+  return `#${[m[1], m[2], m[3]].map((n)=>Math.max(0,Math.min(255,Number(n))).toString(16).padStart(2, "0")).join("")}`;
+}
+
+
+function renderAlbumChipEditor() {
+  if (!el.faceAlbumChips) return;
+  el.faceAlbumChips.innerHTML = "";
+  const sortedTokens = Array.from(faceEditor.selectedAlbumTokens);
+  for (const tok of sortedTokens) {
+    const chip = document.createElement("span");
+    chip.className = "albumChip";
+    const name = faceEditor.albumTokenToName.get(tok) || tok;
+    chip.appendChild(document.createTextNode(name));
+    const rm = document.createElement("button");
+    rm.type = "button";
+    rm.textContent = "×";
+    rm.title = `Remove ${name}`;
+    rm.onclick = () => {
+      faceEditor.selectedAlbumTokens.delete(tok);
+      renderAlbumSelectFromState();
+    };
+    chip.appendChild(rm);
+    el.faceAlbumChips.appendChild(chip);
+  }
+}
+
+function commitAlbumInputTokens(raw) {
+  const names = String(raw || "").split(",").map((x)=>x.trim()).filter(Boolean);
+  if (!names.length) return false;
+  for (const nm of names) {
+    const existingTok = faceEditor.albumNameToToken.get(nm.toLowerCase());
+    const tok = existingTok || makeAlbumToken(nm);
+    faceEditor.albumNameToToken.set(nm.toLowerCase(), tok);
+    faceEditor.albumTokenToName.set(tok, nm);
+    faceEditor.selectedAlbumTokens.add(tok);
+  }
+  renderAlbumSelectFromState();
+  return true;
+}
+
+function parseAspectRatio(text) {
+  const m = String(text || "").match(/^(\d+(?:\.\d+)?):(\d+(?:\.\d+)?)$/);
+  if (!m) return null;
+  const a = Number(m[1]); const b = Number(m[2]);
+  if (!Number.isFinite(a) || !Number.isFinite(b) || a <= 0 || b <= 0) return null;
+  return a / b;
+}
+function renderAlbumSelectFromState() {
+  const entries = Array.from(faceEditor.albumTokenToName.entries()).sort((a,b)=>a[1].localeCompare(b[1], undefined, { sensitivity:"base" }));
+  if (el.faceAlbumSelect) {
+    el.faceAlbumSelect.innerHTML = "";
+    for (const [token, name] of entries) {
+      const opt = document.createElement("option");
+      opt.value = token;
+      opt.textContent = name || token;
+      opt.selected = faceEditor.selectedAlbumTokens.has(token);
+      el.faceAlbumSelect.appendChild(opt);
+    }
+  }
+  const names = Array.from(faceEditor.selectedAlbumTokens).map((tok) => faceEditor.albumTokenToName.get(tok) || tok);
+  el.faceAlbumNamesInput.value = names.join(", ");
+  if (el.faceAlbumSuggestions) {
+    el.faceAlbumSuggestions.innerHTML = "";
+    for (const [, name] of entries) {
+      const opt = document.createElement("option");
+      opt.value = name || "";
+      el.faceAlbumSuggestions.appendChild(opt);
+    }
+  }
+  renderAlbumChipEditor();
+}
+function makeAlbumToken(name) {
+  return String(name || "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "") || `album_${Date.now()}`;
+}
+
+function updateSelectionRows() {
+  const hasFace = faceEditor.activeFaceIdx >= 0 && !!faceEditor.faces[faceEditor.activeFaceIdx];
+  el.faceLabelRow.classList.toggle("hidden", !hasFace);
+  const hasText = faceEditor.activeTextIdx >= 0 && !!faceEditor.textOverlays[faceEditor.activeTextIdx];
+  [el.textInputRow, el.textFontRow, el.textSizeRow, el.textColorRow, el.textOutlineColorRow, el.textOutlineWidthRow, el.textOpacityRow, el.textScaleXRow, el.textScaleYRow, el.textStrokeFactorRow, el.textWeightRow, el.textAlignRow, el.textFlagsRow, el.textAnchorFlagsRow, el.textRenderFlagsRow].forEach((n)=>n.classList.toggle("hidden", !hasText));
+}
+function syncFaceSelectFromState() {
+  const select = el.faceFaceSelect;
+  select.innerHTML = "";
+  faceEditor.faces.forEach((face, idx) => {
+    const opt = document.createElement("option");
+    opt.value = String(idx);
+    opt.textContent = `${idx + 1}. ${face.label || "(unnamed)"}`;
+    if (idx === faceEditor.activeFaceIdx) opt.selected = true;
+    select.appendChild(opt);
+  });
+  if (faceEditor.activeFaceIdx >= 0 && faceEditor.faces[faceEditor.activeFaceIdx]) {
+    el.faceFaceLabelInput.value = faceEditor.faces[faceEditor.activeFaceIdx].label || "";
+  } else {
+    el.faceFaceLabelInput.value = "";
+  }
+  updateSelectionRows();
+}
+function syncTextInputsFromState() {
+  const t = faceEditor.textOverlays[faceEditor.activeTextIdx];
+  if (!t) {
+    el.faceTextInput.value = "";
+    return;
+  }
+  el.faceTextInput.value = t.caption || "";
+  el.faceTextFontInput.value = t.fontFamily || "Arial";
+  const initialSizePx = Math.max(8, Math.round(((t.sizeCode || 128) / 6) || ((t.sizeRel || 0.04) * 220)));
+  el.faceTextSizeInput.value = String(initialSizePx);
+  el.faceTextColorInput.value = cssColorToHex(t.colorPrimary, "#ffffff");
+  el.faceTextOutlineColorInput.value = cssColorToHex(t.colorSecondary, "#000000");
+  el.faceTextOutlineWidthInput.value = String(Math.max(0, Number(t.outlineWidth || 1) || 0));
+  el.faceTextOpacityInput.value = String(Math.max(0, Math.min(255, Number(t.opacity255 ?? 128) || 128)));
+  el.faceTextScaleXInput.value = String(Number.isFinite(Number(t.scaleXUnknown)) ? Number(t.scaleXUnknown) : 1);
+  el.faceTextScaleYInput.value = String(Number.isFinite(Number(t.scaleYUnknown)) ? Number(t.scaleYUnknown) : 1);
+  el.faceTextStrokeFactorInput.value = String(Math.max(0, Math.min(1, Number(t.strokeWidthFactor ?? 0) || 0)));
+  el.faceTextWeightInput.value = String(Number.isFinite(Number(t.fontWeight)) ? Number(t.fontWeight) : 400);
+  const alignCode = Number(t.renderFlags || 0) & 0x300;
+  el.faceTextAlignInput.value = alignCode === 0x100 ? "center" : alignCode === 0x200 ? "right" : "left";
+  el.faceTextItalicInput.checked = (Number(t.textStyleAnchorFlags || 0) & 0x8) !== 0;
+  el.faceTextUnderlineInput.checked = (Number(t.textStyleAnchorFlags || 0) & 0x1) !== 0;
+  el.faceTextNoSolidFillInput.checked = (Number(t.renderFlags || 0) & 0x1) !== 0;
+  el.faceTextSolidFillModeInput.checked = (Number(t.renderFlags || 0) & 0x2) !== 0;
+  el.faceTextAnchorFlagsInput.value = String(Number.isFinite(Number(t.textStyleAnchorFlags)) ? Number(t.textStyleAnchorFlags) : 49152);
+  el.faceTextRenderFlagsInput.value = String(Number.isFinite(Number(t.renderFlags)) ? Number(t.renderFlags) : 0);
+  updateSelectionRows();
+}
+function updateTextOverlayFromInputs() {
+  const t = faceEditor.textOverlays[faceEditor.activeTextIdx];
+  if (!t) return;
+  t.enabled = true;
+  t.caption = String(el.faceTextInput.value || "");
+  t.fontFamily = String(el.faceTextFontInput.value || "Arial").trim() || "Arial";
+  const sizePx = Math.max(8, Number(el.faceTextSizeInput.value || "36") || 36);
+  t.sizeCode = Math.round(sizePx * 6);
+  t.sizeRel = Math.max(0.02, Math.min(0.4, sizePx / 900));
+  t.colorPrimary = el.faceTextColorInput.value || "#ffffff";
+  t.colorSecondary = el.faceTextOutlineColorInput.value || "#000000";
+  t.fillARGB = cssColorToU32(t.colorPrimary, 4294967295);
+  t.strokeARGB = cssColorToU32(t.colorSecondary, 4278190080);
+  t.outlineWidth = Math.max(0, Number(el.faceTextOutlineWidthInput.value || "1") || 0);
+  t.opacity255 = Math.max(0, Math.min(255, Number(el.faceTextOpacityInput.value || "128") || 128));
+  t.scaleXUnknown = Number(el.faceTextScaleXInput.value || "1");
+  t.scaleYUnknown = Number(el.faceTextScaleYInput.value || "1");
+  t.strokeWidthFactor = Math.max(0, Math.min(1, Number(el.faceTextStrokeFactorInput.value || "0") || 0));
+  t.fontWeight = Math.max(100, Math.min(900, Number(el.faceTextWeightInput.value || "400") || 400));
+  let renderFlags = Number(el.faceTextRenderFlagsInput.value || "0") || 0;
+  renderFlags = renderFlags & ~0x303;
+  if (el.faceTextNoSolidFillInput.checked) renderFlags |= 0x1;
+  if (el.faceTextSolidFillModeInput.checked) renderFlags |= 0x2;
+  const align = el.faceTextAlignInput.value;
+  if (align === "center") renderFlags |= 0x100;
+  else if (align === "right") renderFlags |= 0x200;
+  t.renderFlags = renderFlags;
+  let anchorFlags = Number(el.faceTextAnchorFlagsInput.value || "49152") || 0;
+  anchorFlags = anchorFlags & ~0x9;
+  if (el.faceTextItalicInput.checked) anchorFlags |= 0x8;
+  if (el.faceTextUnderlineInput.checked) anchorFlags |= 0x1;
+  t.textStyleAnchorFlags = anchorFlags;
+  el.faceTextRenderFlagsInput.value = String(Math.round(t.renderFlags));
+  el.faceTextAnchorFlagsInput.value = String(Math.round(t.textStyleAnchorFlags));
+}
+
+
+function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
+  if (ev?.preventDefault) ev.preventDefault();
+  if (kind === "crop") {
+    faceEditor.cropDragging = true;
+    faceEditor.cropMode = mode;
+  } else {
+    faceEditor.draggingIdx = idx;
+    faceEditor.dragMode = mode;
+    faceEditor.cropDragging = false;
+  }
+  faceEditor.dragOffsetX = ev.offsetX ?? 0;
+  faceEditor.dragOffsetY = ev.offsetY ?? 0;
+}
+
+
+async function refreshEditorPreview(previewFilters = null) {
+  if (!faceEditor.imageItem) return;
+  const effectiveFilters = Array.isArray(previewFilters)
+    ? previewFilters.map((f) => String(f || "")).filter(Boolean)
+    : (faceEditor.filters || []);
+  const isDraft = Array.isArray(previewFilters);
+  const key = JSON.stringify({ f: effectiveFilters, draft: isDraft });
+  if (!isDraft && faceEditor.previewKey === key && faceEditor.previewUrl) {
+    el.faceCanvasImg.style.transform = "";
+    el.faceCanvasImg.src = faceEditor.previewUrl;
+    return;
+  }
+  const requestId = ++faceEditor.previewRequestId;
+  try {
+    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, effectiveFilters, 2048, faceEditor.cropRect64 || "");
+    if (requestId !== faceEditor.previewRequestId) {
+      if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+      return;
+    }
+    if (!isDraft) {
+      if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
+      if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
+      faceEditor.previewDraftUrl = "";
+      faceEditor.previewUrl = url;
+      faceEditor.previewKey = key;
+      el.faceCanvasImg.style.transform = "";
+      el.faceCanvasImg.src = url;
+      return;
+    }
+    if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
+    faceEditor.previewDraftUrl = url;
+    el.faceCanvasImg.style.transform = "";
+    el.faceCanvasImg.src = url;
+  } catch {
+    if (requestId !== faceEditor.previewRequestId) return;
+    if (!faceEditor.imageItem.url) faceEditor.imageItem.url = URL.createObjectURL(faceEditor.imageItem.file);
+    el.faceCanvasImg.style.transform = "";
+    el.faceCanvasImg.src = faceEditor.imageItem.url;
+  }
+}
+
+function renderFaceRects() {
+  el.faceCanvasWrap.querySelectorAll('.faceRect, .cropRect, .editorTextBox').forEach((n) => n.remove());
+  const r = el.faceCanvasImg.getBoundingClientRect();
+  const p = el.faceCanvasWrap.getBoundingClientRect();
+  faceEditor.displayW = r.width; faceEditor.displayH = r.height;
+  const offsetX = r.left - p.left; const offsetY = r.top - p.top;
+  if (faceEditor.cropUiVisible && faceEditor.cropRect64) {
+    const cb = rect64ToBox(faceEditor.cropRect64);
+    const c = document.createElement('div');
+    c.className = "cropRect";
+    c.style.left = `${offsetX + cb.x * r.width}px`;
+    c.style.top = `${offsetY + cb.y * r.height}px`;
+    c.style.width = `${Math.max(12, cb.w * r.width)}px`;
+    c.style.height = `${Math.max(12, cb.h * r.height)}px`;
+    c.onpointerdown = (ev) => { beginEditorDrag(ev, "crop", -1, "move"); };
+    const ch = document.createElement('div'); ch.className = "faceRectHandle";
+    ch.onpointerdown = (ev) => { ev.stopPropagation(); beginEditorDrag(ev, "crop", -1, "resize"); };
+    c.appendChild(ch);
+    el.faceCanvasWrap.appendChild(c);
+    el.faceCropInput.value = faceEditor.cropRect64;
+  }
+
+  faceEditor.faces.forEach((face, idx) => {
+    if (idx !== faceEditor.activeFaceIdx) return;
+    const b = rect64ToBox(face.rect64);
+    const div = document.createElement('div');
+    div.className = 'faceRect active';
+    div.style.left = `${offsetX + b.x * r.width}px`;
+    div.style.top = `${offsetY + b.y * r.height}px`;
+    div.style.width = `${Math.max(12, b.w * r.width)}px`;
+    div.style.height = `${Math.max(12, b.h * r.height)}px`;
+    div.title = `${face.label} (${face.rect64})`;
+    div.onpointerdown = (ev) => { faceEditor.activeFaceIdx = idx; syncFaceSelectFromState(); beginEditorDrag(ev, "face", idx, "move"); el.faceEditorStatus.textContent = `Dragging ${face.label}`; };
+    const h = document.createElement('div');
+    h.className = 'faceRectHandle';
+    h.onpointerdown = (ev) => { ev.stopPropagation(); beginEditorDrag(ev, "face", idx, "resize"); el.faceEditorStatus.textContent = `Resizing ${face.label}`; };
+    div.appendChild(h);
+    el.faceCanvasWrap.appendChild(div);
+  });
+  faceEditor.textOverlays.forEach((t, idx) => {
+    if (!t?.caption) return;
+    const box = document.createElement("div");
+    box.className = `editorTextBox${idx === faceEditor.activeTextIdx ? " active" : ""}`;
+    box.textContent = t.caption;
+    const mapped = mapPointThroughFilterChain(t.x || 0.08, t.y || 0.08, faceEditor.naturalW, faceEditor.naturalH, faceEditor.filters || [], faceEditor.cropRect64 || "");
+    box.style.left = `${offsetX + Math.max(0, Math.min(1, mapped.x || 0.08)) * r.width}px`;
+    box.style.top = `${offsetY + Math.max(0, Math.min(1, mapped.y || 0.08)) * r.height}px`;
+    box.style.fontFamily = t.fontFamily || "Arial";
+    const fontPx = Math.max(8, Number((t.sizeCode || 128) / 6) || 36);
+    box.style.fontSize = `${fontPx}px`;
+    const noSolidFill = (Number(t.renderFlags || 0) & 0x1) !== 0;
+    const solidFillMode = (Number(t.renderFlags || 0) & 0x2) !== 0;
+    box.style.color = noSolidFill && !solidFillMode ? "transparent" : (t.colorPrimary || "#ffffff");
+    box.style.opacity = `${Math.max(0, Math.min(1, (Number(t.opacity255 ?? 255) || 255) / 255))}`;
+    box.style.fontWeight = String(Number(t.fontWeight || 400) || 400);
+    box.style.fontStyle = ((Number(t.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+    box.style.textDecoration = ((Number(t.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+    box.style.webkitTextStroke = `${Math.max(0, Number(t.strokeWidthFactor ?? (t.outlineWidth || 0)) * 6)}px ${t.colorSecondary || "#000"}`;
+    box.style.transform = `rotate(${textRotationToDeg(t.rotation).toFixed(2)}deg)`;
+    box.style.transformOrigin = "top left";
+    box.onpointerdown = (ev) => {
+      ev.preventDefault();
+      faceEditor.activeTextIdx = idx;
+      syncTextInputsFromState();
+      faceEditor.textDragging = true;
+      faceEditor.textDragMode = "move";
+      faceEditor.textDragOffsetX = ev.offsetX ?? 0;
+      faceEditor.textDragOffsetY = ev.offsetY ?? 0;
+      renderFaceRects();
+    };
+    if (idx === faceEditor.activeTextIdx) {
+      const rh = document.createElement("div");
+      rh.className = "faceRectHandle";
+      rh.onpointerdown = (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        faceEditor.textDragging = true;
+        faceEditor.textDragMode = "resize";
+        faceEditor.textResizeBasePx = Math.max(8, Number((t.sizeCode || 128) / 6) || 36);
+      };
+      box.appendChild(rh);
+      const rot = document.createElement("div");
+      rot.className = "textRotateHandle";
+      rot.onpointerdown = (ev) => {
+        ev.preventDefault(); ev.stopPropagation();
+        faceEditor.textDragging = true;
+        faceEditor.textDragMode = "rotate";
+        faceEditor.textRotateOriginX = offsetX + Math.max(0, Math.min(1, t.x || 0.08)) * r.width;
+        faceEditor.textRotateOriginY = offsetY + Math.max(0, Math.min(1, t.y || 0.08)) * r.height;
+      };
+      box.appendChild(rot);
+    }
+    el.faceCanvasWrap.appendChild(box);
+  });
+}
+function openFaceEditor(imageItem) {
+  faceEditor.imageItem = imageItem;
+  faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
+  faceEditor.activeFaceIdx = -1;
+  faceEditor.selectedAlbumTokens = new Set();
+  el.faceCaptionInput.value = imageItem.caption || '';
+  faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
+  faceEditor.cropUiVisible = false;
+  faceEditor.cropAspectRatio = null;
+  el.faceCropInput.value = faceEditor.cropRect64;
+  el.faceCropRow.classList.add("hidden");
+  el.btnApplyCropFilter.classList.add("hidden");
+  el.cropControls.classList.add("hidden");
+  faceEditor.tiltUiVisible = false;
+  el.tiltControls.classList.add("hidden");
+  el.fillLightControls.classList.add("hidden");
+  el.btnCropMode.textContent = "Crop";
+  el.btnTiltMode.textContent = "Tilt";
+  el.btnFillLightMode.textContent = "Fill Light";
+  el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
+  faceEditor.star = !!imageItem.star;
+  el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
+  el.btnFaceStarToggle.textContent = faceEditor.star ? "★ Star" : "☆ Star";
+  faceEditor.filters = Array.isArray(imageItem.filters) ? imageItem.filters.slice() : [];
+  renderFilterList();
+  const tiltVal = lastTiltFromFilters(faceEditor.filters);
+  const safeTilt = Number.isFinite(tiltVal) ? Math.max(-1, Math.min(1, tiltVal)) : 0;
+  el.faceTiltSlider.value = safeTilt.toFixed(2);
+  el.faceTiltValue.textContent = safeTilt.toFixed(2);
+  const fillVal = Math.max(0, Math.min(1, Number(lastFillLightFromFilters(faceEditor.filters)) || 0));
+  el.faceFillLightSlider.value = fillVal.toFixed(2);
+  el.faceFillLightValue.textContent = fillVal.toFixed(2);
+  el.faceCanvasImg.style.transform = "";
+  faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
+  faceEditor.activeTextIdx = -1;
+  syncFaceSelectFromState();
+  syncTextInputsFromState();
+  const relDir = folderOfRelPath(imageItem.relPath);
+  const dirHandle = state.dirIndex?.get(relDir);
+  faceEditor.albumNameToToken = new Map();
+  faceEditor.albumTokenToName = new Map();
+  faceEditor.selectedAlbumTokens = new Set();
+  Promise.resolve(dirHandle ? getPicasaMetaForFolder(relDir, dirHandle) : null).then((picasa) => {
+    if (picasa) {
+      for (const [token, name] of picasa.albumNamesByToken.entries()) {
+        const nm = String(name || token || "").trim() || token;
+        faceEditor.albumTokenToName.set(token, nm);
+        faceEditor.albumNameToToken.set(nm.toLowerCase(), token);
+      }
+      for (const tok of albumTokensForImage(picasa, imageItem.name)) faceEditor.selectedAlbumTokens.add(tok);
+    }
+    renderAlbumSelectFromState();
+  });
+  if (!imageItem.url) imageItem.url = URL.createObjectURL(imageItem.file);
+  el.faceCanvasImg.onload = () => {
+    faceEditor.naturalW = el.faceCanvasImg.naturalWidth || 1;
+    faceEditor.naturalH = el.faceCanvasImg.naturalHeight || 1;
+    renderFaceRects();
+  };
+  faceEditor.previewKey = "";
+  faceEditor.previewRequestId = 0;
+  refreshEditorPreview();
+  el.faceEditorOverlay.classList.add('show');
+  el.faceEditorOverlay.setAttribute('aria-hidden', 'false');
+  el.faceEditorStatus.textContent = 'Drag rectangles. Add new faces with button.';
+}
+function closeFaceEditor() {
+  el.faceEditorOverlay.classList.remove('show');
+  el.faceEditorOverlay.setAttribute('aria-hidden', 'true');
+  el.faceCanvasImg.style.transform = "";
+  faceEditor.draggingIdx = -1;
+  faceEditor.dragMode = "move";
+  faceEditor.cropDragging = false;
+  faceEditor.tiltUiVisible = false;
+  el.tiltControls.classList.add("hidden");
+  el.fillLightControls.classList.add("hidden");
+  el.btnTiltMode.textContent = "Tilt";
+  el.btnFillLightMode.textContent = "Fill Light";
+  faceEditor.textDragging = false;
+  faceEditor.textDragMode = "move";
+  faceEditor.activeTextIdx = -1;
+  faceEditor.activeFaceIdx = -1;
+  faceEditor.selectedAlbumTokens = new Set();
+  if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
+  if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
+  faceEditor.previewUrl = "";
+  faceEditor.previewDraftUrl = "";
+  faceEditor.previewKey = "";
+  faceEditor.previewRequestId = 0;
+  renderFilterList();
+}
+async function editImageMetadata(imageItem) {
+  const captionInput = window.prompt("Caption", imageItem.caption || "");
+  if (captionInput === null) return;
+  const faceDefault = (imageItem.faces || []).map((f) => `${f.label}${f.rect64 ? `@${f.rect64}` : ""}`).join(", ");
+  const facesInput = window.prompt("Face tags (use label@rect64, comma-separated)", faceDefault);
+  if (facesInput === null) return;
+  const relDir = folderOfRelPath(imageItem.relPath);
+  const dirHandle = state.dirIndex?.get(relDir);
+  const picasa = dirHandle ? await getPicasaMetaForFolder(relDir, dirHandle) : null;
+  const albumDefaultTokens = picasa ? albumTokensForImage(picasa, imageItem.name) : [];
+  const albumInput = window.prompt("Album tokens (comma-separated)", albumDefaultTokens.join(","));
+  if (albumInput === null) return;
+  const faceEntries = parseFaceEntriesInput(facesInput, imageItem.faces || []);
+  const albumTokens = albumInput.split(",").map((x) => x.trim()).filter(Boolean);
+  await savePicasaInfoForImage(imageItem, captionInput.trim(), faceEntries, albumTokens);
+  await showImagesForResolvedPath(folderOfRelPath(imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
+  setStatus("Saved caption/face tags/albums to .picasa.info", "ok");
+}
+function formatPicasaLog(pathRel, picasa, albumToken = "") {
+  const folderLabel = pathRel || "/";
+  const lines = [`folder=${folderLabel}`];
+  lines.push(`folderName=${picasa.folderName || "(unknown)"}`);
+  lines.push(`source=${picasa.sourceFile || "(not found)"}`);
+  lines.push(`detection=${picasa.detection || "none"}`);
+  const files = Array.isArray(picasa.scannedFileNames) ? picasa.scannedFileNames : [];
+  lines.push(`[folder files] (${files.length})`);
+  lines.push(...(files.length ? files.map((name) => `  ${name}`) : ["  (none)"]));
+  const contactLines = Array.from(picasa.contacts.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
+    .map(([id, label]) => `  ${id}=${label}`);
+  lines.push(`[Contacts2] (${contactLines.length})`);
+  lines.push(...(contactLines.length ? contactLines : ["  (none)"]));
+  const albumLines = Array.from(picasa.membersByToken.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { sensitivity: "base" }))
+    .map(([token, members]) => {
+      const sortedMembers = Array.from(members).sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+      const albumName = picasa.albumNamesByToken.get(token) || "";
+      const nameSuffix = albumName ? ` (${albumName})` : "";
+      const selected = albumToken && token === albumToken ? " [selected]" : "";
+      return `  ${token}${nameSuffix}${selected}: ${sortedMembers.join(", ")}`;
+    });
+  lines.push(`[albums token->images] (${albumLines.length})`);
+  lines.push(...(albumLines.length ? albumLines : ["  (none)"]));
+  const imageLines = Array.from(picasa.imageMeta.entries())
+    .sort((a, b) => a[0].localeCompare(b[0], undefined, { numeric: true, sensitivity: "base" }))
+    .map(([name, meta]) => {
+      const caption = meta.caption ? `caption=${meta.caption}` : "caption=(none)";
+      const faceText = (meta.faces || []).length
+        ? `faces=${meta.faces.map((f) => `${f.label}#${f.contactId}@${f.rect64}`).join("; ")}`
+        : "faces=(none)";
+      return `  ${name}: ${caption}; ${faceText}`;
+    });
+  lines.push(`[image metadata] (${imageLines.length})`);
+  lines.push(...(imageLines.length ? imageLines : ["  (none)"]));
+  if (picasa.missing) {
+    lines.push("hint=no .picasa.ini / picasa.ini file found in this folder");
+    lines.push("hint=some providers hide dotfiles or .ini files; fallback checks picasa* files by content");
+  }
+  return lines.join("\n");
+}
+/** ===========================
+ *  .picasa.ini parsing
+ *  =========================== */
+function parseColorU32ToCss(v) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return "#ffffff";
+  const u = (Math.floor(n) >>> 0);
+  const a = ((u >>> 24) & 0xFF) / 255;
+  const r = (u >>> 16) & 0xFF;
+  const g = (u >>> 8) & 0xFF;
+  const b = u & 0xFF;
+  return `rgba(${r}, ${g}, ${b}, ${Math.max(0, Math.min(1, a)).toFixed(3)})`;
+}
+
+function parseOneTextOverlayChunk(chunk) {
+  const parts = String(chunk || "").split(";");
+  const hasEnabledPrefix = String(parts[0] || "").trim() === "0" || String(parts[0] || "").trim() === "1";
+  const base = hasEnabledPrefix ? 1 : 0;
+  const enabled = hasEnabledPrefix ? String(parts[0] || "1").trim() !== "0" : true;
+  const sizeCode = Number(parts[base + 0] || "0");
+  const styleCode = Number(parts[base + 1] || "0");
+  const caption = (parts[base + 2] || "").trim();
+  const fontFamily = (parts[base + 3] || "Arial").trim() || "Arial";
+  const geom = (parts[base + 4] || "").split(",").map((x) => Number(x.trim()));
+  const x = Number.isFinite(geom[0]) ? geom[0] : 0.08;
+  const y = Number.isFinite(geom[1]) ? geom[1] : 0.08;
+  const sizeRel = Number.isFinite(geom[2]) ? geom[2] : 0.04;
+  const rotation = Number.isFinite(geom[3]) ? geom[3] : 0;
+
+  const style = (parts[base + 5] || "").split(",").map((x) => x.trim());
+  const fillARGB = Number(style[1]);
+  const strokeARGB = Number(style[2]);
+  const opacity255 = Number(style[3]);
+  const scaleXUnknown = Number(style[4]);
+  const strokeWidthFactor = Number(style[5]);
+  const scaleYUnknown = Number(style[6]);
+  const fontWeight = Number(style[7]);
+  const renderFlags = Number(style[8]);
+  const textStyleAnchorFlags = Number(style[9]);
+  const colorPrimary = parseColorU32ToCss(fillARGB);
+  const colorSecondary = parseColorU32ToCss(strokeARGB);
+
+  return {
+    raw: String(chunk || ""),
+    enabled,
+    sizeCode,
+    styleCode,
+    caption,
+    fontFamily,
+    x,
+    y,
+    sizeRel,
+    rotation,
+    fillARGB,
+    strokeARGB,
+    opacity255: Number.isFinite(opacity255) ? opacity255 : 128,
+    scaleXUnknown: Number.isFinite(scaleXUnknown) ? scaleXUnknown : 1,
+    strokeWidthFactor: Number.isFinite(strokeWidthFactor) ? strokeWidthFactor : 0,
+    scaleYUnknown: Number.isFinite(scaleYUnknown) ? scaleYUnknown : 1,
+    fontWeight: Number.isFinite(fontWeight) ? fontWeight : 400,
+    renderFlags: Number.isFinite(renderFlags) ? renderFlags : 0,
+    textStyleAnchorFlags: Number.isFinite(textStyleAnchorFlags) ? textStyleAnchorFlags : 49152,
+    colorPrimary,
+    colorSecondary,
+    outlineWidth: Number.isFinite(strokeWidthFactor) ? Math.max(0, strokeWidthFactor * 6) : 1
+  };
+}
+
+
+function parseTextOverlays(textValue) {
+  const src = String(textValue || "");
+  const chunks = src.split(";;").map((x)=>x.trim()).filter(Boolean);
+  if (chunks.length) {
+    const firstParts = chunks[0].split(";");
+    const declaredCount = Number(firstParts[0]);
+    if (Number.isFinite(declaredCount) && declaredCount >= 1 && declaredCount <= chunks.length) {
+      chunks[0] = firstParts.slice(1).join(";");
+    }
+  }
+  const out = chunks.map(parseOneTextOverlayChunk).filter((x) => x && x.caption);
+  if (out.length) return out;
+  const one = parseOneTextOverlayChunk(src);
+  return one && one.caption ? [one] : [];
+}
+
+function parseCaptionText(textValue) {
+  const overlays = parseTextOverlays(textValue);
+  return overlays.length ? overlays[0].caption : "";
+}
+function parseFacesValue(facesValue, contacts) {
+  const out = [];
+  for (const chunk of String(facesValue || "").split(";")) {
+    const part = chunk.trim();
+    if (!part) continue;
+    const m = part.match(/^rect64\(([^)]+)\),(.+)$/i);
+    if (!m) continue;
+    const contactId = m[2].trim();
+    out.push({
+      rect64: m[1],
+      contactId,
+      label: contacts.get(contactId) || contactId
+    });
+  }
+  return out;
+}
+function looksLikePicasaIniText(text) {
+  const src = String(text || "");
+  if (!src.trim()) return false;
+  const markers = ["[contacts2]", "albums=", "faces=rect64(", "text=", "[.album:"];
+  const lower = src.toLowerCase();
+  return markers.some((m) => lower.includes(m));
+}
+function parsePicasaIni(content) {
+  const contacts = new Map();
+  const albumNamesByToken = new Map();
+  const membersByToken = new Map();
+  const imageMeta = new Map();
+  const sections = new Map();
+  let sectionName = "";
+  sections.set(sectionName, []);
+  for (const rawLine of String(content || "").replace(/^\uFEFF/, "").split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith(";") || line.startsWith("#")) continue;
+    const sec = line.match(/^\[(.+)\]$/);
+    if (sec) {
+      sectionName = sec[1].trim();
+      if (!sections.has(sectionName)) sections.set(sectionName, []);
+      continue;
+    }
+    sections.get(sectionName).push(line);
+  }
+  for (const [sec, lines] of sections) {
+    if (sec.toLowerCase() === "contacts2") {
+      for (const line of lines) {
+        const idx = line.indexOf("=");
+        if (idx <= 0) continue;
+        const id = line.slice(0, idx).trim();
+        const val = line.slice(idx + 1).trim();
+        const label = val.split(";")[0].trim();
+        if (id) contacts.set(id, label || id);
+      }
+    }
+  }
+  for (const [sec, lines] of sections) {
+    if (!sec || sec.toLowerCase() === "contacts2") continue;
+    if (sec.startsWith(".album:")) {
+      let token = sec.slice(".album:".length).trim();
+      let name = "";
+      for (const line of lines) {
+        const idx = line.indexOf("=");
+        if (idx <= 0) continue;
+        const key = line.slice(0, idx).trim().toLowerCase();
+        const val = line.slice(idx + 1).trim();
+        if (key === "token" && val) token = val;
+        if (key === "name") name = val;
+      }
+      if (token) albumNamesByToken.set(token, name || token);
+      continue;
+    }
+    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
+    for (const line of lines) {
+      const idx = line.indexOf("=");
+      if (idx <= 0) continue;
+      const key = line.slice(0, idx).trim().toLowerCase();
+      const val = line.slice(idx + 1).trim();
+      if (key === "albums") {
+        for (const token of val.split(",").map((x) => x.trim()).filter(Boolean)) {
+          if (!membersByToken.has(token)) membersByToken.set(token, new Set());
+          membersByToken.get(token).add(sec);
+        }
+      } else if (key === "faces") {
+        meta.faces = parseFacesValue(val, contacts);
+      } else if (key === "text") {
+        const overlays = parseTextOverlays(val);
+        meta.textOverlays = overlays;
+        if (overlays.length) { meta.caption = overlays[0].caption; meta.textOverlay = overlays[0]; }
+      } else if (key === "filters") {
+        meta.filters = parseFiltersValue(val);
+      } else if (key === "star") {
+        meta.star = /^yes|1|true$/i.test(val);
+      } else if (key === "crop") {
+        const m = val.match(/^rect64\(([^)]+)\)$/i);
+        meta.cropRect64 = m ? m[1].trim() : String(val || "").trim();
+      } else if (key === "keywords" || key === "iptc") {
+        meta.keywords = String(val || "").split(",").map((x)=>x.trim()).filter(Boolean);
+      }
+    }
+    if (!meta.cropRect64) {
+      const cf = lastCropFromFilters(meta.filters);
+      if (cf) meta.cropRect64 = cf;
+    }
+    imageMeta.set(sec, meta);
+  }
+  return { contacts, albumNamesByToken, membersByToken, imageMeta };
+}
+async function findPicasaIniFileHandle(dirHandle) {
+  const scannedFileNames = [];
+  const fileEntries = [];
+  for await (const [name, handle] of dirHandle.entries()) {
+    if (handle.kind !== "file") continue;
+    scannedFileNames.push(name);
+    fileEntries.push({ fileName: name, fileHandle: handle });
+  }
+  scannedFileNames.sort((a, b) => a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }));
+  const exactNames = new Set([".picasa.ini", "picasa.ini", ".picasa.info", "picasa.info"]);
+  let found = fileEntries.find((e) => exactNames.has(String(e.fileName || "").toLowerCase())) || null;
+  let detection = found ? "exact-name" : "none";
+  if (!found) {
+    const picasaNamed = fileEntries
+      .filter((e) => { const lower = String(e.fileName || "").toLowerCase(); return lower.startsWith("picasa") || lower.startsWith(".picasa"); })
+      .sort((a, b) => a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: "base" }));
+    for (const candidate of picasaNamed) {
+      try {
+        const text = await (await candidate.fileHandle.getFile()).text();
+        if (looksLikePicasaIniText(text)) {
+          found = candidate;
+          detection = "content-fallback";
+          break;
+        }
+      } catch {
+        // ignore unreadable candidates
+      }
+    }
+  }
+  return {
+    found,
+    scannedFileNames,
+    folderName: dirHandle?.name || "",
+    detection
+  };
+}
+async function getPicasaMetaForFolder(pathRel, dirHandle) {
+  if (state.picasaByFolder.has(pathRel)) return state.picasaByFolder.get(pathRel);
+  const empty = {
+    contacts: new Map(),
+    albumNamesByToken: new Map(),
+    membersByToken: new Map(),
+    imageMeta: new Map(),
+    sourceFile: "",
+    scannedFileNames: [],
+    folderName: dirHandle?.name || "",
+    detection: "none",
+    missing: true
+  };
+  try {
+    const scanResult = await findPicasaIniFileHandle(dirHandle);
+    empty.scannedFileNames = scanResult.scannedFileNames;
+    empty.folderName = scanResult.folderName || empty.folderName;
+    empty.detection = scanResult.detection || "none";
+    if (!scanResult.found) {
+      state.picasaByFolder.set(pathRel, empty);
+      upsertIniAlbumsFromPicasa(pathRel, empty);
+      return empty;
+    }
+    const text = await (await scanResult.found.fileHandle.getFile()).text();
+    const parsed = parsePicasaIni(text);
+    parsed.sourceFile = scanResult.found.fileName;
+    parsed.scannedFileNames = scanResult.scannedFileNames;
+    parsed.folderName = scanResult.folderName || "";
+    parsed.detection = scanResult.detection || "none";
+    parsed.missing = false;
+    state.picasaByFolder.set(pathRel, parsed);
+    upsertIniAlbumsFromPicasa(pathRel, parsed);
+    return parsed;
+  } catch {
+    state.picasaByFolder.set(pathRel, empty);
+    upsertIniAlbumsFromPicasa(pathRel, empty);
+    return empty;
+  }
+}
+
+function refreshAlbumNameEditor() {
+  const show = state.currentViewMode === "albums" && state.activeListIndex >= 0;
+  el.albumNameInput.classList.toggle("hidden", !show);
+  el.btnRenameAlbum.classList.toggle("hidden", !show);
+  if (!show) return;
+  const album = state.albums[state.activeListIndex];
+  el.albumNameInput.value = album?.name || "";
+}
+function upsertIniAlbumsFromPicasa(pathRel, picasa) {
+  if (!picasa) return;
+  for (const album of state.iniAlbumsByToken.values()) album.refs = (album.refs || []).filter((r) => r.pathRel !== pathRel);
+  for (const [token, members] of picasa.membersByToken.entries()) {
+    if (!token) continue;
+    const existing = state.iniAlbumsByToken.get(token) || { token, name: picasa.albumNamesByToken.get(token) || token, refs: [] };
+    existing.name = picasa.albumNamesByToken.get(token) || existing.name || token;
+    const filtered = existing.refs.filter((r) => r.pathRel !== pathRel);
+    const additions = Array.from(members || []).map((imageName) => ({ pathRel, imageName }));
+    existing.refs = [...filtered, ...additions];
+    state.iniAlbumsByToken.set(token, existing);
+  }
+  for (const [tok, album] of Array.from(state.iniAlbumsByToken.entries())) { if (!(album.refs || []).length) state.iniAlbumsByToken.delete(tok); }
+  const nonIni = state.albums.filter((a) => a.source !== "ini");
+  const iniAlbums = Array.from(state.iniAlbumsByToken.values()).map((a) => ({
+    id: `ini:${a.token}`,
+    source: "ini",
+    token: a.token,
+    name: a.name || a.token,
+    pathRel: a.refs[0]?.pathRel || "",
+    absPath: a.refs[0]?.pathRel || "",
+    broken: !a.refs.length,
+    imageRefs: a.refs.slice()
+  }));
+  state.albums = [...nonIni, ...iniAlbums].sort((a,b)=>(a.name||"").localeCompare(b.name||"", undefined, { sensitivity: "base", numeric:true }));
+}
+async function listImagesForAlbumRefs(imageRefs = []) {
+  const out = [];
+  const byFolder = new Map();
+  for (const ref of imageRefs) {
+    if (!ref?.pathRel || !ref?.imageName) continue;
+    const rel = String(ref.pathRel).replaceAll("\\", "/").replace(/^\.\//, "");
+    const nm = String(ref.imageName).split(/[\\/]/).pop().trim();
+    if (!rel || !nm) continue;
+    if (!byFolder.has(rel)) byFolder.set(rel, new Set());
+    byFolder.get(rel).add(nm.toLowerCase());
+  }
+  for (const [pathRel, namesSet] of byFolder.entries()) {
+    let dirHandle = state.dirIndex.get(pathRel);
+    if (!dirHandle) {
+      const k = Array.from(state.dirIndex.keys()).find((x) => String(x).toLowerCase() === String(pathRel).toLowerCase());
+      if (k) dirHandle = state.dirIndex.get(k);
+    }
+    if (!dirHandle) continue;
+    const picasa = await getPicasaMetaForFolder(pathRel, dirHandle);
+    for await (const [name, handle] of dirHandle.entries()) {
+      if (handle.kind !== "file" || !isImageName(name) || !namesSet.has(String(name).toLowerCase())) continue;
+      const file = await handle.getFile();
+      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
+      const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
+      const iptcKeywords = iniKeywords.length ? [] : await extractIptcKeywordsFromFile(file);
+      const mergedKeywords = Array.from(new Set([...iniKeywords, ...iptcKeywords]));
+      out.push({
+        id: `${pathRel}/${name}::${file.lastModified}`,
+        file,
+        relPath: pathRel ? `${pathRel}/${name}` : name,
+        url: null, thumbUrl: null, name,
+        caption: meta.caption || "", faces: meta.faces || [], cropRect64: meta.cropRect64 || "",
+        textOverlay: meta.textOverlay || null,
+        textOverlays: meta.textOverlays || (meta.textOverlay ? [meta.textOverlay] : []),
+        albumTokens: Array.from(picasa.membersByToken.keys()).filter((tok) => (picasa.membersByToken.get(tok) || new Set()).has(name)),
+        albumNames: [], keywords: mergedKeywords, star: !!meta.star, filters: meta.filters || []
+      });
+    }
+  }
+  out.sort((a,b)=>a.relPath.localeCompare(b.relPath, undefined, { sensitivity: "base", numeric:true }));
+  return out;
 }
 
 /** ===========================
  *  Load PMP albums from db/
  *  =========================== */
 async function loadAlbumsFromPMP() {
-  if (!state.root) throw new Error("No library selected");
-
+  if (!state.pmpRoot) throw new Error("No PMP import folder selected");
+  if (!state.libraryRoot || !state.dirIndex) throw new Error("No library folder selected");
   const required = [
     "db/albumdata_name.pmp",
     "db/albumdata_filename.pmp",
@@ -484,11 +2134,10 @@ async function loadAlbumsFromPMP() {
     "db/albumdata_uid.pmp",
     "db/albumdata_albumcontactids.pmp", // optional but present in your app; we’ll try
   ];
-
   const buffers = {};
   for (const rel of required) {
     try {
-      const fh = await getFileHandleByPath(state.root, rel);
+      const fh = await getFileHandleByPath(state.pmpRoot, rel);
       buffers[rel] = await readFileAsArrayBuffer(fh);
     } catch (e) {
       if (rel.endsWith("albumdata_albumcontactids.pmp")) {
@@ -498,13 +2147,11 @@ async function loadAlbumsFromPMP() {
       }
     }
   }
-
   const names = PMPReaderJS.read(buffers["db/albumdata_name.pmp"]).entries;
   const fns   = PMPReaderJS.read(buffers["db/albumdata_filename.pmp"]).entries;
   const cats  = PMPReaderJS.read(buffers["db/albumdata_category.pmp"]).entries;
   const toks  = PMPReaderJS.read(buffers["db/albumdata_token.pmp"]).entries;
   const uids  = PMPReaderJS.read(buffers["db/albumdata_uid.pmp"]).entries;
-
   const n = Math.min(names.length, fns.length, cats.length, toks.length, uids.length);
   const albums = [];
   for (let i=0;i<n;i++) {
@@ -514,7 +2161,6 @@ async function loadAlbumsFromPMP() {
     const uidVal = uids[i];
     const uid = (typeof uidVal === "bigint") ? uidVal.toString() : String(uidVal ?? "");
     const category = Number(cats[i] ?? 0);
-
     // Resolve absolute path to relative under root (suffix match)
     const rel = absPath ? resolveAbsoluteToRelative(absPath, state.dirIndex) : null;
     albums.push({
@@ -529,24 +2175,33 @@ async function loadAlbumsFromPMP() {
       broken: !rel
     });
   }
-
   state.albums = albums;
-  state.folderItems = buildFolderItems(albums);
-
+  if (state.iniAlbumsByToken.size) {
+    const iniAlbums = Array.from(state.iniAlbumsByToken.values()).filter((a)=>(a.refs||[]).length).map((a) => ({
+      id: `ini:${a.token}`,
+      source: "ini",
+      token: a.token,
+      name: a.name || a.token,
+      pathRel: a.refs[0]?.pathRel || "",
+      absPath: a.refs[0]?.pathRel || "",
+      broken: !(a.refs||[]).length,
+      imageRefs: (a.refs || []).slice()
+    }));
+    state.albums = [...state.albums, ...iniAlbums].sort((a,b)=>(a.name||"").localeCompare(b.name||"", undefined, { sensitivity:"base", numeric:true }));
+  }
+  state.folderItems = buildFolderItems(state.albums.filter((a)=>a.source !== "ini"));
   await saveLibrarySnapshot({
     libraryId: state.libraryId,
-    rootName: state.root.name || "",
-    label: state.root.name || "Imported library",
+    rootName: state.libraryRoot.name || "",
+    label: state.libraryRoot.name || "Imported library",
     stats: { albums: state.albums.length, folders: state.folderItems.length },
     albums: state.albums,
     folders: state.folderItems
   });
-
   el.btnExport.disabled = false;
   el.pillInfo.textContent = `${albums.length} albums`;
   renderNavigation();
 }
-
 function buildFolderItems(albums) {
   const folders = albums
     .filter((a) => a.pathRel)
@@ -559,14 +2214,12 @@ function buildFolderItems(albums) {
       albumName: a.name,
       broken: false
     }));
-
   const uniq = new Map();
   for (const f of folders) {
     if (!uniq.has(f.pathRel)) uniq.set(f.pathRel, f);
   }
   return Array.from(uniq.values()).sort((a,b) => a.pathRel.localeCompare(b.pathRel, undefined, { sensitivity: "base" }));
 }
-
 /** ===========================
  *  Render navigation list
  *  =========================== */
@@ -577,17 +2230,15 @@ function renderNavigation() {
     renderAlbumList(state.activeListIndex);
   }
   updateViewButtons();
+  refreshAlbumNameEditor();
 }
-
 function updateViewButtons() {
   el.btnViewAlbums.classList.toggle("active", state.currentViewMode === "albums");
   el.btnViewFolders.classList.toggle("active", state.currentViewMode === "folders");
 }
-
 function renderAlbumList(activeIdx = -1) {
   el.albumList.innerHTML = "";
   const frag = document.createDocumentFragment();
-
   state.albums.forEach((a, idx) => {
     const div = document.createElement("div");
     div.className = "item" + (idx === activeIdx ? " active" : "");
@@ -602,114 +2253,200 @@ function renderAlbumList(activeIdx = -1) {
     div.onclick = () => selectAlbum(idx);
     frag.appendChild(div);
   });
-
   el.albumList.appendChild(frag);
 }
-
 function renderFolderList(activeIdx = -1) {
   el.albumList.innerHTML = "";
   const frag = document.createDocumentFragment();
-
-  state.folderItems.forEach((f, idx) => {
+  state.folderNavItems.forEach((f, idx) => {
     const div = document.createElement("div");
-    div.className = "item" + (idx === activeIdx ? " active" : "");
+    const isCurrent = f.kind === "current";
+    div.className = "item" + (idx === activeIdx || isCurrent ? " active" : "");
     const title = document.createElement("div");
     title.textContent = f.name || "(folder)";
     const small = document.createElement("small");
     small.innerHTML = `<span class="mono">${escapeHtml(f.pathRel || "")}</span>`;
     div.appendChild(title);
     div.appendChild(small);
-    div.onclick = () => selectFolder(idx);
+    if (!isCurrent) div.onclick = () => selectFolder(idx);
     frag.appendChild(div);
   });
-
   el.albumList.appendChild(frag);
 }
-
 function escapeHtml(s) {
   return (s ?? "").replace(/[&<>"']/g, (m) => ({
     "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"
   }[m]));
 }
-
 /** ===========================
  *  Select item -> show tiles
  *  =========================== */
 async function selectAlbum(idx) {
   const album = state.albums[idx];
   if (!album) return;
+  console.log("[selectAlbum]", { idx, source: album.source || "pmp", token: album.token, pathRel: album.pathRel, hasRefs: Array.isArray(album.imageRefs) ? album.imageRefs.length : null });
   state.currentViewMode = "albums";
   state.activeListIndex = idx;
   renderNavigation();
   clearGrid();
-
   state.currentTitle = album.name || "(unnamed album)";
   el.viewTitle.textContent = `Album: ${state.currentTitle}`;
-
+  refreshAlbumNameEditor();
+  if (album.source === "ini") {
+    const refs = Array.isArray(album.imageRefs) ? album.imageRefs : [];
+    let images = await listImagesForAlbumRefs(refs);
+    if (!images.length && album.pathRel && state.dirIndex?.has(album.pathRel)) {
+      const loaded = await listImagesInDirectory(state.dirIndex.get(album.pathRel), album.pathRel, { album });
+      images = loaded.images;
+    }
+    setPicasaLog(`INI album token=${album.token} refs=${refs.length}`);
+    el.resolvePill.textContent = `INI album (${refs.length} refs)`;
+    await renderTiles(images);
+    console.log("[selectAlbum] ini images loaded", { count: images.length, token: album.token, pathRel: album.pathRel });
+    setStatus(images.length ? "Ready." : "No images found for this INI album.", images.length ? "ok" : "warn");
+    return;
+  }
   if (album.broken || !album.pathRel) {
     el.resolvePill.textContent = "Path unresolved";
     setStatus("This album path could not be resolved under the selected library root. (Absolute path mismatch)", "err");
     return;
   }
-
-  await showImagesForResolvedPath(album.pathRel, `Resolved: ${album.pathRel}`);
+  await showImagesForResolvedPath(album.pathRel, `Resolved: ${album.pathRel}`, { album });
+  console.log("[selectAlbum] pmp album loaded", { token: album.token, pathRel: album.pathRel });
 }
-
 async function selectFolder(idx) {
-  const folder = state.folderItems[idx];
+  const folder = state.folderNavItems[idx];
   if (!folder) return;
   state.currentViewMode = "folders";
   state.activeListIndex = idx;
-  renderNavigation();
-  clearGrid();
-
-  state.currentTitle = folder.name || "(folder)";
-  el.viewTitle.textContent = `Folder: ${state.currentTitle}`;
-  await showImagesForResolvedPath(folder.pathRel, `Folder: ${folder.pathRel}`);
+  if (folder.kind === "parent") {
+    state.folderBrowserPath = parentPath(state.folderBrowserPath);
+  } else {
+    state.folderBrowserPath = folder.pathRel;
+  }
+  await openFolderPath(state.folderBrowserPath);
 }
-
-async function showImagesForResolvedPath(pathRel, pillText) {
+function parentPath(relPath) {
+  const segs = (relPath || "").split("/").filter(Boolean);
+  segs.pop();
+  return segs.join("/");
+}
+function baseName(relPath) {
+  const segs = (relPath || "").split("/").filter(Boolean);
+  return segs.length ? segs[segs.length - 1] : "/";
+}
+function listSubdirectories(relPath) {
+  const prefix = relPath ? `${relPath}/` : "";
+  const children = [];
+  for (const key of state.dirIndex.keys()) {
+    if (key === relPath) continue;
+    if (!key.startsWith(prefix)) continue;
+    const rest = key.slice(prefix.length);
+    if (!rest || rest.includes("/")) continue; // direct children only
+    children.push({
+      kind: "folder",
+      name: rest,
+      pathRel: key
+    });
+  }
+  children.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
+  return children;
+}
+async function openFolderPath(pathRel) {
+  if (!state.dirIndex || !state.dirIndex.has(pathRel)) {
+    setStatus("Folder path could not be resolved in the selected library.", "err");
+    return;
+  }
+  clearGrid();
+  state.currentViewMode = "folders";
+  const navItems = [];
+  navItems.push({ kind: "current", name: `[current] ${baseName(pathRel)}`, pathRel: pathRel || "/" });
+  if (pathRel) {
+    const parent = parentPath(pathRel);
+    navItems.push({ kind: "parent", name: `... [${baseName(parent)}]`, pathRel: parent });
+  }
+  navItems.push(...listSubdirectories(pathRel));
+  state.folderNavItems = navItems;
+  state.activeListIndex = -1;
+  renderNavigation();
+  const folderLabel = pathRel || "/";
+  state.currentTitle = folderLabel;
+  el.viewTitle.textContent = `Folder: ${folderLabel}`;
+  refreshAlbumNameEditor();
+  await showImagesForResolvedPath(pathRel, `Folder: ${folderLabel}`);
+}
+async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
   el.resolvePill.textContent = pillText;
   setStatus("Loading images…", "warn");
-
   const dirHandle = state.dirIndex.get(pathRel);
   if (!dirHandle) {
     setStatus("Resolved directory handle missing (index issue).", "err");
     return;
   }
-
-  const images = await listImagesInDirectory(dirHandle, pathRel);
+  const { images, picasa } = await listImagesInDirectory(dirHandle, pathRel, options);
+  setPicasaLog(formatPicasaLog(pathRel, picasa, options.album?.token ? String(options.album.token) : ""));
   await renderTiles(images);
+  await saveLibrarySnapshot({
+    id: state.libraryId,
+    label: state.libraryRoot?.name || "Library",
+    pickedAt: Date.now(),
+    stats: { albums: state.albums.length, folders: state.folderItems.length },
+    albums: state.albums,
+    folders: state.folderItems
+  });
   setStatus(images.length ? "Ready." : "No images found in this folder.", images.length ? "ok" : "warn");
 }
-
 /** List image files in a directory (non-recursive, like your Kivy folder scan) */
-async function listImagesInDirectory(dirHandle, relDir) {
+async function listImagesInDirectory(dirHandle, relDir, options = {}) {
   const out = [];
+  const picasa = await getPicasaMetaForFolder(relDir, dirHandle);
+  const albumToken = options.album?.token ? String(options.album.token) : "";
+  const members = albumToken ? (picasa.membersByToken.get(albumToken) || null) : null;
   for await (const [name, handle] of dirHandle.entries()) {
     if (handle.kind === "file" && isImageName(name)) {
+      if (members && !members.has(name)) continue;
       const file = await handle.getFile();
+      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
+      const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
+      const iptcKeywords = iniKeywords.length ? [] : await extractIptcKeywordsFromFile(file);
+      const mergedKeywords = Array.from(new Set([...iniKeywords, ...iptcKeywords]));
+      const albumTokens = [];
+      const albumNames = [];
+      for (const [tok, membersSet] of picasa.membersByToken.entries()) {
+        if (membersSet.has(name)) {
+          albumTokens.push(tok);
+          albumNames.push(picasa.albumNamesByToken.get(tok) || tok);
+        }
+      }
       out.push({
         id: `${relDir}/${name}::${file.lastModified}`,
         file,
         relPath: relDir ? `${relDir}/${name}` : name,
         url: null,
         thumbUrl: null,
-        name
+        name,
+        caption: meta.caption || "",
+        faces: meta.faces || [],
+        cropRect64: meta.cropRect64 || "",
+        textOverlay: meta.textOverlay || null,
+        textOverlays: meta.textOverlays || (meta.textOverlay ? [meta.textOverlay] : []),
+        albumTokens,
+        albumNames,
+        keywords: mergedKeywords,
+        star: !!meta.star,
+        filters: meta.filters || []
       });
     }
   }
   // Sort by name (simple v1)
   out.sort((a,b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
-  return out;
+  return { images: out, picasa };
 }
-
 /** Render tiles with thumbnails */
 async function renderTiles(images) {
   state.currentImages = images;
   el.countPill.textContent = `${images.length} images`;
   el.grid.innerHTML = "";
-
   // Render progressively for responsiveness
   const batch = 24;
   for (let i=0; i<images.length; i+=batch) {
@@ -717,40 +2454,92 @@ async function renderTiles(images) {
     const nodes = await Promise.all(slice.map(async (it, localIndex) => {
       const tile = document.createElement("div");
       tile.className = "tile";
+      if (!it.naturalW || !it.naturalH) {
+        const src = URL.createObjectURL(it.file);
+        try {
+          const dims = await new Promise((res, rej) => {
+            const im = new Image();
+            im.onload = () => res({ w: im.naturalWidth || 1, h: im.naturalHeight || 1 });
+            im.onerror = rej;
+            im.src = src;
+          });
+          it.naturalW = dims.w;
+          it.naturalH = dims.h;
+        } catch {}
+        URL.revokeObjectURL(src);
+      }
       const img = document.createElement("img");
       img.className = "thumb";
       img.alt = it.name;
-
       // thumb
       try {
-        it.thumbUrl = await makeThumbURL(it.file, 320);
+        const chain = buildEffectiveFilterChain(it.filters || [], it.cropRect64 || "");
+        it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "");
         img.src = it.thumbUrl;
       } catch {
         // fallback: full url (still ok for prototype)
         it.url = URL.createObjectURL(it.file);
         img.src = it.url;
       }
-
       const cap = document.createElement("div");
       cap.className = "caption";
-      cap.textContent = it.name;
-
-      tile.appendChild(img);
+      const faceNames = (it.faces || []).map((f) => f.label).filter(Boolean);
+      cap.textContent = `${it.star ? "★ " : ""}${it.caption || it.name}`;
+      if (faceNames.length) cap.title = `Faces: ${faceNames.join(", ")}`;
+      const row = document.createElement("div");
+      row.className = "tileMetaRow";
+      const editBtn = document.createElement("button");
+      editBtn.className = "miniBtn";
+      editBtn.textContent = "Edit tags";
+      editBtn.onclick = async (ev) => {
+        ev.stopPropagation();
+        try {
+          openFaceEditor(it);
+        } catch (e) {
+          setStatus(`Failed to save .picasa.info: ${String(e?.message || e)}`, "err");
+        }
+      };
+      row.appendChild(editBtn);
+      const imgWrap = document.createElement("div");
+      imgWrap.className = "tileImageWrap";
+      imgWrap.appendChild(img);
+      if (state.slideshow.showText && (it.textOverlays || []).length) {
+        const overlays = (it.textOverlays || []).filter((tx) => tx && tx.enabled !== false && String(tx.caption || "").trim());
+        for (const tx of overlays) {
+          const t = document.createElement("div");
+          t.className = "tileTextOverlay";
+          t.textContent = tx.caption;
+          const mapped = mapPointThroughFilterChain(tx.x || 0.08, tx.y || 0.08, it.naturalW || 1, it.naturalH || 1, it.filters || [], it.cropRect64 || "");
+          t.style.left = `${Math.max(0, Math.min(1, mapped.x || 0.08)) * 100}%`;
+          t.style.top = `${Math.max(0, Math.min(1, mapped.y || 0.08)) * 100}%`;
+          t.style.fontFamily = tx.fontFamily || "Arial";
+          const tileSizeCode = Number.isFinite(tx.sizeCode) && tx.sizeCode > 0 ? Math.max(10, tx.sizeCode / 6) : 0;
+          t.style.fontSize = `${Math.max(tileSizeCode, Math.max(10, (tx.sizeRel || 0.04) * 220))}px`;
+          const noSolidFill = (Number(tx.renderFlags || 0) & 0x1) !== 0;
+          const solidFillMode = (Number(tx.renderFlags || 0) & 0x2) !== 0;
+          t.style.color = noSolidFill && !solidFillMode ? "transparent" : (tx.colorPrimary || "#fff");
+          t.style.opacity = `${Math.max(0, Math.min(1, (Number(tx.opacity255 ?? 255) || 255) / 255))}`;
+          t.style.fontWeight = String(Number(tx.fontWeight || 400) || 400);
+          t.style.fontStyle = ((Number(tx.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+          t.style.textDecoration = ((Number(tx.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+          t.style.webkitTextStroke = `${Math.max(0, Number(tx.strokeWidthFactor ?? (tx.outlineWidth || 0)) * 6)}px ${tx.colorSecondary || "#000"}`;
+          t.style.transform = `rotate(${textRotationToDeg(tx.rotation).toFixed(2)}deg)`;
+          t.style.transformOrigin = "top left";
+          imgWrap.appendChild(t);
+        }
+      }
+      tile.appendChild(imgWrap);
       tile.appendChild(cap);
-
+      tile.appendChild(row);
       const absoluteIndex = i + localIndex;
       tile.onclick = () => openSlideshow(absoluteIndex);
-
       return tile;
     }));
-
     for (const n of nodes) el.grid.appendChild(n);
-
     // Yield to UI
     await new Promise(r => setTimeout(r, 0));
   }
 }
-
 /** ===========================
  *  Slideshow
  *  =========================== */
@@ -762,31 +2551,118 @@ function openSlideshow(index) {
   el.overlay.setAttribute("aria-hidden", "false");
   updateSlide();
 }
-
 function closeSlideshow() {
   stopPlaying();
   state.slideshow.open = false;
   el.overlay.classList.remove("show");
   el.overlay.setAttribute("aria-hidden", "true");
 }
+function goToAlbumByToken(token) {
+  const idx = state.albums.findIndex((a) => String(a.token || "") === String(token || ""));
+  if (idx >= 0) selectAlbum(idx);
+}
 
-function updateSlide() {
+function renderSlideFaceRects(item) {
+  el.slideFaceLayer.querySelectorAll(".slideFaceRect").forEach((n) => n.remove());
+  if (!state.slideshow.showFaces) return;
+  const imgRect = el.slideImg.getBoundingClientRect();
+  const layerRect = el.slideFaceLayer.getBoundingClientRect();
+  const offsetX = imgRect.left - layerRect.left;
+  const offsetY = imgRect.top - layerRect.top;
+  for (const f of (item.faces || [])) {
+    const b = rect64ToBox(f.rect64 || "");
+    const d = document.createElement('div');
+    d.className = 'slideFaceRect';
+    d.style.left = `${offsetX + b.x * imgRect.width}px`;
+    d.style.top = `${offsetY + b.y * imgRect.height}px`;
+    d.style.width = `${Math.max(8, b.w * imgRect.width)}px`;
+    d.style.height = `${Math.max(8, b.h * imgRect.height)}px`;
+    d.title = f.label || '';
+    el.slideFaceLayer.appendChild(d);
+  }
+}
+async function updateSlide() {
   const it = state.currentImages[state.slideshow.index];
   if (!it) return;
-
-  // Ensure full-size url
   if (!it.url) it.url = URL.createObjectURL(it.file);
+  const tiltVal = state.slideshow.showCrop ? lastTiltFromFilters(it.filters || []) : 0;
+  const tiltDeg = tiltValueToDeg(tiltVal);
+  if (state.slideshow.showCrop) {
+    const chain = Array.isArray(it.filters) ? it.filters.map((f) => String(f || "")).filter(Boolean) : [];
+    const fallbackCrop = chain.length ? "" : String(it.cropRect64 || "").trim();
+    const cacheKey = JSON.stringify({ filters: chain, crop: fallbackCrop });
+    if (!it.slidePreviewUrl || it.slidePreviewKey !== cacheKey) {
+      if (it.slidePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(it.slidePreviewUrl);
+      it.slidePreviewUrl = await makeFilteredPreviewURL(it.file, chain, 2048, fallbackCrop);
+      it.slidePreviewKey = cacheKey;
+    }
+    el.slideImg.src = it.slidePreviewUrl || it.url;
+    el.slideImg.style.transform = "";
+  } else {
+    el.slideImg.src = it.url;
+    el.slideImg.style.transform = "";
+  }
+  await (el.slideImg.decode ? el.slideImg.decode().catch(()=>{}) : Promise.resolve());
 
-  el.slideImg.src = it.url;
-  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}`;
+  const faces = (it.faces || []).map((f) => f.label).filter(Boolean);
+  const caption = it.caption ? ` | caption: ${it.caption}` : "";
+  const faceText = faces.length ? ` | faces: ${faces.join(", ")}` : "";
+  const tagText = (it.keywords || []).length ? ` | tags: ${(it.keywords || []).join(", ")}` : "";
+  const starText = it.star ? " | ★ starred" : "";
+  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}${tagText}${starText}`;
 
-  // Prefetch next/prev (browser cache will handle blob URLs fine)
+  if ((it.albumTokens || []).length) {
+    el.slideAlbums.innerHTML = `Albums: ` + it.albumTokens.map((tok, i) => `<a href="#" data-token="${tok}" class="mono">${it.albumNames?.[i] || tok}</a>`).join(" | ");
+    el.slideAlbums.querySelectorAll("a[data-token]").forEach((a) => {
+      a.onclick = (ev) => { ev.preventDefault(); closeSlideshow(); goToAlbumByToken(a.getAttribute("data-token")); };
+    });
+  } else {
+    el.slideAlbums.textContent = "Albums: (none)";
+  }
+
+  el.slideFaceLayer.querySelectorAll(".slideTextOverlay").forEach((n) => n.remove());
+  el.slideTextOverlay.style.display = "none";
+  if (state.slideshow.showText && (it.textOverlays || []).length) {
+    const imgRect = el.slideImg.getBoundingClientRect();
+    const layerRect = el.slideFaceLayer.getBoundingClientRect();
+    const offsetX = imgRect.left - layerRect.left;
+    const offsetY = imgRect.top - layerRect.top;
+    const overlays = (it.textOverlays || []).filter((t) => t && t.enabled !== false && String(t.caption || "").trim());
+    for (const chosen of overlays) {
+      const d = document.createElement("div");
+      d.className = "slideTextOverlay";
+      const mapped = mapPointThroughFilterChain(chosen.x || 0.08, chosen.y || 0.08, it.naturalW || 1, it.naturalH || 1, state.slideshow.showCrop ? (it.filters || []) : [], state.slideshow.showCrop ? (it.cropRect64 || "") : "");
+      d.textContent = chosen.caption;
+      d.style.left = `${offsetX + Math.max(0, Math.min(1, mapped.x || 0.08)) * imgRect.width}px`;
+      d.style.top = `${offsetY + Math.max(0, Math.min(1, mapped.y || 0.08)) * imgRect.height}px`;
+      d.style.fontFamily = chosen.fontFamily || "Arial";
+      const sizeFromCode = Number.isFinite(chosen.sizeCode) && chosen.sizeCode > 0 ? Math.max(10, chosen.sizeCode / 4) : 0;
+      const sizeFromRel = Math.max(16, (chosen.sizeRel || 0.04) * Math.max(300, imgRect.width || 300));
+      d.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
+      const noSolidFill = (Number(chosen.renderFlags || 0) & 0x1) !== 0;
+      const solidFillMode = (Number(chosen.renderFlags || 0) & 0x2) !== 0;
+      d.style.color = noSolidFill && !solidFillMode ? "transparent" : (chosen.colorPrimary || "#fff");
+      d.style.opacity = `${Math.max(0, Math.min(1, (Number(chosen.opacity255 ?? 255) || 255) / 255))}`;
+      d.style.fontWeight = String(Number(chosen.fontWeight || 400) || 400);
+      d.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+      d.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+      d.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
+      d.style.transform = `rotate(${textRotationToDeg(chosen.rotation).toFixed(2)}deg)`;
+      d.style.transformOrigin = "top left";
+      el.slideFaceLayer.appendChild(d);
+    }
+  }
+
+  el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
+  el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
+  el.btnToggleText.textContent = state.slideshow.showText ? "Text: On" : "Text: Off";
+  el.btnToggleStar.textContent = it.star ? "Star: On" : "Star: Off";
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
   if (prev && !prev.url) prev.url = URL.createObjectURL(prev.file);
   if (next && !next.url) next.url = URL.createObjectURL(next.file);
-
   el.btnPlay.textContent = state.slideshow.playing ? "⏸ Pause" : "▶ Play";
+  renderSlideFaceRects(it);
 }
 
 function prevSlide() {
@@ -814,38 +2690,71 @@ function stopPlaying() {
 function togglePlay() {
   state.slideshow.playing ? stopPlaying() : startPlaying();
 }
-
 /** ===========================
  *  App init + events
  *  =========================== */
 el.btnPick.onclick = async () => {
   try {
     // Secure context required (https or localhost)
-    const dir = await window.showDirectoryPicker({ mode: "read" });
-    state.root = dir;
+    const dir = await window.showDirectoryPicker({ mode: "readwrite" });
+    state.libraryRoot = dir;
     state.activeListIndex = -1;
-    setAsideState("Library selected", "ok");
-    el.btnReload.disabled = false;
-
+    setAsideState("Library folder selected", "ok");
     setStatus("Indexing directories… (first time can take a bit)", "warn");
-    state.dirIndex = await buildDirectoryIndex(state.root);
-    setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
-
-    await loadAlbumsFromPMP();
-    setStatus("Select an item on the left.", "ok");
+    state.dirIndex = await buildDirectoryIndex(state.libraryRoot, ({ count, lastPath }) => {
+      const suffix = lastPath ? ` (latest: ${lastPath})` : "";
+      setStatus(`Indexing directories… ${count} folders${suffix}`, "warn");
+    });
+    state.picasaByFolder.clear();
+    const hasPmp = !!state.pmpRoot;
+    if (hasPmp) {
+      el.btnReload.disabled = false;
+      setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
+      state.picasaByFolder.clear();
+      await loadAlbumsFromPMP();
+      setStatus("Select an item on the left.", "ok");
+    } else {
+      setStatus(`Indexed ${state.dirIndex.size} folders. Now choose “Open PMP Import Folder”.`, "warn");
+    }
   } catch (e) {
-    setAsideState("No library selected");
+    setAsideState("No library folder selected");
     setStatus(String(e?.message || e), "err");
   }
 };
-
+el.btnPickPmp.onclick = async () => {
+  try {
+    // Secure context required (https or localhost)
+    const dir = await window.showDirectoryPicker({ mode: "read" });
+    state.pmpRoot = dir;
+    state.activeListIndex = -1;
+    if (!state.libraryRoot || !state.dirIndex) {
+      setStatus("PMP folder selected. Now choose “Open Library Folder” to resolve image paths.", "warn");
+      return;
+    }
+    el.btnReload.disabled = false;
+    clearGrid();
+    setStatus("Loading PMP from selected import folder…", "warn");
+    state.picasaByFolder.clear();
+    await loadAlbumsFromPMP();
+    setStatus("Select an item on the left.", "ok");
+  } catch (e) {
+    setStatus(String(e?.message || e), "err");
+  }
+};
 el.btnReload.onclick = async () => {
   try {
-    if (!state.root) return;
+    if (!state.libraryRoot || !state.pmpRoot) {
+      setStatus("Select both a library folder and a PMP import folder before reloading.", "warn");
+      return;
+    }
     clearGrid();
     state.activeListIndex = -1;
     setStatus("Rebuilding directory index…", "warn");
-    state.dirIndex = await buildDirectoryIndex(state.root);
+    state.dirIndex = await buildDirectoryIndex(state.libraryRoot, ({ count, lastPath }) => {
+      const suffix = lastPath ? ` (latest: ${lastPath})` : "";
+      setStatus(`Rebuilding directory index… ${count} folders${suffix}`, "warn");
+    });
+    state.picasaByFolder.clear();
     setStatus("Reloading PMP…", "warn");
     await loadAlbumsFromPMP();
     setStatus("Reloaded. Select an item.", "ok");
@@ -853,7 +2762,6 @@ el.btnReload.onclick = async () => {
     setStatus(String(e?.message || e), "err");
   }
 };
-
 el.btnExport.onclick = async () => {
   try {
     await exportIndexedDbLibrary();
@@ -861,7 +2769,6 @@ el.btnExport.onclick = async () => {
     setStatus(String(e?.message || e), "err");
   }
 };
-
 el.btnViewAlbums.onclick = () => {
   state.currentViewMode = "albums";
   state.activeListIndex = -1;
@@ -870,21 +2777,124 @@ el.btnViewAlbums.onclick = () => {
   renderNavigation();
   setStatus("Switched to album view.", "ok");
 };
-
-el.btnViewFolders.onclick = () => {
-  state.currentViewMode = "folders";
-  state.activeListIndex = -1;
-  clearGrid();
-  el.viewTitle.textContent = "Folder navigation";
+el.btnRenameAlbum.onclick = async () => {
+  const idx = state.activeListIndex;
+  const album = state.albums[idx];
+  if (!album) return;
+  console.log("[selectAlbum]", { idx, source: album.source || "pmp", token: album.token, pathRel: album.pathRel, hasRefs: Array.isArray(album.imageRefs) ? album.imageRefs.length : null });
+  const newName = String(el.albumNameInput.value || "").trim();
+  if (!newName) return;
+  album.name = newName;
+  if (album.source === "ini" && album.token && state.iniAlbumsByToken.has(album.token)) {
+    state.iniAlbumsByToken.get(album.token).name = newName;
+  }
   renderNavigation();
-  setStatus("Switched to folder view.", "ok");
+  if (state.currentViewMode === "albums" && idx >= 0) el.viewTitle.textContent = `Album: ${newName}`;
+  await saveLibrarySnapshot({
+    id: state.libraryId,
+    label: state.libraryRoot?.name || "Library",
+    pickedAt: Date.now(),
+    stats: { albums: state.albums.length, folders: state.folderItems.length },
+    albums: state.albums,
+    folders: state.folderItems
+  });
+  setStatus("Album name updated.", "ok");
 };
-
+el.albumNameInput.addEventListener("keydown", (ev) => { if (ev.key === "Enter") el.btnRenameAlbum.click(); });
+el.btnAlbumCreate.onclick = () => {
+  const raw = (el.faceAlbumTokenInput?.value || el.faceAlbumNamesInput.value || "");
+  commitAlbumInputTokens(raw);
+  if (el.faceAlbumTokenInput) el.faceAlbumTokenInput.value = "";
+};
+el.faceAlbumTokenInput.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter" || ev.key === "," || ev.key === "Tab") {
+    const val = String(el.faceAlbumTokenInput.value || "").trim();
+    if (val) {
+      ev.preventDefault();
+      commitAlbumInputTokens(val);
+      el.faceAlbumTokenInput.value = "";
+    }
+  }
+});
+el.faceAlbumTokenInput.addEventListener("blur", () => {
+  const val = String(el.faceAlbumTokenInput.value || "").trim();
+  if (val) {
+    commitAlbumInputTokens(val);
+    el.faceAlbumTokenInput.value = "";
+  }
+});
+el.faceAlbumTokenInput.addEventListener("change", () => {
+  const val = String(el.faceAlbumTokenInput.value || "").trim();
+  if (val) {
+    commitAlbumInputTokens(val);
+    el.faceAlbumTokenInput.value = "";
+  }
+});
+el.faceFillLightSlider.oninput = () => {
+  const fl = Math.max(0, Math.min(1, Number(el.faceFillLightSlider.value || "0")));
+  el.faceFillLightValue.textContent = fl.toFixed(2);
+  const draftFilters = (faceEditor.filters || []).concat([`filllight=1,${fl.toFixed(6)}`]);
+  refreshEditorPreview(draftFilters);
+};
+el.btnApplyFillLightFilter.onclick = () => {
+  const fl = Math.max(0, Math.min(1, Number(el.faceFillLightSlider.value || "0")));
+  faceEditor.filters.push(`filllight=1,${fl.toFixed(6)}`);
+  renderFilterList();
+  refreshEditorPreview();
+  el.fillLightControls.classList.add("hidden");
+  el.btnFillLightMode.textContent = "Fill Light";
+  el.faceEditorStatus.textContent = `Applied filter: filllight (${faceEditor.filters.length})`;
+};
+el.btnSettings.onclick = () => {
+  el.settingsOverlay.classList.add("show");
+  el.settingsOverlay.setAttribute("aria-hidden", "false");
+};
+el.btnSettingsClose.onclick = () => {
+  el.settingsOverlay.classList.remove("show");
+  el.settingsOverlay.setAttribute("aria-hidden", "true");
+};
+el.btnSettingsSave.onclick = () => {
+  state.prefs.readCaption = el.selReadCaptionPref.value;
+  state.prefs.readKeywords = el.selReadKeywordsPref.value;
+  state.prefs.writeCaption = el.selWriteCaptionPref.value;
+  state.prefs.writeKeywords = el.selWriteKeywordsPref.value;
+  el.settingsOverlay.classList.remove("show");
+  el.settingsOverlay.setAttribute("aria-hidden", "true");
+  setStatus("Settings saved.", "ok");
+};
+el.settingsOverlay.addEventListener("click", (ev) => {
+  if (ev.target === el.settingsOverlay) {
+    el.settingsOverlay.classList.remove("show");
+    el.settingsOverlay.setAttribute("aria-hidden", "true");
+  }
+});
+el.btnViewFolders.onclick = () => {
+  if (!state.libraryRoot || !state.dirIndex) {
+    setStatus("Choose a Library folder first to browse subfolders.", "warn");
+    return;
+  }
+  state.currentViewMode = "folders";
+  state.folderBrowserPath = "";
+  openFolderPath(state.folderBrowserPath);
+};
 el.btnClose.onclick = closeSlideshow;
 el.btnPrev.onclick = prevSlide;
 el.btnNext.onclick = nextSlide;
 el.btnPlay.onclick = togglePlay;
-
+el.btnToggleFaces.onclick = () => { state.slideshow.showFaces = !state.slideshow.showFaces; updateSlide(); };
+el.btnToggleCrop.onclick = () => { state.slideshow.showCrop = !state.slideshow.showCrop; updateSlide(); };
+el.btnToggleText.onclick = () => { state.slideshow.showText = !state.slideshow.showText; updateSlide(); };
+el.btnToggleStar.onclick = async () => {
+  const it = state.currentImages[state.slideshow.index];
+  if (!it) return;
+  it.star = !it.star;
+  try {
+    await savePicasaInfoForImage(it, it.caption || "", it.faces || [], it.albumTokens || [], it.cropRect64 || "", it.keywords || [], it.star, it.filters || []);
+    updateSlide();
+  } catch (e) {
+    setStatus(`Failed to toggle star: ${String(e?.message || e)}`, "err");
+  }
+};
 // Keyboard controls
 window.addEventListener("keydown", (ev) => {
   if (!state.slideshow.open) return;
@@ -893,13 +2903,267 @@ window.addEventListener("keydown", (ev) => {
   else if (ev.key === "ArrowRight") { ev.preventDefault(); nextSlide(); }
   else if (ev.key === " ") { ev.preventDefault(); togglePlay(); }
 });
-
 // Click outside image to close (optional)
 el.overlay.addEventListener("click", (ev) => {
   if (ev.target === el.overlay) closeSlideshow();
 });
+el.btnFaceCancel.onclick = closeFaceEditor;
+el.faceEditorOverlay.addEventListener("click", (ev) => {
+  if (ev.target === el.faceEditorOverlay) closeFaceEditor();
+});
+el.btnFaceStarToggle.onclick = () => {
+  faceEditor.star = !faceEditor.star;
+  el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
+  el.btnFaceStarToggle.textContent = faceEditor.star ? "★ Star" : "☆ Star";
+};
+el.btnCropMode.onclick = () => {
+  faceEditor.cropUiVisible = !faceEditor.cropUiVisible;
+  el.faceCropRow.classList.toggle("hidden", !faceEditor.cropUiVisible);
+  el.btnApplyCropFilter.classList.toggle("hidden", !faceEditor.cropUiVisible);
+  el.cropControls.classList.toggle("hidden", !faceEditor.cropUiVisible);
+  el.btnCropMode.textContent = faceEditor.cropUiVisible ? "Hide crop" : "Crop";
+  renderFaceRects();
+};
+el.btnTiltMode.onclick = () => {
+  faceEditor.tiltUiVisible = !faceEditor.tiltUiVisible;
+  el.tiltControls.classList.toggle("hidden", !faceEditor.tiltUiVisible);
+  el.btnTiltMode.textContent = faceEditor.tiltUiVisible ? "Hide tilt" : "Tilt";
+  if (!faceEditor.tiltUiVisible) {
+    el.faceCanvasImg.style.transform = "";
+    refreshEditorPreview();
+  }
+};
+el.btnFillLightMode.onclick = () => {
+  const show = el.fillLightControls.classList.contains("hidden");
+  el.fillLightControls.classList.toggle("hidden", !show);
+  el.btnFillLightMode.textContent = show ? "Hide Fill Light" : "Fill Light";
+};
+el.btnApplyCropFilter.onclick = () => {
+  const c = String(faceEditor.cropRect64 || "").trim();
+  if (!c) return;
+  faceEditor.filters.push(`crop64=1,${c}`);
+  faceEditor.cropUiVisible = true;
+  el.faceCropRow.classList.remove("hidden");
+  el.btnApplyCropFilter.classList.remove("hidden");
+  el.cropControls.classList.remove("hidden");
+  el.btnCropMode.textContent = "Hide crop";
+  renderFilterList();
+  refreshEditorPreview();
+  renderFaceRects();
+  el.faceEditorStatus.textContent = `Applied filter: crop64 (${faceEditor.filters.length})`;
+};
+el.btnApplyTiltFilter.onclick = () => {
+  const t = Number(el.faceTiltSlider.value || "0");
+  if (!Number.isFinite(t)) return;
+  faceEditor.filters.push(`tilt=1,${t.toFixed(6)},0.000000`);
+  renderFilterList();
+  el.faceCanvasImg.style.transform = "";
+  refreshEditorPreview();
+  faceEditor.tiltUiVisible = false;
+  el.tiltControls.classList.add("hidden");
+  el.fillLightControls.classList.add("hidden");
+  el.btnTiltMode.textContent = "Tilt";
+  el.btnFillLightMode.textContent = "Fill Light";
+  el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
+};
+el.faceTiltSlider.oninput = () => {
+  const t = Number(el.faceTiltSlider.value || "0");
+  el.faceTiltValue.textContent = Number.isFinite(t) ? t.toFixed(2) : "0.00";
+  if (!Number.isFinite(t)) return;
+  el.faceCanvasImg.style.transform = `rotate(${tiltValueToDeg(t).toFixed(2)}deg)`;
+  const draftFilters = (faceEditor.filters || []).concat([`tilt=1,${t.toFixed(6)},0.000000`]);
+  refreshEditorPreview(draftFilters);
+};
+el.faceFaceSelect.onmousedown = (ev) => {
+  const opt = ev.target.closest("option");
+  if (!opt) {
+    faceEditor.activeFaceIdx = -1;
+    syncFaceSelectFromState();
+    renderFaceRects();
+    return;
+  }
+  ev.preventDefault();
+  const idx = Number(opt.value);
+  faceEditor.activeFaceIdx = (faceEditor.activeFaceIdx === idx) ? -1 : idx;
+  syncFaceSelectFromState();
+  renderFaceRects();
+};
+el.faceFaceLabelInput.oninput = () => {
+  const idx = faceEditor.activeFaceIdx;
+  if (idx < 0 || !faceEditor.faces[idx]) return;
+  faceEditor.faces[idx].label = el.faceFaceLabelInput.value;
+  syncFaceSelectFromState();
+};
+[
+  el.faceTextInput,
+  el.faceTextFontInput,
+  el.faceTextSizeInput,
+  el.faceTextColorInput,
+  el.faceTextOutlineColorInput,
+  el.faceTextOutlineWidthInput,
+  el.faceTextOpacityInput,
+  el.faceTextScaleXInput,
+  el.faceTextScaleYInput,
+  el.faceTextStrokeFactorInput,
+  el.faceTextWeightInput,
+  el.faceTextAlignInput,
+  el.faceTextItalicInput,
+  el.faceTextUnderlineInput,
+  el.faceTextNoSolidFillInput,
+  el.faceTextSolidFillModeInput,
+  el.faceTextAnchorFlagsInput,
+  el.faceTextRenderFlagsInput
+].forEach((node) => node.addEventListener("input", () => {
+  updateTextOverlayFromInputs();
+  renderFaceRects();
+}));
+el.btnRemoveSelectedFilters.onclick = () => {
+  const selected = Array.from(el.faceFilterList.selectedOptions || []).map((o)=>Number(o.value)).filter((n)=>Number.isFinite(n)).sort((a,b)=>b-a);
+  for (const idx of selected) { if (idx >= 0 && idx < faceEditor.filters.length) faceEditor.filters.splice(idx, 1); }
+  renderFilterList();
+  refreshEditorPreview();
+};
+el.btnUndoFilter.onclick = () => {
+  const removed = faceEditor.filters.pop();
+  renderFilterList();
+  refreshEditorPreview();
+  el.faceEditorStatus.textContent = removed ? `Undo filter: ${removed}` : 'No filter to undo';
+};
 
+el.btnFaceAdd.onclick = () => {
+  const label = window.prompt("Face label", "New person");
+  if (!label) return;
+  faceEditor.faces.push({ label: label.trim(), rect64: "gui:0.1|0.1|0.2|0.2" });
+  faceEditor.activeFaceIdx = faceEditor.faces.length - 1;
+  syncFaceSelectFromState();
+  renderFaceRects();
+};
+el.btnTextAdd.onclick = () => {
+  faceEditor.textOverlays.push({ enabled: true, caption: "New text", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, fillARGB: 4294967295, strokeARGB: 4278190080, opacity255: 128, scaleXUnknown: 1, strokeWidthFactor: 0, scaleYUnknown: 1, fontWeight: 400, renderFlags: 0, textStyleAnchorFlags: 49152, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 1 });
+  faceEditor.activeTextIdx = faceEditor.textOverlays.length - 1;
+  syncTextInputsFromState();
+  renderFaceRects();
+};
+document.querySelectorAll(".btnAspect").forEach((btn) => {
+  btn.onclick = () => {
+    faceEditor.cropAspectRatio = parseAspectRatio(btn.dataset.ratio || "");
+    document.querySelectorAll(".btnAspect").forEach((b)=>b.classList.remove("active"));
+    btn.classList.add("active");
+  };
+});
+el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
+  const target = ev.target;
+  if (target === el.faceCanvasWrap || target === el.faceCanvasImg) {
+    if (faceEditor.activeTextIdx >= 0) {
+      faceEditor.activeTextIdx = -1;
+      syncTextInputsFromState();
+      renderFaceRects();
+    }
+  }
+});
+el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
+  if (faceEditor.draggingIdx < 0 && !faceEditor.cropDragging && !faceEditor.textDragging) return;
+  const r = el.faceCanvasImg.getBoundingClientRect();
+  const p = el.faceCanvasWrap.getBoundingClientRect();
+  if (faceEditor.cropDragging) {
+    const cb = rect64ToBox(faceEditor.cropRect64);
+    if (faceEditor.cropMode === "resize") {
+      const rightPx = ev.clientX - p.left - (r.left - p.left);
+      const bottomPx = ev.clientY - p.top - (r.top - p.top);
+      let w = Math.max(0.03, Math.min(1 - cb.x, rightPx / Math.max(1, r.width) - cb.x));
+      let h = Math.max(0.03, Math.min(1 - cb.y, bottomPx / Math.max(1, r.height) - cb.y));
+      if (faceEditor.cropAspectRatio) {
+        const ar = faceEditor.cropAspectRatio;
+        const normalizedAr = ar * (r.height / Math.max(1, r.width));
+        if ((w / h) > normalizedAr) w = h * normalizedAr; else h = w / normalizedAr;
+        w = Math.max(0.03, Math.min(1 - cb.x, w));
+        h = Math.max(0.03, Math.min(1 - cb.y, h));
+      }
+      faceEditor.cropRect64 = boxToRect64({ x: cb.x, y: cb.y, w, h });
+    } else {
+      const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.dragOffsetX;
+      const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.dragOffsetY;
+      const x = Math.max(0, Math.min(r.width - cb.w * r.width, xPx)) / Math.max(1, r.width);
+      const y = Math.max(0, Math.min(r.height - cb.h * r.height, yPx)) / Math.max(1, r.height);
+      faceEditor.cropRect64 = boxToRect64({ x, y, w: cb.w, h: cb.h });
+    }
+    el.faceCropInput.value = faceEditor.cropRect64;
+    renderFaceRects();
+    return;
+  }
+  if (faceEditor.textDragging && faceEditor.activeTextIdx >= 0 && faceEditor.textOverlays[faceEditor.activeTextIdx]) {
+    const txt = faceEditor.textOverlays[faceEditor.activeTextIdx];
+    if (faceEditor.textDragMode === "rotate") {
+      const px = ev.clientX - p.left;
+      const py = ev.clientY - p.top;
+      const ang = Math.atan2(py - faceEditor.textRotateOriginY, px - faceEditor.textRotateOriginX);
+      txt.rotation = ang / (2 * Math.PI);
+      renderFaceRects();
+      return;
+    }
+    if (faceEditor.textDragMode === "resize") {
+      const rightPx = ev.clientX - p.left - (r.left - p.left);
+      const baseX = Math.max(0, Math.min(1, txt.x || 0.08)) * r.width;
+      const delta = rightPx - baseX;
+      const fontPx = Math.max(8, Math.min(240, delta));
+      txt.sizeCode = Math.round(fontPx * 6);
+      txt.sizeRel = Math.max(0.02, Math.min(0.4, fontPx / 900));
+      el.faceTextSizeInput.value = String(Math.round(fontPx));
+      renderFaceRects();
+      return;
+    }
+    const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.textDragOffsetX;
+    const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.textDragOffsetY;
+    txt.x = Math.max(0, Math.min(r.width - 24, xPx)) / Math.max(1, r.width);
+    txt.y = Math.max(0, Math.min(r.height - 18, yPx)) / Math.max(1, r.height);
+    renderFaceRects();
+    return;
+  }
 
+  if (faceEditor.draggingIdx < 0) return;
+  const cur = faceEditor.faces[faceEditor.draggingIdx];
+  if (!cur) return;
+  const b = rect64ToBox(cur.rect64);
+  if (faceEditor.dragMode === "resize") {
+    const rightPx = ev.clientX - p.left - (r.left - p.left);
+    const bottomPx = ev.clientY - p.top - (r.top - p.top);
+    const w = Math.max(0.03, Math.min(1 - b.x, rightPx / Math.max(1, r.width) - b.x));
+    const h = Math.max(0.03, Math.min(1 - b.y, bottomPx / Math.max(1, r.height) - b.y));
+    cur.rect64 = boxToRect64({ x: b.x, y: b.y, w, h });
+  } else {
+    const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.dragOffsetX;
+    const yPx = ev.clientY - p.top - (r.top - p.top) - faceEditor.dragOffsetY;
+    const x = Math.max(0, Math.min(r.width - b.w * r.width, xPx)) / Math.max(1, r.width);
+    const y = Math.max(0, Math.min(r.height - b.h * r.height, yPx)) / Math.max(1, r.height);
+    cur.rect64 = boxToRect64({ x, y, w: b.w, h: b.h });
+  }
+  renderFaceRects();
+});
+window.addEventListener('pointerup', () => { faceEditor.draggingIdx = -1;
+  faceEditor.dragMode = "move";
+  faceEditor.cropDragging = false;
+  faceEditor.cropMode = "move";
+  faceEditor.textDragging = false;
+  faceEditor.textDragMode = "move";
+});
+el.btnFaceSave.onclick = async () => {
+  if (!faceEditor.imageItem) return;
+  try {
+    const caption = el.faceCaptionInput.value.trim();
+    const albumTokens = Array.from(faceEditor.selectedAlbumTokens);
+    const keywords = el.faceKeywordsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
+    updateTextOverlayFromInputs();
+    const faceEntries = faceEditor.faces.slice();
+    const textOverlays = faceEditor.textOverlays.filter((t) => t && String(t.caption || "").trim());
+    const albumNameByToken = Object.fromEntries(Array.from(faceEditor.albumTokenToName.entries()));
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays, albumNameByToken);
+    await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
+    closeFaceEditor();
+    setStatus('Saved caption/faces/crop/albums/tags to .picasa.info', 'ok');
+  } catch (e) {
+    el.faceEditorStatus.textContent = `Save failed: ${String(e?.message || e)}`;
+  }
+};
 function downloadJson(filename, data) {
   const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
   const url = URL.createObjectURL(blob);
@@ -911,14 +3175,12 @@ function downloadJson(filename, data) {
   a.remove();
   URL.revokeObjectURL(url);
 }
-
 async function exportIndexedDbLibrary() {
   const snapshot = await loadLibrarySnapshot(state.libraryId);
   if (!snapshot.library) {
     setStatus("No IndexedDB library snapshot found to export yet.", "warn");
     return;
   }
-
   downloadJson(`pica-library-${state.libraryId}.json`, {
     exportedAt: new Date().toISOString(),
     library: snapshot.library,
@@ -927,28 +3189,25 @@ async function exportIndexedDbLibrary() {
   });
   setStatus("Exported IndexedDB snapshot as JSON.", "ok");
 }
-
 async function hydrateFromIndexedDb() {
   const snapshot = await loadLibrarySnapshot(state.libraryId);
   if (!snapshot.library) return false;
-
   state.albums = snapshot.albums || [];
   state.folderItems = snapshot.folders || [];
   el.btnExport.disabled = false;
   setAsideState(`IndexedDB: ${snapshot.library.label || "Library loaded"}`, "ok");
   el.pillInfo.textContent = `${state.albums.length} albums`;
   renderNavigation();
-  setStatus("Loaded album/folder navigation from IndexedDB snapshot. Open the library folder to browse images.", "ok");
+  setStatus("Loaded album/folder navigation from IndexedDB snapshot. Open both Library and PMP folders to browse images with live handles.", "ok");
   return true;
 }
-
 // Initial hint
 (async () => {
   try {
     const hasSnapshot = await hydrateFromIndexedDb();
     if (!hasSnapshot) {
       setStatus(
-        "Run this file from a local server (e.g. `python -m http.server`) then open in Chrome/Edge and click “Open Library Folder”.",
+        "Run this file from a local server (e.g. `python -m http.server`) then open in Chrome/Edge and choose both “Open Library Folder” and “Open PMP Import Folder”.",
         "warn"
       );
     }
@@ -957,7 +3216,6 @@ async function hydrateFromIndexedDb() {
   }
 })();
 </script>
-
 <!--
 How to run:
 1) Save as index.html
@@ -965,7 +3223,6 @@ How to run:
    python -m http.server 8000
 3) Open http://localhost:8000 in Chrome/Edge
 4) Click “Open Library Folder” and pick your library root (the folder that contains db/ and your pictures)
-
 Notes:
 - This prototype resolves absolute PMP paths by suffix-matching them under the chosen library root.
 - If multiple folders share the same suffix, the first match wins (prototype behavior).
