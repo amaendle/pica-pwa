@@ -1106,6 +1106,13 @@ function lastTiltFromFilters(filters) {
   }
   return null;
 }
+function lastFillLightFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const m = String(filters[i]).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
+    if (m) return Number(m[1]);
+  }
+  return 0;
+}
 function cssColorToU32(color, fallback = 4294967295) {
   const s = String(color || "").trim();
   const hex = s.match(/^#([0-9a-f]{6})$/i);
@@ -2081,10 +2088,10 @@ async function listImagesForAlbumRefs(imageRefs = []) {
   const out = [];
   const byFolder = new Map();
   for (const ref of imageRefs) {
-    if (!ref?.pathRel || !ref?.imageName) continue;
-    const rel = String(ref.pathRel).replaceAll("\\", "/").replace(/^\.\//, "");
+    if (!ref?.imageName) continue;
+    const rel = String(ref.pathRel || "").replaceAll("\\", "/").replace(/^\.\//, "");
     const nm = String(ref.imageName).split(/[\\/]/).pop().trim();
-    if (!rel || !nm) continue;
+    if (!nm) continue;
     if (!byFolder.has(rel)) byFolder.set(rel, new Set());
     byFolder.get(rel).add(nm.toLowerCase());
   }
