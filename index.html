@@ -202,6 +202,7 @@
           <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
           <button id="btnTiltMode">Tilt</button>
           <button id="btnFillLightMode">Fill Light</button>
+          <button id="btnFinetune2Mode">Fine Tune 2</button>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
@@ -222,6 +223,14 @@
         <div id="fillLightControls" class="hidden">
           <label>Fill Light <span id="faceFillLightValue" class="mono">0.00</span><input id="faceFillLightSlider" type="range" min="0" max="1" step="0.01" value="0"></label>
           <button id="btnApplyFillLightFilter">Apply fill light filter</button>
+        </div>
+        <div id="finetune2Controls" class="hidden">
+          <label>Fill Light <span id="faceFinetuneFillValue" class="mono">0.000000</span><input id="faceFinetuneFillSlider" type="range" min="0" max="1" step="0.001" value="0"></label>
+          <label>Highlights <span id="faceFinetuneHighlightsValue" class="mono">0.000000</span><input id="faceFinetuneHighlightsSlider" type="range" min="0" max="0.48" step="0.001" value="0"></label>
+          <label>Shadows <span id="faceFinetuneShadowsValue" class="mono">0.000000</span><input id="faceFinetuneShadowsSlider" type="range" min="0" max="0.48" step="0.001" value="0"></label>
+          <label>Color Temperature <span id="faceFinetuneTempValue" class="mono">0.000000</span><input id="faceFinetuneTempSlider" type="range" min="-1" max="1" step="0.001" value="0"></label>
+          <label>Neutral ARGB (AARRGGBB)<input id="faceFinetuneNeutralInput" type="text" value="00000000" maxlength="8" placeholder="00000000"></label>
+          <button id="btnApplyFinetune2Filter">Apply finetune2 filter</button>
         </div>
         <label>Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
         <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
@@ -813,6 +822,147 @@ function applyFillLightOnCanvas(canvas, strength = 0) {
   return canvas;
 }
 
+const FINETUNE_CURVE_POINTS = 8;
+const FINETUNE2_FILL_BASE = [
+  [0.00, 0.15], [0.05, 0.52], [0.10, 0.63], [0.20, 0.70],
+  [0.40, 0.79], [0.60, 0.85], [0.80, 0.93], [1.00, 1.00]
+];
+const FINETUNE2_HIGHLIGHTS_BASE = [
+  [0.00, 0.00], [0.02, 0.12], [0.05, 0.28], [0.10, 0.50],
+  [0.20, 0.80], [0.28, 0.96], [0.40, 0.99], [1.00, 1.00]
+];
+const FINETUNE2_SHADOWS_BASE = [
+  [0.00, 0.00], [0.10, 0.00], [0.20, 0.01], [0.40, 0.11],
+  [0.60, 0.33], [0.80, 0.63], [0.95, 0.88], [1.00, 1.00]
+];
+const FINETUNE2_FILL_CORR = [
+  [0.00, 0.00], [0.12, 0.03], [0.16, 0.04], [0.20, 0.31],
+  [0.35, 0.46], [0.55, 0.60], [0.80, 0.80], [1.00, 1.00]
+];
+const FINETUNE2_HIGHLIGHTS_CORR = [
+  [0.00, 0.00], [0.10, 0.07], [0.20, 0.14], [0.40, 0.33],
+  [0.60, 0.56], [0.72, 0.72], [0.88, 0.97], [1.00, 1.00]
+];
+const FINETUNE2_SHADOWS_CORR = [
+  [0.00, 0.00], [0.05, 0.04], [0.20, 0.20], [0.40, 0.40],
+  [0.60, 0.60], [0.80, 0.80], [0.95, 0.94], [1.00, 1.00]
+];
+
+function parseFinetune2Filter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^finetune2=1,([^,]*),([^,]*),([^,]*),([0-9a-f]{8}),([^,]*)$/i);
+  if (!m) return null;
+  const fillLight = Math.max(0, Math.min(1, Number(m[1]) || 0));
+  const highlights = Math.max(0, Math.min(0.48, Number(m[2]) || 0));
+  const shadows = Math.max(0, Math.min(0.48, Number(m[3]) || 0));
+  const argb = String(m[4] || "00000000").toLowerCase();
+  const colorTemperature = Math.max(-1, Math.min(1, Number(m[5]) || 0));
+  const hasNeutral = argb !== "00000000";
+  const a = parseInt(argb.slice(0, 2), 16) || 0;
+  const r = parseInt(argb.slice(2, 4), 16) || 0;
+  const g = parseInt(argb.slice(4, 6), 16) || 0;
+  const b = parseInt(argb.slice(6, 8), 16) || 0;
+  return {
+    fillLight,
+    highlights,
+    shadows,
+    colorTemperature,
+    neutralColor: { hasNeutral, a, r, g, b }
+  };
+}
+
+function applyFinetune2OnCanvas(canvas, params) {
+  if (!canvas || !params) return canvas;
+  const ctx = canvas.getContext("2d");
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const data = imgData.data;
+  const toLinear = (s) => s <= 0.04045 ? (s / 12.92) : Math.pow((s + 0.055) / 1.055, 2.4);
+  const toSrgb = (l) => l <= 0.0031308 ? (12.92 * l) : (1.055 * Math.pow(Math.max(0, l), 1 / 2.4) - 0.055);
+  const clamp01 = (n) => Math.max(0, Math.min(1, Number(n) || 0));
+  const catmullRom = (p0, p1, p2, p3, t) => {
+    const t2 = t * t;
+    const t3 = t2 * t;
+    return 0.5 * ((2 * p1) + (-p0 + p2) * t + (2 * p0 - 5 * p1 + 4 * p2 - p3) * t2 + (-p0 + 3 * p1 - 3 * p2 + p3) * t3);
+  };
+  const sampleCurve = (curve, x) => {
+    const xx = clamp01(x);
+    if (xx <= curve[0][0]) return curve[0][1];
+    for (let i = 0; i < FINETUNE_CURVE_POINTS - 1; i++) {
+      if (xx <= curve[i + 1][0]) {
+        const i0 = Math.max(i - 1, 0);
+        const i1 = i;
+        const i2 = i + 1;
+        const i3 = Math.min(i + 2, FINETUNE_CURVE_POINTS - 1);
+        const dx = Math.max(curve[i2][0] - curve[i1][0], 1e-6);
+        const t = (xx - curve[i1][0]) / dx;
+        return clamp01(catmullRom(curve[i0][1], curve[i1][1], curve[i2][1], curve[i3][1], t));
+      }
+    }
+    return curve[FINETUNE_CURVE_POINTS - 1][1];
+  };
+  const applyCurve = (y, curve, amount01) => {
+    const a = clamp01(amount01);
+    return y * (1 - a) + sampleCurve(curve, y) * a;
+  };
+
+  const fill01 = clamp01(params.fillLight);
+  const hi01 = clamp01(params.highlights / 0.48);
+  const sh01 = clamp01(params.shadows / 0.48);
+  const t = Math.max(-1, Math.min(1, Number(params.colorTemperature) || 0));
+  let gainNeutral = null;
+  if (params.neutralColor?.hasNeutral) {
+    const nr = toLinear((params.neutralColor.r || 0) / 255);
+    const ng = toLinear((params.neutralColor.g || 0) / 255);
+    const nb = toLinear((params.neutralColor.b || 0) / 255);
+    const m = (nr + ng + nb) / 3;
+    const gr = m / Math.max(nr, 1e-4);
+    const gg = m / Math.max(ng, 1e-4);
+    const gb = m / Math.max(nb, 1e-4);
+    const avg = (gr + gg + gb) / 3;
+    gainNeutral = [gr / Math.max(avg, 1e-4), gg / Math.max(avg, 1e-4), gb / Math.max(avg, 1e-4)];
+  }
+  const tempGain = t >= 0
+    ? [1 + 0.20 * t, 1 + 0.04 * t, 1 - 0.18 * t]
+    : [1 - 0.18 * (-t), 1 + 0.02 * (-t), 1 + 0.22 * (-t)];
+
+  for (let i = 0; i < data.length; i += 4) {
+    let lr = toLinear(data[i] / 255);
+    let lg = toLinear(data[i + 1] / 255);
+    let lb = toLinear(data[i + 2] / 255);
+
+    if (gainNeutral) {
+      lr *= gainNeutral[0];
+      lg *= gainNeutral[1];
+      lb *= gainNeutral[2];
+    }
+
+    lr = Math.max(0, lr * tempGain[0]);
+    lg = Math.max(0, lg * tempGain[1]);
+    lb = Math.max(0, lb * tempGain[2]);
+
+    const y = 0.2126 * lr + 0.7152 * lg + 0.0722 * lb;
+    let y2 = y;
+    y2 = applyCurve(y2, FINETUNE2_FILL_BASE, fill01);
+    y2 = applyCurve(y2, FINETUNE2_HIGHLIGHTS_BASE, hi01);
+    y2 = applyCurve(y2, FINETUNE2_SHADOWS_BASE, sh01);
+
+    if (fill01 > 0 && hi01 < 1e-5 && sh01 < 1e-5) y2 = applyCurve(y2, FINETUNE2_FILL_CORR, fill01);
+    if (hi01 > 0 && fill01 < 1e-5 && sh01 < 1e-5) y2 = applyCurve(y2, FINETUNE2_HIGHLIGHTS_CORR, hi01);
+    if (sh01 > 0 && fill01 < 1e-5 && hi01 < 1e-5) y2 = applyCurve(y2, FINETUNE2_SHADOWS_CORR, sh01);
+
+    const scale = y > 1e-6 ? (y2 / y) : 1;
+    lr = clamp01(lr * scale);
+    lg = clamp01(lg * scale);
+    lb = clamp01(lb * scale);
+
+    data[i] = Math.max(0, Math.min(255, Math.round(toSrgb(lr) * 255)));
+    data[i + 1] = Math.max(0, Math.min(255, Math.round(toSrgb(lg) * 255)));
+    data[i + 2] = Math.max(0, Math.min(255, Math.round(toSrgb(lb) * 255)));
+  }
+
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
 async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "") {
   const src = URL.createObjectURL(file instanceof Blob ? file : new Blob([file]));
   const img = await new Promise((res, rej) => {
@@ -845,6 +995,11 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     m = String(f).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
     if (m) {
       applyFillLightOnCanvas(canvas, Number(m[1]));
+      continue;
+    }
+    m = parseFinetune2Filter(f);
+    if (m) {
+      applyFinetune2OnCanvas(canvas, m);
       continue;
     }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
@@ -965,10 +1120,20 @@ const el = {
   cropControls: document.getElementById("cropControls"),
   tiltControls: document.getElementById("tiltControls"),
   fillLightControls: document.getElementById("fillLightControls"),
+  finetune2Controls: document.getElementById("finetune2Controls"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
   faceFillLightSlider: document.getElementById("faceFillLightSlider"),
   faceFillLightValue: document.getElementById("faceFillLightValue"),
+  faceFinetuneFillSlider: document.getElementById("faceFinetuneFillSlider"),
+  faceFinetuneFillValue: document.getElementById("faceFinetuneFillValue"),
+  faceFinetuneHighlightsSlider: document.getElementById("faceFinetuneHighlightsSlider"),
+  faceFinetuneHighlightsValue: document.getElementById("faceFinetuneHighlightsValue"),
+  faceFinetuneShadowsSlider: document.getElementById("faceFinetuneShadowsSlider"),
+  faceFinetuneShadowsValue: document.getElementById("faceFinetuneShadowsValue"),
+  faceFinetuneTempSlider: document.getElementById("faceFinetuneTempSlider"),
+  faceFinetuneTempValue: document.getElementById("faceFinetuneTempValue"),
+  faceFinetuneNeutralInput: document.getElementById("faceFinetuneNeutralInput"),
   faceFaceSelect: document.getElementById("faceFaceSelect"),
   faceLabelRow: document.getElementById("faceLabelRow"),
   faceFaceLabelInput: document.getElementById("faceFaceLabelInput"),
@@ -1012,10 +1177,12 @@ const el = {
   btnCropMode: document.getElementById("btnCropMode"),
   btnTiltMode: document.getElementById("btnTiltMode"),
   btnFillLightMode: document.getElementById("btnFillLightMode"),
+  btnFinetune2Mode: document.getElementById("btnFinetune2Mode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnApplyCropFilter: document.getElementById("btnApplyCropFilter"),
   btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
   btnApplyFillLightFilter: document.getElementById("btnApplyFillLightFilter"),
+  btnApplyFinetune2Filter: document.getElementById("btnApplyFinetune2Filter"),
   btnUndoFilter: document.getElementById("btnUndoFilter"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
@@ -1112,6 +1279,13 @@ function lastFillLightFromFilters(filters) {
     if (m) return Number(m[1]);
   }
   return 0;
+}
+function lastFinetune2FromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseFinetune2Filter(filters[i]);
+    if (p) return p;
+  }
+  return null;
 }
 function cssColorToU32(color, fallback = 4294967295) {
   const s = String(color || "").trim();
@@ -1644,9 +1818,11 @@ function openFaceEditor(imageItem) {
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
   el.fillLightControls.classList.add("hidden");
+  el.finetune2Controls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
+  el.btnFinetune2Mode.textContent = "Fine Tune 2";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
   el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
@@ -1660,6 +1836,19 @@ function openFaceEditor(imageItem) {
   const fillVal = Math.max(0, Math.min(1, Number(lastFillLightFromFilters(faceEditor.filters)) || 0));
   el.faceFillLightSlider.value = fillVal.toFixed(2);
   el.faceFillLightValue.textContent = fillVal.toFixed(2);
+  const finetune = lastFinetune2FromFilters(faceEditor.filters) || { fillLight: 0, highlights: 0, shadows: 0, colorTemperature: 0, neutralColor: { hasNeutral: false, a: 0, r: 0, g: 0, b: 0 } };
+  el.faceFinetuneFillSlider.value = Number(finetune.fillLight || 0).toFixed(3);
+  el.faceFinetuneHighlightsSlider.value = Number(finetune.highlights || 0).toFixed(3);
+  el.faceFinetuneShadowsSlider.value = Number(finetune.shadows || 0).toFixed(3);
+  el.faceFinetuneTempSlider.value = Number(finetune.colorTemperature || 0).toFixed(3);
+  el.faceFinetuneFillValue.textContent = Number(finetune.fillLight || 0).toFixed(6);
+  el.faceFinetuneHighlightsValue.textContent = Number(finetune.highlights || 0).toFixed(6);
+  el.faceFinetuneShadowsValue.textContent = Number(finetune.shadows || 0).toFixed(6);
+  el.faceFinetuneTempValue.textContent = Number(finetune.colorTemperature || 0).toFixed(6);
+  const argb = finetune?.neutralColor?.hasNeutral
+    ? `${(finetune.neutralColor.a || 0).toString(16).padStart(2, "0")}${(finetune.neutralColor.r || 0).toString(16).padStart(2, "0")}${(finetune.neutralColor.g || 0).toString(16).padStart(2, "0")}${(finetune.neutralColor.b || 0).toString(16).padStart(2, "0")}`
+    : "00000000";
+  el.faceFinetuneNeutralInput.value = argb.toLowerCase();
   el.faceCanvasImg.style.transform = "";
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
@@ -1704,8 +1893,10 @@ function closeFaceEditor() {
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
   el.fillLightControls.classList.add("hidden");
+  el.finetune2Controls.classList.add("hidden");
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
+  el.btnFinetune2Mode.textContent = "Fine Tune 2";
   faceEditor.textDragging = false;
   faceEditor.textDragMode = "move";
   faceEditor.activeTextIdx = -1;
@@ -2852,6 +3043,40 @@ el.btnApplyFillLightFilter.onclick = () => {
   el.btnFillLightMode.textContent = "Fill Light";
   el.faceEditorStatus.textContent = `Applied filter: filllight (${faceEditor.filters.length})`;
 };
+
+const refreshFinetune2Draft = () => {
+  const fill = Math.max(0, Math.min(1, Number(el.faceFinetuneFillSlider.value || "0")));
+  const hi = Math.max(0, Math.min(0.48, Number(el.faceFinetuneHighlightsSlider.value || "0")));
+  const sh = Math.max(0, Math.min(0.48, Number(el.faceFinetuneShadowsSlider.value || "0")));
+  const temp = Math.max(-1, Math.min(1, Number(el.faceFinetuneTempSlider.value || "0")));
+  const rawArgb = String(el.faceFinetuneNeutralInput.value || "00000000").trim().replace(/^#/, "").toLowerCase();
+  const argb = /^[0-9a-f]{8}$/i.test(rawArgb) ? rawArgb : "00000000";
+  el.faceFinetuneFillValue.textContent = fill.toFixed(6);
+  el.faceFinetuneHighlightsValue.textContent = hi.toFixed(6);
+  el.faceFinetuneShadowsValue.textContent = sh.toFixed(6);
+  el.faceFinetuneTempValue.textContent = temp.toFixed(6);
+  const draft = `finetune2=1,${fill.toFixed(6)},${hi.toFixed(6)},${sh.toFixed(6)},${argb},${temp.toFixed(6)}`;
+  const draftFilters = (faceEditor.filters || []).concat([draft]);
+  refreshEditorPreview(draftFilters);
+  return draft;
+};
+
+[el.faceFinetuneFillSlider, el.faceFinetuneHighlightsSlider, el.faceFinetuneShadowsSlider, el.faceFinetuneTempSlider].forEach((node) => {
+  node.oninput = () => { refreshFinetune2Draft(); };
+});
+el.faceFinetuneNeutralInput.addEventListener("input", () => {
+  el.faceFinetuneNeutralInput.value = String(el.faceFinetuneNeutralInput.value || "").replace(/[^0-9a-fA-F]/g, "").slice(0, 8);
+  refreshFinetune2Draft();
+});
+el.btnApplyFinetune2Filter.onclick = () => {
+  const finetune2 = refreshFinetune2Draft();
+  faceEditor.filters.push(finetune2);
+  renderFilterList();
+  refreshEditorPreview();
+  el.finetune2Controls.classList.add("hidden");
+  el.btnFinetune2Mode.textContent = "Fine Tune 2";
+  el.faceEditorStatus.textContent = `Applied filter: finetune2 (${faceEditor.filters.length})`;
+};
 el.btnSettings.onclick = () => {
   el.settingsOverlay.classList.add("show");
   el.settingsOverlay.setAttribute("aria-hidden", "false");
@@ -2945,6 +3170,12 @@ el.btnFillLightMode.onclick = () => {
   el.fillLightControls.classList.toggle("hidden", !show);
   el.btnFillLightMode.textContent = show ? "Hide Fill Light" : "Fill Light";
 };
+el.btnFinetune2Mode.onclick = () => {
+  const show = el.finetune2Controls.classList.contains("hidden");
+  el.finetune2Controls.classList.toggle("hidden", !show);
+  el.btnFinetune2Mode.textContent = show ? "Hide Fine Tune 2" : "Fine Tune 2";
+  if (show) refreshFinetune2Draft();
+};
 el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
@@ -2969,8 +3200,10 @@ el.btnApplyTiltFilter.onclick = () => {
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
   el.fillLightControls.classList.add("hidden");
+  el.finetune2Controls.classList.add("hidden");
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
+  el.btnFinetune2Mode.textContent = "Fine Tune 2";
   el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
 };
 el.faceTiltSlider.oninput = () => {
