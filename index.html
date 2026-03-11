@@ -69,6 +69,9 @@
     .tileImageWrap { position:relative; }
     .tileTextOverlay { position:absolute; pointer-events:none; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); font-weight:600; left:8%; top:8%; font-size:14px; max-width:80%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
+
+    .ghostFaceRect { position:absolute; border:2px dashed rgba(255,255,255,.65); background:rgba(255,255,255,.08); pointer-events:auto; }
+    .ghostFaceAddBtn { position:absolute; right:-10px; top:-10px; width:22px; height:22px; border-radius:50%; border:1px solid #222; background:#22c55e; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; cursor:pointer; }
     .faceEditorSide { display:flex; flex-direction:column; gap:8px; min-height:0; overflow-y:auto; overflow-x:hidden; padding-right:4px; }
     .faceEditorSide input, .faceEditorSide textarea, .faceEditorSide select { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
     .albumChipWrap { display:flex; flex-wrap:wrap; gap:6px; min-height:36px; padding:6px; border:1px solid #333; border-radius:8px; background:#111; }
@@ -196,7 +199,7 @@
         <datalist id="faceAlbumSuggestions"></datalist>
         <input id="faceAlbumNamesInput" type="hidden">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="btnAlbumCreate">Add album from input</button>
+          <button id="btnAlbumCreate" class="hidden">Add album from input</button>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnCropMode">Crop</button>
@@ -204,6 +207,7 @@
           <button id="btnTiltMode">Tilt</button>
           <button id="btnFillLightMode">Fill Light</button>
           <button id="btnFinetune2Mode">Fine Tune 2</button>
+          <button id="btnFacesMode">Faces</button>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
@@ -242,10 +246,10 @@
           <label style="display:flex; align-items:center; gap:8px;"><input id="faceFinetuneUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for finetune2 preview</label>
           <button id="btnApplyFinetune2Filter">Apply finetune2 filter</button>
         </div>
-        <label>Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
+        <label class="hidden" id="faceFaceSelectWrap">Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
         <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="btnFaceAdd">Add face rectangle</button>
+          <button id="btnFaceAdd" class="hidden">Add face rectangle</button>
           <button id="btnTextAdd">Add text</button>
           <button id="btnUndoFilter">Undo filter</button>
           <button id="btnFaceSave">Save</button>
@@ -1236,6 +1240,7 @@ const el = {
   btnFaceFinetunePickNeutral: document.getElementById("btnFaceFinetunePickNeutral"),
   btnFaceFinetuneClearNeutral: document.getElementById("btnFaceFinetuneClearNeutral"),
   faceFaceSelect: document.getElementById("faceFaceSelect"),
+  faceFaceSelectWrap: document.getElementById("faceFaceSelectWrap"),
   faceLabelRow: document.getElementById("faceLabelRow"),
   faceFaceLabelInput: document.getElementById("faceFaceLabelInput"),
   btnTextAdd: document.getElementById("btnTextAdd"),
@@ -1279,6 +1284,7 @@ const el = {
   btnTiltMode: document.getElementById("btnTiltMode"),
   btnFillLightMode: document.getElementById("btnFillLightMode"),
   btnFinetune2Mode: document.getElementById("btnFinetune2Mode"),
+  btnFacesMode: document.getElementById("btnFacesMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnApplyCropFilter: document.getElementById("btnApplyCropFilter"),
   btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
@@ -1566,7 +1572,10 @@ const faceEditor = {
   previewRequestId: 0,
   filters: [],
   pickingFinetuneNeutral: false,
-  finetuneNeutralColor: null
+  finetuneNeutralColor: null,
+  facesModeActive: false,
+  detectedFaces: [],
+  pendingDetectedFaceIdx: -1
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
@@ -1676,6 +1685,7 @@ function updateSelectionRows() {
 function syncFaceSelectFromState() {
   const select = el.faceFaceSelect;
   select.innerHTML = "";
+
   faceEditor.faces.forEach((face, idx) => {
     const opt = document.createElement("option");
     opt.value = String(idx);
@@ -1812,7 +1822,7 @@ async function refreshEditorPreview(previewFilters = null) {
 }
 
 function renderFaceRects() {
-  el.faceCanvasWrap.querySelectorAll('.faceRect, .cropRect, .editorTextBox').forEach((n) => n.remove());
+  el.faceCanvasWrap.querySelectorAll('.faceRect, .cropRect, .editorTextBox, .ghostFaceRect').forEach((n) => n.remove());
   const r = el.faceCanvasImg.getBoundingClientRect();
   const p = el.faceCanvasWrap.getBoundingClientRect();
   faceEditor.displayW = r.width; faceEditor.displayH = r.height;
@@ -1831,6 +1841,33 @@ function renderFaceRects() {
     c.appendChild(ch);
     el.faceCanvasWrap.appendChild(c);
     el.faceCropInput.value = faceEditor.cropRect64;
+  }
+
+
+  if (faceEditor.facesModeActive && Array.isArray(faceEditor.detectedFaces) && faceEditor.detectedFaces.length) {
+    faceEditor.detectedFaces.forEach((box, idx) => {
+      const g = document.createElement('div');
+      g.className = 'ghostFaceRect';
+      g.style.left = `${offsetX + box.x * r.width}px`;
+      g.style.top = `${offsetY + box.y * r.height}px`;
+      g.style.width = `${Math.max(12, box.w * r.width)}px`;
+      g.style.height = `${Math.max(12, box.h * r.height)}px`;
+      const add = document.createElement('button');
+      add.type = 'button';
+      add.className = 'ghostFaceAddBtn';
+      add.textContent = '+';
+      add.title = 'Add detected face';
+      add.onclick = (ev) => {
+        ev.stopPropagation();
+        faceEditor.pendingDetectedFaceIdx = idx;
+        el.faceLabelRow.classList.remove('hidden');
+        el.faceFaceLabelInput.value = '';
+        el.faceFaceLabelInput.focus();
+        el.faceEditorStatus.textContent = 'Enter a label and press Enter to add detected face.';
+      };
+      g.appendChild(add);
+      el.faceCanvasWrap.appendChild(g);
+    });
   }
 
   faceEditor.faces.forEach((face, idx) => {
@@ -1905,10 +1942,56 @@ function renderFaceRects() {
     el.faceCanvasWrap.appendChild(box);
   });
 }
+
+async function detectFacesForEditor() {
+  faceEditor.detectedFaces = [];
+  if (!faceEditor.facesModeActive) return;
+  if (typeof window.FaceDetector !== 'function') {
+    el.faceEditorStatus.textContent = 'Face detection API unavailable in this browser.';
+    return;
+  }
+  try {
+    const detector = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 20 });
+    const result = await detector.detect(el.faceCanvasImg);
+    const w = Math.max(1, el.faceCanvasImg.naturalWidth || 1);
+    const h = Math.max(1, el.faceCanvasImg.naturalHeight || 1);
+    faceEditor.detectedFaces = result.map((d) => {
+      const b = d.boundingBox || { x: 0, y: 0, width: 0, height: 0 };
+      return {
+        x: Math.max(0, Math.min(1, b.x / w)),
+        y: Math.max(0, Math.min(1, b.y / h)),
+        w: Math.max(0.02, Math.min(1, b.width / w)),
+        h: Math.max(0.02, Math.min(1, b.height / h)),
+      };
+    });
+    renderFaceRects();
+    el.faceEditorStatus.textContent = faceEditor.detectedFaces.length ? `${faceEditor.detectedFaces.length} detected face(s). Click + to add.` : 'No faces detected.';
+  } catch (e) {
+    el.faceEditorStatus.textContent = `Face detection failed: ${String(e?.message || e)}`;
+  }
+}
+
+function setFacesMode(active) {
+  faceEditor.facesModeActive = !!active;
+  el.faceFaceSelectWrap.classList.toggle('hidden', !faceEditor.facesModeActive);
+  el.btnFaceAdd.classList.toggle('hidden', !faceEditor.facesModeActive);
+  el.faceLabelRow.classList.toggle('hidden', !faceEditor.facesModeActive);
+  el.btnFacesMode.textContent = faceEditor.facesModeActive ? 'Hide faces' : 'Faces';
+  if (!faceEditor.facesModeActive) {
+    faceEditor.pendingDetectedFaceIdx = -1;
+    faceEditor.detectedFaces = [];
+  }
+  renderFaceRects();
+  if (faceEditor.facesModeActive) detectFacesForEditor();
+}
+
 function openFaceEditor(imageItem) {
   faceEditor.imageItem = imageItem;
   faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
   faceEditor.activeFaceIdx = -1;
+  faceEditor.facesModeActive = false;
+  faceEditor.detectedFaces = [];
+  faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.selectedAlbumTokens = new Set();
   el.faceCaptionInput.value = imageItem.caption || '';
   faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
@@ -1967,6 +2050,7 @@ function openFaceEditor(imageItem) {
   el.btnFaceFinetunePickNeutral.textContent = "Pick neutral";
   syncFaceSelectFromState();
   syncTextInputsFromState();
+  setFacesMode(false);
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   faceEditor.albumNameToToken = new Map();
@@ -1988,6 +2072,7 @@ function openFaceEditor(imageItem) {
     faceEditor.naturalW = el.faceCanvasImg.naturalWidth || 1;
     faceEditor.naturalH = el.faceCanvasImg.naturalHeight || 1;
     renderFaceRects();
+    if (faceEditor.facesModeActive) detectFacesForEditor();
   };
   faceEditor.previewKey = "";
   faceEditor.previewRequestId = 0;
@@ -2017,6 +2102,9 @@ function closeFaceEditor() {
   faceEditor.pickingFinetuneNeutral = false;
   faceEditor.finetuneNeutralColor = null;
   faceEditor.activeFaceIdx = -1;
+  faceEditor.facesModeActive = false;
+  faceEditor.detectedFaces = [];
+  faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.selectedAlbumTokens = new Set();
   if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
   if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
@@ -3310,6 +3398,9 @@ el.btnFinetune2Mode.onclick = () => {
   el.btnFinetune2Mode.textContent = show ? "Hide Fine Tune 2" : "Fine Tune 2";
   if (show) refreshFinetune2Draft();
 };
+el.btnFacesMode.onclick = () => {
+  setFacesMode(!faceEditor.facesModeActive);
+};
 el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
@@ -3361,6 +3452,21 @@ el.faceFaceSelect.onmousedown = (ev) => {
   faceEditor.activeFaceIdx = (faceEditor.activeFaceIdx === idx) ? -1 : idx;
   syncFaceSelectFromState();
   renderFaceRects();
+};
+el.faceFaceLabelInput.onkeydown = (ev) => {
+  if (ev.key !== "Enter") return;
+  const label = String(el.faceFaceLabelInput.value || "").trim();
+  if (!label) return;
+  if (faceEditor.pendingDetectedFaceIdx >= 0 && faceEditor.detectedFaces[faceEditor.pendingDetectedFaceIdx]) {
+    const b = faceEditor.detectedFaces[faceEditor.pendingDetectedFaceIdx];
+    faceEditor.faces.push({ label, rect64: boxToRect64({ x: b.x, y: b.y, w: b.w, h: b.h }) });
+    faceEditor.activeFaceIdx = faceEditor.faces.length - 1;
+    faceEditor.pendingDetectedFaceIdx = -1;
+    syncFaceSelectFromState();
+    renderFaceRects();
+    el.faceEditorStatus.textContent = `Added detected face: ${label}`;
+    el.faceFaceLabelInput.value = "";
+  }
 };
 el.faceFaceLabelInput.oninput = () => {
   const idx = faceEditor.activeFaceIdx;
