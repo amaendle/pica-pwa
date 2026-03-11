@@ -1943,25 +1943,64 @@ function renderFaceRects() {
   });
 }
 
+const FACE_API_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
+const FACE_API_MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
+let faceApiLoadPromise = null;
+let faceApiModelsPromise = null;
+
+function loadFaceApiScript() {
+  if (window.faceapi) return Promise.resolve(window.faceapi);
+  if (faceApiLoadPromise) return faceApiLoadPromise;
+  faceApiLoadPromise = new Promise((resolve, reject) => {
+    const existing = document.querySelector('script[data-face-api="1"]');
+    if (existing) {
+      existing.addEventListener('load', () => resolve(window.faceapi));
+      existing.addEventListener('error', () => reject(new Error('Failed to load face-api.js script')));
+      return;
+    }
+    const script = document.createElement('script');
+    script.src = FACE_API_SCRIPT_URL;
+    script.async = true;
+    script.defer = true;
+    script.dataset.faceApi = '1';
+    script.onload = () => resolve(window.faceapi);
+    script.onerror = () => reject(new Error('Failed to load face-api.js script'));
+    document.head.appendChild(script);
+  });
+  return faceApiLoadPromise;
+}
+
+async function ensureFaceApiReady() {
+  const faceapi = await loadFaceApiScript();
+  if (!faceapi) throw new Error('face-api.js unavailable after script load');
+  if (!faceApiModelsPromise) {
+    faceApiModelsPromise = Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(FACE_API_MODEL_URL)
+    ]);
+  }
+  await faceApiModelsPromise;
+  return faceapi;
+}
+
 async function detectFacesForEditor() {
   faceEditor.detectedFaces = [];
   if (!faceEditor.facesModeActive) return;
-  if (typeof window.FaceDetector !== 'function') {
-    el.faceEditorStatus.textContent = 'Face detection API unavailable in this browser.';
-    return;
-  }
   try {
-    const detector = new window.FaceDetector({ fastMode: true, maxDetectedFaces: 20 });
-    const result = await detector.detect(el.faceCanvasImg);
-    const w = Math.max(1, el.faceCanvasImg.naturalWidth || 1);
-    const h = Math.max(1, el.faceCanvasImg.naturalHeight || 1);
-    faceEditor.detectedFaces = result.map((d) => {
-      const b = d.boundingBox || { x: 0, y: 0, width: 0, height: 0 };
+    el.faceEditorStatus.textContent = 'Loading face detection model…';
+    const faceapi = await ensureFaceApiReady();
+    el.faceEditorStatus.textContent = 'Detecting faces…';
+    const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 416, scoreThreshold: 0.4 });
+    const raw = await faceapi.detectAllFaces(el.faceCanvasImg, options);
+    const dw = Math.max(1, el.faceCanvasImg.clientWidth || el.faceCanvasImg.naturalWidth || 1);
+    const dh = Math.max(1, el.faceCanvasImg.clientHeight || el.faceCanvasImg.naturalHeight || 1);
+    const resized = faceapi.resizeResults(raw, { width: dw, height: dh });
+    faceEditor.detectedFaces = resized.map((d) => {
+      const b = d?.box || d?.detection?.box || { x: 0, y: 0, width: 0, height: 0 };
       return {
-        x: Math.max(0, Math.min(1, b.x / w)),
-        y: Math.max(0, Math.min(1, b.y / h)),
-        w: Math.max(0.02, Math.min(1, b.width / w)),
-        h: Math.max(0.02, Math.min(1, b.height / h)),
+        x: Math.max(0, Math.min(1, b.x / dw)),
+        y: Math.max(0, Math.min(1, b.y / dh)),
+        w: Math.max(0.02, Math.min(1, b.width / dw)),
+        h: Math.max(0.02, Math.min(1, b.height / dh))
       };
     });
     renderFaceRects();
