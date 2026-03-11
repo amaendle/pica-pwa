@@ -239,6 +239,7 @@
             <button id="btnFaceFinetuneClearNeutral" class="miniBtn">Clear neutral</button>
           </div>
           <label>Neutral ARGB (AARRGGBB)<input id="faceFinetuneNeutralInput" type="text" value="00000000" maxlength="8" placeholder="00000000" readonly></label>
+          <label style="display:flex; align-items:center; gap:8px;"><input id="faceFinetuneUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for finetune2 preview</label>
           <button id="btnApplyFinetune2Filter">Apply finetune2 filter</button>
         </div>
         <label>Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
@@ -791,7 +792,6 @@ function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = 
     }
     m = String(f).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
     if (m) {
-      applyFillLightOnCanvas(canvas, Number(m[1]));
       continue;
     }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
@@ -1090,7 +1090,11 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     }
     m = parseFinetune2Filter(f);
     if (m) {
-      if (!applyFinetune2OnCanvasWebGL(canvas, m)) applyFinetune2OnCanvas(canvas, m);
+      if (state.finetune2?.useWebglPreview) {
+        if (!applyFinetune2OnCanvasWebGL(canvas, m)) applyFinetune2OnCanvas(canvas, m);
+      } else {
+        applyFinetune2OnCanvas(canvas, m);
+      }
       continue;
     }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
@@ -1153,7 +1157,8 @@ const state = {
   activeListIndex: -1,
   libraryId: "default",
   slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true, enableFinetune2: true },
-  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini" }
+  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini" },
+  finetune2: { useWebglPreview: true }
 };
 /** ===========================
  *  UI elements
@@ -1226,6 +1231,7 @@ const el = {
   faceFinetuneTempSlider: document.getElementById("faceFinetuneTempSlider"),
   faceFinetuneTempValue: document.getElementById("faceFinetuneTempValue"),
   faceFinetuneNeutralInput: document.getElementById("faceFinetuneNeutralInput"),
+  faceFinetuneUseWebgl: document.getElementById("faceFinetuneUseWebgl"),
   faceFinetuneSwatch: document.getElementById("faceFinetuneSwatch"),
   btnFaceFinetunePickNeutral: document.getElementById("btnFaceFinetunePickNeutral"),
   btnFaceFinetuneClearNeutral: document.getElementById("btnFaceFinetuneClearNeutral"),
@@ -1953,6 +1959,7 @@ function openFaceEditor(imageItem) {
     b: finetune.neutralColor.b || 0
   } : null;
   el.faceFinetuneSwatch.style.background = faceEditor.finetuneNeutralColor ? `rgb(${faceEditor.finetuneNeutralColor.r}, ${faceEditor.finetuneNeutralColor.g}, ${faceEditor.finetuneNeutralColor.b})` : "#000";
+  el.faceFinetuneUseWebgl.checked = !!state.finetune2.useWebglPreview;
   el.faceCanvasImg.style.transform = "";
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
@@ -1993,6 +2000,7 @@ function closeFaceEditor() {
   el.faceEditorOverlay.classList.remove('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'true');
   el.faceCanvasImg.style.transform = "";
+  el.faceFinetuneUseWebgl.checked = !!state.finetune2.useWebglPreview;
   faceEditor.draggingIdx = -1;
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
@@ -2385,6 +2393,7 @@ function upsertIniAlbumsFromPicasa(pathRel, picasa) {
 }
 async function listImagesForAlbumRefs(imageRefs = []) {
   const out = [];
+  if (!state.dirIndex) return out;
   const byFolder = new Map();
   for (const ref of imageRefs) {
     if (!ref?.imageName) continue;
@@ -3185,6 +3194,10 @@ el.btnFaceFinetuneClearNeutral.onclick = () => {
   el.btnFaceFinetunePickNeutral.textContent = "Pick neutral";
   refreshFinetune2Draft();
 };
+el.faceFinetuneUseWebgl.onchange = () => {
+  state.finetune2.useWebglPreview = !!el.faceFinetuneUseWebgl.checked;
+  refreshEditorPreview();
+};
 el.btnApplyFinetune2Filter.onclick = () => {
   const finetune2 = refreshFinetune2Draft();
   faceEditor.filters.push(finetune2);
@@ -3301,11 +3314,11 @@ el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
   faceEditor.filters.push(`crop64=1,${c}`);
-  faceEditor.cropUiVisible = true;
-  el.faceCropRow.classList.remove("hidden");
-  el.btnApplyCropFilter.classList.remove("hidden");
-  el.cropControls.classList.remove("hidden");
-  el.btnCropMode.textContent = "Hide crop";
+  faceEditor.cropUiVisible = false;
+  el.faceCropRow.classList.add("hidden");
+  el.btnApplyCropFilter.classList.add("hidden");
+  el.cropControls.classList.add("hidden");
+  el.btnCropMode.textContent = "Crop";
   renderFilterList();
   refreshEditorPreview();
   renderFaceRects();
