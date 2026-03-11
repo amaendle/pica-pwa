@@ -146,6 +146,7 @@
         <input id="albumNameInput" class="hidden" type="text" style="max-width:220px;" placeholder="Album name">
         <button id="btnRenameAlbum" class="hidden">Rename album</button>
         <span class="pill" id="countPill"></span>
+        <button id="btnToggleGalleryFinetune2">FineTune2: On</button>
         <span class="pill" id="resolvePill"></span>
         <span style="margin-left:auto" class="pill">Slideshow: <span class="kbd">←</span>/<span class="kbd">→</span> <span class="kbd">Space</span> <span class="kbd">Esc</span></span>
       </div>
@@ -229,7 +230,15 @@
           <label>Highlights <span id="faceFinetuneHighlightsValue" class="mono">0.000000</span><input id="faceFinetuneHighlightsSlider" type="range" min="0" max="0.48" step="0.001" value="0"></label>
           <label>Shadows <span id="faceFinetuneShadowsValue" class="mono">0.000000</span><input id="faceFinetuneShadowsSlider" type="range" min="0" max="0.48" step="0.001" value="0"></label>
           <label>Color Temperature <span id="faceFinetuneTempValue" class="mono">0.000000</span><input id="faceFinetuneTempSlider" type="range" min="-1" max="1" step="0.001" value="0"></label>
-          <label>Neutral ARGB (AARRGGBB)<input id="faceFinetuneNeutralInput" type="text" value="00000000" maxlength="8" placeholder="00000000"></label>
+          <div style="display:grid; grid-template-columns:1fr auto; gap:8px; align-items:center;">
+            <label style="margin:0;">Neutral Color Picker<div class="status" style="font-size:11px; color:#aaa;">Click pick, then click preview image</div></label>
+            <div id="faceFinetuneSwatch" style="width:28px;height:28px;border:1px solid #555;border-radius:6px;background:#000;"></div>
+          </div>
+          <div style="display:flex; gap:8px;">
+            <button id="btnFaceFinetunePickNeutral" class="miniBtn">Pick neutral</button>
+            <button id="btnFaceFinetuneClearNeutral" class="miniBtn">Clear neutral</button>
+          </div>
+          <label>Neutral ARGB (AARRGGBB)<input id="faceFinetuneNeutralInput" type="text" value="00000000" maxlength="8" placeholder="00000000" readonly></label>
           <button id="btnApplyFinetune2Filter">Apply finetune2 filter</button>
         </div>
         <label>Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
@@ -756,6 +765,11 @@ function buildEffectiveFilterChain(filters = [], fallbackCropRect64 = "") {
   return chain;
 }
 
+function maybeStripFinetune2Filters(filters = [], enabled = true) {
+  if (enabled) return Array.isArray(filters) ? filters.slice() : [];
+  return (Array.isArray(filters) ? filters : []).filter((f) => !/^finetune2=1,/i.test(String(f || "").trim()));
+}
+
 function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = [], fallbackCropRect64 = "") {
   const baseW = Math.max(1, Number(naturalW) || 1);
   const baseH = Math.max(1, Number(naturalH) || 1);
@@ -848,6 +862,83 @@ const FINETUNE2_SHADOWS_CORR = [
   [0.60, 0.60], [0.80, 0.80], [0.95, 0.94], [1.00, 1.00]
 ];
 
+
+function argbHexFromRGBA(r, g, b, a = 255) {
+  const vals = [a, r, g, b].map((v) => Math.max(0, Math.min(255, Math.round(Number(v) || 0))));
+  return vals.map((v) => v.toString(16).padStart(2, "0")).join("");
+}
+
+function applyFinetune2OnCanvasWebGL(canvas, params) {
+  if (!canvas || !params) return false;
+  const glCanvas = document.createElement("canvas");
+  glCanvas.width = canvas.width;
+  glCanvas.height = canvas.height;
+  const gl = glCanvas.getContext("webgl2", { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
+  if (!gl) return false;
+  const vsSrc = `#version 300 es
+    in vec2 aPos; out vec2 vUv;
+    void main(){ vUv=aPos*0.5+0.5; gl_Position=vec4(aPos,0.0,1.0);} `;
+  const fsSrc = `#version 300 es
+    precision highp float;
+    uniform sampler2D uImage; uniform float uFillLight; uniform float uHighlights; uniform float uShadows;
+    uniform float uTemperature; uniform vec3 uNeutralColor; uniform float uHasNeutral;
+    const int CURVE_POINTS=8;
+    uniform vec2 uFillBase[CURVE_POINTS]; uniform vec2 uFillCorr[CURVE_POINTS];
+    uniform vec2 uHighlightsBase[CURVE_POINTS]; uniform vec2 uHighlightsCorr[CURVE_POINTS];
+    uniform vec2 uShadowsBase[CURVE_POINTS]; uniform vec2 uShadowsCorr[CURVE_POINTS];
+    in vec2 vUv; out vec4 outColor;
+    vec3 srgbToLinear(vec3 c){vec3 lo=c/12.92;vec3 hi=pow((c+0.055)/1.055,vec3(2.4));bvec3 cutoff=lessThanEqual(c,vec3(0.04045));return mix(hi,lo,cutoff);} 
+    vec3 linearToSrgb(vec3 c){vec3 lo=12.92*c;vec3 hi=1.055*pow(max(c,vec3(0.0)),vec3(1.0/2.4))-0.055;bvec3 cutoff=lessThanEqual(c,vec3(0.0031308));return mix(hi,lo,cutoff);} 
+    vec3 applyNeutralPicker(vec3 lin, vec3 pickedSrgb){vec3 picked=srgbToLinear(clamp(pickedSrgb,0.0,1.0)); float m=(picked.r+picked.g+picked.b)/3.0; vec3 gain=vec3(m)/max(picked,vec3(1e-4)); float avgGain=(gain.r+gain.g+gain.b)/3.0; gain/=max(avgGain,1e-4); return lin*gain;}
+    vec3 applyTemperature(vec3 lin,float t){t=clamp(t,-1.0,1.0);vec3 gain;if(t>=0.0){gain=vec3(1.0+0.20*t,1.0+0.04*t,1.0-0.18*t);}else{float u=-t;gain=vec3(1.0-0.18*u,1.0+0.02*u,1.0+0.22*u);} return lin*gain;}
+    float catmullRom(float p0,float p1,float p2,float p3,float t){float t2=t*t;float t3=t2*t;return 0.5*((2.0*p1)+(-p0+p2)*t+(2.0*p0-5.0*p1+4.0*p2-p3)*t2+(-p0+3.0*p1-3.0*p2+p3)*t3);} 
+    float sampleCurve(vec2 pts[CURVE_POINTS],float x){x=clamp(x,0.0,1.0); if(x<=pts[0].x) return pts[0].y; for(int i=0;i<CURVE_POINTS-1;i++){ if(x<=pts[i+1].x){int i0=max(i-1,0);int i1=i;int i2=i+1;int i3=min(i+2,CURVE_POINTS-1); float dx=max(pts[i2].x-pts[i1].x,1e-6); float t=(x-pts[i1].x)/dx; return clamp(catmullRom(pts[i0].y,pts[i1].y,pts[i2].y,pts[i3].y,t),0.0,1.0);} } return pts[CURVE_POINTS-1].y; }
+    float applyCurve(float y, vec2 pts[CURVE_POINTS], float amount01){ return mix(y,sampleCurve(pts,y),clamp(amount01,0.0,1.0)); }
+    void main(){ vec4 texel=texture(uImage,vUv); vec3 lin=srgbToLinear(texel.rgb); if(uHasNeutral>0.5) lin=applyNeutralPicker(lin,uNeutralColor); lin=applyTemperature(lin,uTemperature); lin=max(lin,vec3(0.0));
+      float y=dot(lin,vec3(0.2126,0.7152,0.0722)); float y2=y; float fill01=clamp(uFillLight,0.0,1.0); float hi01=clamp(uHighlights/0.48,0.0,1.0); float sh01=clamp(uShadows/0.48,0.0,1.0);
+      y2=applyCurve(y2,uFillBase,fill01); y2=applyCurve(y2,uHighlightsBase,hi01); y2=applyCurve(y2,uShadowsBase,sh01);
+      if(fill01>0.0 && hi01<1e-5 && sh01<1e-5) y2=applyCurve(y2,uFillCorr,fill01);
+      if(hi01>0.0 && fill01<1e-5 && sh01<1e-5) y2=applyCurve(y2,uHighlightsCorr,hi01);
+      if(sh01>0.0 && fill01<1e-5 && hi01<1e-5) y2=applyCurve(y2,uShadowsCorr,sh01);
+      float scale=y>1e-6?(y2/y):1.0; vec3 outLin=clamp(lin*scale,0.0,1.0); vec3 outRgb=linearToSrgb(outLin); outColor=vec4(clamp(outRgb,0.0,1.0),texel.a);
+    }`;
+  const compile=(type,src)=>{const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){throw new Error(gl.getShaderInfoLog(sh)||"shader");}return sh;};
+  try {
+    const vs=compile(gl.VERTEX_SHADER,vsSrc), fs=compile(gl.FRAGMENT_SHADER,fsSrc);
+    const prog=gl.createProgram(); gl.attachShader(prog,vs); gl.attachShader(prog,fs); gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog)||"link");
+    gl.useProgram(prog);
+    const loc=(name)=>gl.getUniformLocation(prog,name);
+    const aPos=gl.getAttribLocation(prog,'aPos');
+    const uImage=loc('uImage');
+    gl.uniform1i(uImage,0);
+    gl.uniform1f(loc('uFillLight'), Math.max(0, Math.min(1, Number(params.fillLight)||0)));
+    gl.uniform1f(loc('uHighlights'), Math.max(0, Math.min(0.48, Number(params.highlights)||0)));
+    gl.uniform1f(loc('uShadows'), Math.max(0, Math.min(0.48, Number(params.shadows)||0)));
+    gl.uniform1f(loc('uTemperature'), Math.max(-1, Math.min(1, Number(params.colorTemperature)||0)));
+    if (params.neutralColor?.hasNeutral) {
+      gl.uniform3f(loc('uNeutralColor'), (params.neutralColor.r||0)/255, (params.neutralColor.g||0)/255, (params.neutralColor.b||0)/255);
+      gl.uniform1f(loc('uHasNeutral'), 1.0);
+    } else {
+      gl.uniform3f(loc('uNeutralColor'), 0,0,0); gl.uniform1f(loc('uHasNeutral'), 0.0);
+    }
+    const setCurve=(prefix,curve)=>{ for(let i=0;i<8;i++){ const l=loc(`${prefix}[${i}]`); gl.uniform2f(l, curve[i][0], curve[i][1]); } };
+    setCurve('uFillBase', FINETUNE2_FILL_BASE); setCurve('uFillCorr', FINETUNE2_FILL_CORR);
+    setCurve('uHighlightsBase', FINETUNE2_HIGHLIGHTS_BASE); setCurve('uHighlightsCorr', FINETUNE2_HIGHLIGHTS_CORR);
+    setCurve('uShadowsBase', FINETUNE2_SHADOWS_BASE); setCurve('uShadowsCorr', FINETUNE2_SHADOWS_CORR);
+    const quad=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+    const tex=gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,canvas);
+    gl.viewport(0,0,glCanvas.width,glCanvas.height); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES,0,6);
+    const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(glCanvas,0,0);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function parseFinetune2Filter(filterString = "") {
   const m = String(filterString || "").trim().match(/^finetune2=1,([^,]*),([^,]*),([^,]*),([0-9a-f]{8}),([^,]*)$/i);
   if (!m) return null;
@@ -999,7 +1090,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     }
     m = parseFinetune2Filter(f);
     if (m) {
-      applyFinetune2OnCanvas(canvas, m);
+      if (!applyFinetune2OnCanvasWebGL(canvas, m)) applyFinetune2OnCanvas(canvas, m);
       continue;
     }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
@@ -1061,7 +1152,7 @@ const state = {
   currentViewMode: "albums",
   activeListIndex: -1,
   libraryId: "default",
-  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true },
+  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true, enableFinetune2: true },
   prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini" }
 };
 /** ===========================
@@ -1097,6 +1188,7 @@ const el = {
   btnToggleFaces: document.getElementById("btnToggleFaces"),
   btnToggleCrop: document.getElementById("btnToggleCrop"),
   btnToggleText: document.getElementById("btnToggleText"),
+  btnToggleGalleryFinetune2: document.getElementById("btnToggleGalleryFinetune2"),
   btnToggleStar: document.getElementById("btnToggleStar"),
   slideFaceLayer: document.getElementById("slideFaceLayer"),
   slideTextOverlay: document.getElementById("slideTextOverlay"),
@@ -1134,6 +1226,9 @@ const el = {
   faceFinetuneTempSlider: document.getElementById("faceFinetuneTempSlider"),
   faceFinetuneTempValue: document.getElementById("faceFinetuneTempValue"),
   faceFinetuneNeutralInput: document.getElementById("faceFinetuneNeutralInput"),
+  faceFinetuneSwatch: document.getElementById("faceFinetuneSwatch"),
+  btnFaceFinetunePickNeutral: document.getElementById("btnFaceFinetunePickNeutral"),
+  btnFaceFinetuneClearNeutral: document.getElementById("btnFaceFinetuneClearNeutral"),
   faceFaceSelect: document.getElementById("faceFaceSelect"),
   faceLabelRow: document.getElementById("faceLabelRow"),
   faceFaceLabelInput: document.getElementById("faceFaceLabelInput"),
@@ -1463,7 +1558,9 @@ const faceEditor = {
   previewKey: "",
   previewDraftUrl: "",
   previewRequestId: 0,
-  filters: []
+  filters: [],
+  pickingFinetuneNeutral: false,
+  finetuneNeutralColor: null
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
@@ -1849,9 +1946,18 @@ function openFaceEditor(imageItem) {
     ? `${(finetune.neutralColor.a || 0).toString(16).padStart(2, "0")}${(finetune.neutralColor.r || 0).toString(16).padStart(2, "0")}${(finetune.neutralColor.g || 0).toString(16).padStart(2, "0")}${(finetune.neutralColor.b || 0).toString(16).padStart(2, "0")}`
     : "00000000";
   el.faceFinetuneNeutralInput.value = argb.toLowerCase();
+  faceEditor.finetuneNeutralColor = finetune?.neutralColor?.hasNeutral ? {
+    a: finetune.neutralColor.a || 255,
+    r: finetune.neutralColor.r || 0,
+    g: finetune.neutralColor.g || 0,
+    b: finetune.neutralColor.b || 0
+  } : null;
+  el.faceFinetuneSwatch.style.background = faceEditor.finetuneNeutralColor ? `rgb(${faceEditor.finetuneNeutralColor.r}, ${faceEditor.finetuneNeutralColor.g}, ${faceEditor.finetuneNeutralColor.b})` : "#000";
   el.faceCanvasImg.style.transform = "";
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
+  faceEditor.pickingFinetuneNeutral = false;
+  el.btnFaceFinetunePickNeutral.textContent = "Pick neutral";
   syncFaceSelectFromState();
   syncTextInputsFromState();
   const relDir = folderOfRelPath(imageItem.relPath);
@@ -1900,6 +2006,8 @@ function closeFaceEditor() {
   faceEditor.textDragging = false;
   faceEditor.textDragMode = "move";
   faceEditor.activeTextIdx = -1;
+  faceEditor.pickingFinetuneNeutral = false;
+  faceEditor.finetuneNeutralColor = null;
   faceEditor.activeFaceIdx = -1;
   faceEditor.selectedAlbumTokens = new Set();
   if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
@@ -2671,7 +2779,7 @@ async function renderTiles(images) {
       img.alt = it.name;
       // thumb
       try {
-        const chain = buildEffectiveFilterChain(it.filters || [], it.cropRect64 || "");
+        const chain = buildEffectiveFilterChain(maybeStripFinetune2Filters(it.filters || [], state.slideshow.enableFinetune2), it.cropRect64 || "");
         it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "");
         img.src = it.thumbUrl;
       } catch {
@@ -2786,9 +2894,9 @@ async function updateSlide() {
   const tiltVal = state.slideshow.showCrop ? lastTiltFromFilters(it.filters || []) : 0;
   const tiltDeg = tiltValueToDeg(tiltVal);
   if (state.slideshow.showCrop) {
-    const chain = Array.isArray(it.filters) ? it.filters.map((f) => String(f || "")).filter(Boolean) : [];
+    const chain = maybeStripFinetune2Filters(it.filters || [], state.slideshow.enableFinetune2).map((f) => String(f || "")).filter(Boolean);
     const fallbackCrop = chain.length ? "" : String(it.cropRect64 || "").trim();
-    const cacheKey = JSON.stringify({ filters: chain, crop: fallbackCrop });
+    const cacheKey = JSON.stringify({ filters: chain, crop: fallbackCrop, finetune2: state.slideshow.enableFinetune2 });
     if (!it.slidePreviewUrl || it.slidePreviewKey !== cacheKey) {
       if (it.slidePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(it.slidePreviewUrl);
       it.slidePreviewUrl = await makeFilteredPreviewURL(it.file, chain, 2048, fallbackCrop);
@@ -2854,6 +2962,7 @@ async function updateSlide() {
   el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
   el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
   el.btnToggleText.textContent = state.slideshow.showText ? "Text: On" : "Text: Off";
+  if (el.btnToggleGalleryFinetune2) el.btnToggleGalleryFinetune2.textContent = state.slideshow.enableFinetune2 ? "FineTune2: On" : "FineTune2: Off";
   el.btnToggleStar.textContent = it.star ? "Star: On" : "Star: Off";
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
@@ -3049,13 +3158,14 @@ const refreshFinetune2Draft = () => {
   const hi = Math.max(0, Math.min(0.48, Number(el.faceFinetuneHighlightsSlider.value || "0")));
   const sh = Math.max(0, Math.min(0.48, Number(el.faceFinetuneShadowsSlider.value || "0")));
   const temp = Math.max(-1, Math.min(1, Number(el.faceFinetuneTempSlider.value || "0")));
-  const rawArgb = String(el.faceFinetuneNeutralInput.value || "00000000").trim().replace(/^#/, "").toLowerCase();
-  const argb = /^[0-9a-f]{8}$/i.test(rawArgb) ? rawArgb : "00000000";
+  const argb = faceEditor.finetuneNeutralColor ? argbHexFromRGBA(faceEditor.finetuneNeutralColor.r, faceEditor.finetuneNeutralColor.g, faceEditor.finetuneNeutralColor.b, faceEditor.finetuneNeutralColor.a || 255) : "00000000";
+  el.faceFinetuneNeutralInput.value = argb;
   el.faceFinetuneFillValue.textContent = fill.toFixed(6);
   el.faceFinetuneHighlightsValue.textContent = hi.toFixed(6);
   el.faceFinetuneShadowsValue.textContent = sh.toFixed(6);
   el.faceFinetuneTempValue.textContent = temp.toFixed(6);
-  const draft = `finetune2=1,${fill.toFixed(6)},${hi.toFixed(6)},${sh.toFixed(6)},${argb},${temp.toFixed(6)}`;
+  el.faceFinetuneSwatch.style.background = faceEditor.finetuneNeutralColor ? `rgb(${faceEditor.finetuneNeutralColor.r}, ${faceEditor.finetuneNeutralColor.g}, ${faceEditor.finetuneNeutralColor.b})` : "#000";
+  const draft = `finetune2=1,${fill.toFixed(6)},${hi.toFixed(6)},${sh.toFixed(6)},${argb.toLowerCase()},${temp.toFixed(6)}`;
   const draftFilters = (faceEditor.filters || []).concat([draft]);
   refreshEditorPreview(draftFilters);
   return draft;
@@ -3064,10 +3174,17 @@ const refreshFinetune2Draft = () => {
 [el.faceFinetuneFillSlider, el.faceFinetuneHighlightsSlider, el.faceFinetuneShadowsSlider, el.faceFinetuneTempSlider].forEach((node) => {
   node.oninput = () => { refreshFinetune2Draft(); };
 });
-el.faceFinetuneNeutralInput.addEventListener("input", () => {
-  el.faceFinetuneNeutralInput.value = String(el.faceFinetuneNeutralInput.value || "").replace(/[^0-9a-fA-F]/g, "").slice(0, 8);
+el.btnFaceFinetunePickNeutral.onclick = () => {
+  faceEditor.pickingFinetuneNeutral = !faceEditor.pickingFinetuneNeutral;
+  el.btnFaceFinetunePickNeutral.textContent = faceEditor.pickingFinetuneNeutral ? "Cancel pick" : "Pick neutral";
+  el.faceEditorStatus.textContent = faceEditor.pickingFinetuneNeutral ? "Click a neutral pixel in the preview." : "Neutral picker cancelled.";
+};
+el.btnFaceFinetuneClearNeutral.onclick = () => {
+  faceEditor.finetuneNeutralColor = null;
+  faceEditor.pickingFinetuneNeutral = false;
+  el.btnFaceFinetunePickNeutral.textContent = "Pick neutral";
   refreshFinetune2Draft();
-});
+};
 el.btnApplyFinetune2Filter.onclick = () => {
   const finetune2 = refreshFinetune2Draft();
   faceEditor.filters.push(finetune2);
@@ -3116,6 +3233,11 @@ el.btnPlay.onclick = togglePlay;
 el.btnToggleFaces.onclick = () => { state.slideshow.showFaces = !state.slideshow.showFaces; updateSlide(); };
 el.btnToggleCrop.onclick = () => { state.slideshow.showCrop = !state.slideshow.showCrop; updateSlide(); };
 el.btnToggleText.onclick = () => { state.slideshow.showText = !state.slideshow.showText; updateSlide(); };
+el.btnToggleGalleryFinetune2.onclick = async () => {
+  state.slideshow.enableFinetune2 = !state.slideshow.enableFinetune2;
+  if (state.slideshow.open) await updateSlide();
+  await renderGrid();
+};
 el.btnToggleStar.onclick = async () => {
   const it = state.currentImages[state.slideshow.index];
   if (!it) return;
@@ -3292,6 +3414,23 @@ document.querySelectorAll(".btnAspect").forEach((btn) => {
   };
 });
 el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
+  if (faceEditor.pickingFinetuneNeutral) {
+    const imgRect = el.faceCanvasImg.getBoundingClientRect();
+    const x = Math.max(0, Math.min(imgRect.width - 1, ev.clientX - imgRect.left));
+    const y = Math.max(0, Math.min(imgRect.height - 1, ev.clientY - imgRect.top));
+    const pick = document.createElement("canvas");
+    pick.width = Math.max(1, Math.round(imgRect.width));
+    pick.height = Math.max(1, Math.round(imgRect.height));
+    const pctx = pick.getContext("2d", { willReadFrequently: true });
+    pctx.drawImage(el.faceCanvasImg, 0, 0, pick.width, pick.height);
+    const px = pctx.getImageData(Math.floor(x), Math.floor(y), 1, 1).data;
+    faceEditor.finetuneNeutralColor = { r: px[0], g: px[1], b: px[2], a: px[3] };
+    faceEditor.pickingFinetuneNeutral = false;
+    el.btnFaceFinetunePickNeutral.textContent = "Pick neutral";
+    el.faceEditorStatus.textContent = `Picked neutral #${argbHexFromRGBA(px[0], px[1], px[2], px[3]).toLowerCase()}`;
+    refreshFinetune2Draft();
+    return;
+  }
   const target = ev.target;
   if (target === el.faceCanvasWrap || target === el.faceCanvasImg) {
     if (faceEditor.activeTextIdx >= 0) {
