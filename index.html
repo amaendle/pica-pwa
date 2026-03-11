@@ -146,7 +146,6 @@
         <input id="albumNameInput" class="hidden" type="text" style="max-width:220px;" placeholder="Album name">
         <button id="btnRenameAlbum" class="hidden">Rename album</button>
         <span class="pill" id="countPill"></span>
-        <button id="btnToggleGalleryFinetune2">FineTune2: On</button>
         <span class="pill" id="resolvePill"></span>
         <span style="margin-left:auto" class="pill">Slideshow: <span class="kbd">←</span>/<span class="kbd">→</span> <span class="kbd">Space</span> <span class="kbd">Esc</span></span>
       </div>
@@ -170,6 +169,7 @@
           <button id="btnToggleFaces">Faces: On</button>
           <button id="btnToggleCrop">Crop: On</button>
           <button id="btnToggleText">Text: On</button>
+          <button id="btnToggleFinetune2">FineTune2: On</button>
           <button id="btnToggleStar">Star: Off</button>
           <button id="btnClose">Close (Esc)</button>
         </div>
@@ -1188,7 +1188,7 @@ const el = {
   btnToggleFaces: document.getElementById("btnToggleFaces"),
   btnToggleCrop: document.getElementById("btnToggleCrop"),
   btnToggleText: document.getElementById("btnToggleText"),
-  btnToggleGalleryFinetune2: document.getElementById("btnToggleGalleryFinetune2"),
+  btnToggleFinetune2: document.getElementById("btnToggleFinetune2"),
   btnToggleStar: document.getElementById("btnToggleStar"),
   slideFaceLayer: document.getElementById("slideFaceLayer"),
   slideTextOverlay: document.getElementById("slideTextOverlay"),
@@ -2779,7 +2779,7 @@ async function renderTiles(images) {
       img.alt = it.name;
       // thumb
       try {
-        const chain = buildEffectiveFilterChain(maybeStripFinetune2Filters(it.filters || [], state.slideshow.enableFinetune2), it.cropRect64 || "");
+        const chain = buildEffectiveFilterChain(it.filters || [], it.cropRect64 || "");
         it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "");
         img.src = it.thumbUrl;
       } catch {
@@ -2962,7 +2962,7 @@ async function updateSlide() {
   el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
   el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
   el.btnToggleText.textContent = state.slideshow.showText ? "Text: On" : "Text: Off";
-  if (el.btnToggleGalleryFinetune2) el.btnToggleGalleryFinetune2.textContent = state.slideshow.enableFinetune2 ? "FineTune2: On" : "FineTune2: Off";
+  if (el.btnToggleFinetune2) el.btnToggleFinetune2.textContent = state.slideshow.enableFinetune2 ? "FineTune2: On" : "FineTune2: Off";
   el.btnToggleStar.textContent = it.star ? "Star: On" : "Star: Off";
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
@@ -3233,10 +3233,9 @@ el.btnPlay.onclick = togglePlay;
 el.btnToggleFaces.onclick = () => { state.slideshow.showFaces = !state.slideshow.showFaces; updateSlide(); };
 el.btnToggleCrop.onclick = () => { state.slideshow.showCrop = !state.slideshow.showCrop; updateSlide(); };
 el.btnToggleText.onclick = () => { state.slideshow.showText = !state.slideshow.showText; updateSlide(); };
-el.btnToggleGalleryFinetune2.onclick = async () => {
+el.btnToggleFinetune2.onclick = async () => {
   state.slideshow.enableFinetune2 = !state.slideshow.enableFinetune2;
   if (state.slideshow.open) await updateSlide();
-  await renderGrid();
 };
 el.btnToggleStar.onclick = async () => {
   const it = state.currentImages[state.slideshow.index];
