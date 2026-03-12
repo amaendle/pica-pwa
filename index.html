@@ -489,11 +489,13 @@ async function readFileAsArrayBuffer(fileHandle) {
  *  IndexedDB persistence
  *  =========================== */
 const DB_NAME = "pica-library";
-const DB_VERSION = 1;
+const DB_VERSION = 2;
 const STORES = {
   libraries: "libraries",
   albums: "albums",
-  folders: "folders"
+  folders: "folders",
+  images: "images",
+  pmpColumns: "pmpColumns"
 };
 function openLibraryDB() {
   return new Promise((resolve, reject) => {
@@ -510,6 +512,16 @@ function openLibraryDB() {
       if (!db.objectStoreNames.contains(STORES.folders)) {
         const folders = db.createObjectStore(STORES.folders, { keyPath: "id" });
         folders.createIndex("libraryId", "libraryId", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORES.images)) {
+        const images = db.createObjectStore(STORES.images, { keyPath: "id" });
+        images.createIndex("libraryId", "libraryId", { unique: false });
+        images.createIndex("relPath", "relPath", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORES.pmpColumns)) {
+        const pmp = db.createObjectStore(STORES.pmpColumns, { keyPath: "id" });
+        pmp.createIndex("libraryId", "libraryId", { unique: false });
+        pmp.createIndex("table", "table", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -602,6 +614,49 @@ async function loadLibrarySnapshot(libraryId = "default") {
       tx.onabort = () => reject(tx.error || new Error("IndexedDB read aborted"));
     });
     return out;
+  } finally {
+    db.close();
+  }
+}
+
+async function savePmpColumnsSnapshot(libraryId, columns) {
+  const db = await openLibraryDB();
+  try {
+    const tx = db.transaction([STORES.pmpColumns], "readwrite");
+    const store = tx.objectStore(STORES.pmpColumns);
+    for (const col of (columns || [])) store.put(col);
+    await txDone(tx);
+  } finally {
+    db.close();
+  }
+}
+
+async function upsertIndexedImages(imageItems = []) {
+  if (!Array.isArray(imageItems) || !imageItems.length) return;
+  const db = await openLibraryDB();
+  try {
+    const tx = db.transaction([STORES.images], "readwrite");
+    const store = tx.objectStore(STORES.images);
+    for (const it of imageItems) {
+      const relPath = String(it.relPath || "");
+      if (!relPath) continue;
+      const id = `${state.libraryId}:image:${relPath}`;
+      store.put({
+        id,
+        libraryId: state.libraryId,
+        relPath,
+        name: it.name || relPath.split("/").pop() || "",
+        caption: it.caption || "",
+        keywords: Array.isArray(it.keywords) ? it.keywords.slice() : [],
+        star: !!it.star,
+        cropRect64: it.cropRect64 || "",
+        filters: Array.isArray(it.filters) ? it.filters.slice() : [],
+        width: Number(it.naturalW || 0) || 0,
+        height: Number(it.naturalH || 0) || 0,
+        updatedAt: Date.now()
+      });
+    }
+    await txDone(tx);
   } finally {
     db.close();
   }
@@ -801,11 +856,14 @@ function ensureSpecialAlbums() {
     if (ref?.pathRel && ref?.imageName) addScreenRef({ pathRel: ref.pathRel, imageName: ref.imageName });
   }
 
+  const lang = String((navigator.language || "en")).toLowerCase();
+  const starName = lang.startsWith("de") ? "Markierte Bilder" : "Starred images";
+  const screenName = lang.startsWith("de") ? "Bilderrahmen-Auswahl" : "Showcase";
   const starAlbum = {
     id: existingStar?.id || `sys:]star`,
     source: "system",
     token: "]star",
-    name: "]star",
+    name: starName,
     pathRel: "",
     absPath: "",
     broken: false,
@@ -815,7 +873,7 @@ function ensureSpecialAlbums() {
     id: existingScreen?.id || `sys:]screensaver`,
     source: "system",
     token: "]screensaver",
-    name: "]screensaver",
+    name: screenName,
     pathRel: "",
     absPath: "",
     broken: false,
@@ -1627,7 +1685,8 @@ const faceEditor = {
   detectedFaces: [],
   pendingDetectedFaceIdx: -1,
   faceRenameMode: false,
-  pendingNewFaceIdx: -1
+  pendingNewFaceIdx: -1,
+  awaitingNewFaceDraw: false
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
@@ -2079,6 +2138,7 @@ function setFacesMode(active) {
     faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.pendingNewFaceIdx = -1;
   faceEditor.faceRenameMode = false;
+  faceEditor.awaitingNewFaceDraw = false;
     faceEditor.detectedFaces = [];
   }
   renderFaceRects();
@@ -2094,6 +2154,7 @@ function openFaceEditor(imageItem) {
   faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.pendingNewFaceIdx = -1;
   faceEditor.faceRenameMode = false;
+  faceEditor.awaitingNewFaceDraw = false;
   faceEditor.selectedAlbumTokens = new Set();
   el.faceCaptionInput.value = imageItem.caption || '';
   faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
@@ -2209,6 +2270,7 @@ function closeFaceEditor() {
   faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.pendingNewFaceIdx = -1;
   faceEditor.faceRenameMode = false;
+  faceEditor.awaitingNewFaceDraw = false;
   faceEditor.selectedAlbumTokens = new Set();
   if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
   if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
@@ -2627,12 +2689,41 @@ async function listImagesForAlbumRefs(imageRefs = []) {
   return out;
 }
 
+
+async function scanAndStoreAllPmpColumns() {
+  const dbDir = await state.pmpRoot.getDirectoryHandle("db");
+  const out = [];
+  for await (const [name, handle] of dbDir.entries()) {
+    if (handle.kind !== "file") continue;
+    const m = String(name).match(/^(albumdata|catdata|imagedata)_([^\.]+)\.pmp$/i);
+    if (!m) continue;
+    try {
+      const file = await handle.getFile();
+      const buf = await file.arrayBuffer();
+      const parsed = PMPReaderJS.read(buf);
+      out.push({
+        id: `${state.libraryId}:pmp:${name}`,
+        libraryId: state.libraryId,
+        table: m[1].toLowerCase(),
+        column: m[2],
+        fileName: name,
+        type: parsed.type,
+        nEntries: parsed.n_entries,
+        entries: parsed.entries
+      });
+    } catch {}
+  }
+  await savePmpColumnsSnapshot(state.libraryId, out);
+  return out;
+}
+
 /** ===========================
  *  Load PMP albums from db/
  *  =========================== */
 async function loadAlbumsFromPMP() {
   if (!state.pmpRoot) throw new Error("No PMP import folder selected");
   if (!state.libraryRoot || !state.dirIndex) throw new Error("No library folder selected");
+  await scanAndStoreAllPmpColumns();
   const required = [
     "db/albumdata_name.pmp",
     "db/albumdata_filename.pmp",
@@ -2800,7 +2891,7 @@ async function selectAlbum(idx) {
   state.currentTitle = album.name || "(unnamed album)";
   el.viewTitle.textContent = `Album: ${state.currentTitle}`;
   refreshAlbumNameEditor();
-  if (album.source === "ini") {
+  if (album.source === "ini" || album.source === "system") {
     const refs = Array.isArray(album.imageRefs) ? album.imageRefs : [];
     let images = await listImagesForAlbumRefs(refs);
     if (!images.length && album.pathRel && state.dirIndex?.has(album.pathRel)) {
@@ -2809,6 +2900,7 @@ async function selectAlbum(idx) {
     }
     setPicasaLog(`INI album token=${album.token} refs=${refs.length}`);
     el.resolvePill.textContent = `INI album (${refs.length} refs)`;
+    await upsertIndexedImages(images);
     await renderTiles(images);
   ensureSpecialAlbums();
     console.log("[selectAlbum] ini images loaded", { count: images.length, token: album.token, pathRel: album.pathRel });
@@ -2893,6 +2985,7 @@ async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
     return;
   }
   const { images, picasa } = await listImagesInDirectory(dirHandle, pathRel, options);
+  await upsertIndexedImages(images);
   setPicasaLog(formatPicasaLog(pathRel, picasa, options.album?.token ? String(options.album.token) : ""));
   await renderTiles(images);
   ensureSpecialAlbums();
@@ -3589,6 +3682,7 @@ el.faceFaceLabelInput.onkeydown = (ev) => {
     faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.pendingNewFaceIdx = -1;
   faceEditor.faceRenameMode = false;
+  faceEditor.awaitingNewFaceDraw = false;
     syncFaceSelectFromState();
     renderFaceRects();
     el.faceEditorStatus.textContent = `Added detected face: ${label}`;
@@ -3645,13 +3739,13 @@ el.btnUndoFilter.onclick = () => {
 };
 
 el.btnFaceAdd.onclick = () => {
-  faceEditor.faces.push({ label: "", rect64: "gui:0.1|0.1|0.2|0.2" });
-  faceEditor.pendingNewFaceIdx = faceEditor.faces.length - 1;
-  faceEditor.activeFaceIdx = faceEditor.pendingNewFaceIdx;
+  faceEditor.awaitingNewFaceDraw = true;
+  faceEditor.pendingNewFaceIdx = -1;
+  faceEditor.activeFaceIdx = -1;
   faceEditor.faceRenameMode = false;
   syncFaceSelectFromState();
   renderFaceRects();
-  el.faceEditorStatus.textContent = "Position/resize the new face rectangle, then release to enter label.";
+  el.faceEditorStatus.textContent = "Click and drag on image to draw a new face rectangle.";
 };
 el.btnTextAdd.onclick = () => {
   faceEditor.textOverlays.push({ enabled: true, caption: "New text", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, fillARGB: 4294967295, strokeARGB: 4278190080, opacity255: 128, scaleXUnknown: 1, strokeWidthFactor: 0, scaleYUnknown: 1, fontWeight: 400, renderFlags: 0, textStyleAnchorFlags: 49152, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 1 });
@@ -3667,6 +3761,23 @@ document.querySelectorAll(".btnAspect").forEach((btn) => {
   };
 });
 el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
+  if (faceEditor.awaitingNewFaceDraw && (ev.target === el.faceCanvasImg || ev.target === el.faceCanvasWrap)) {
+    const r = el.faceCanvasImg.getBoundingClientRect();
+    const p = el.faceCanvasWrap.getBoundingClientRect();
+    const xPx = ev.clientX - p.left - (r.left - p.left);
+    const yPx = ev.clientY - p.top - (r.top - p.top);
+    const x = Math.max(0, Math.min(0.98, xPx / Math.max(1, r.width)));
+    const y = Math.max(0, Math.min(0.98, yPx / Math.max(1, r.height)));
+    faceEditor.faces.push({ label: "", rect64: boxToRect64({ x, y, w: 0.02, h: 0.02 }) });
+    faceEditor.pendingNewFaceIdx = faceEditor.faces.length - 1;
+    faceEditor.activeFaceIdx = faceEditor.pendingNewFaceIdx;
+    faceEditor.awaitingNewFaceDraw = false;
+    faceEditor.draggingIdx = faceEditor.pendingNewFaceIdx;
+    faceEditor.dragMode = "resize";
+    syncFaceSelectFromState();
+    renderFaceRects();
+    return;
+  }
   if (faceEditor.pickingFinetuneNeutral) {
     const imgRect = el.faceCanvasImg.getBoundingClientRect();
     const x = Math.max(0, Math.min(imgRect.width - 1, ev.clientX - imgRect.left));
