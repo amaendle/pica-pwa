@@ -250,6 +250,8 @@
         <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnFaceAdd" class="hidden">Add face rectangle</button>
+          <button id="btnRenameFace" class="hidden">Rename face</button>
+          <button id="btnRemoveFace" class="hidden">Remove face</button>
           <button id="btnTextAdd">Add text</button>
           <button id="btnUndoFilter">Undo filter</button>
           <button id="btnFaceSave">Save</button>
@@ -775,6 +777,52 @@ function maybeStripFinetune2Filters(filters = [], enabled = true) {
   return (Array.isArray(filters) ? filters : []).filter((f) => !/^finetune2=1,/i.test(String(f || "").trim()));
 }
 
+
+function ensureSpecialAlbums() {
+  const existingStar = state.albums.find((a) => a.token === "]star");
+  const existingScreen = state.albums.find((a) => a.token === "]screensaver");
+  const starRefs = (state.currentImages || [])
+    .filter((it) => !!it.star)
+    .map((it) => ({ pathRel: folderOfRelPath(it.relPath), imageName: it.name }));
+  const seenScreen = new Set();
+  const screenRefs = [];
+  const addScreenRef = (ref) => {
+    const key = `${ref.pathRel}::${ref.imageName}`;
+    if (seenScreen.has(key)) return;
+    seenScreen.add(key);
+    screenRefs.push(ref);
+  };
+  for (const it of (state.currentImages || [])) {
+    if ((it.albumTokens || []).includes("]screensaver")) {
+      addScreenRef({ pathRel: folderOfRelPath(it.relPath), imageName: it.name });
+    }
+  }
+  for (const ref of (existingScreen?.imageRefs || [])) {
+    if (ref?.pathRel && ref?.imageName) addScreenRef({ pathRel: ref.pathRel, imageName: ref.imageName });
+  }
+
+  const starAlbum = {
+    id: existingStar?.id || `sys:]star`,
+    source: "system",
+    token: "]star",
+    name: "]star",
+    pathRel: "",
+    absPath: "",
+    broken: false,
+    imageRefs: starRefs
+  };
+  const screenAlbum = {
+    id: existingScreen?.id || `sys:]screensaver`,
+    source: "system",
+    token: "]screensaver",
+    name: "]screensaver",
+    pathRel: "",
+    absPath: "",
+    broken: false,
+    imageRefs: screenRefs
+  };
+  state.albums = [starAlbum, screenAlbum, ...state.albums.filter((a) => !["]star", "]screensaver"].includes(a.token))];
+}
 function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = [], fallbackCropRect64 = "") {
   const baseW = Math.max(1, Number(naturalW) || 1);
   const baseH = Math.max(1, Number(naturalH) || 1);
@@ -1286,6 +1334,8 @@ const el = {
   btnFinetune2Mode: document.getElementById("btnFinetune2Mode"),
   btnFacesMode: document.getElementById("btnFacesMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
+  btnRenameFace: document.getElementById("btnRenameFace"),
+  btnRemoveFace: document.getElementById("btnRemoveFace"),
   btnApplyCropFilter: document.getElementById("btnApplyCropFilter"),
   btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
   btnApplyFillLightFilter: document.getElementById("btnApplyFillLightFilter"),
@@ -1575,7 +1625,9 @@ const faceEditor = {
   finetuneNeutralColor: null,
   facesModeActive: false,
   detectedFaces: [],
-  pendingDetectedFaceIdx: -1
+  pendingDetectedFaceIdx: -1,
+  faceRenameMode: false,
+  pendingNewFaceIdx: -1
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
@@ -1678,7 +1730,10 @@ function makeAlbumToken(name) {
 
 function updateSelectionRows() {
   const hasFace = faceEditor.activeFaceIdx >= 0 && !!faceEditor.faces[faceEditor.activeFaceIdx];
-  el.faceLabelRow.classList.toggle("hidden", !hasFace);
+  el.faceLabelRow.classList.toggle("hidden", !faceEditor.faceRenameMode);
+  if (!faceEditor.faceRenameMode) el.faceFaceLabelInput.value = "";
+  if (el.btnRenameFace) el.btnRenameFace.classList.toggle("hidden", !faceEditor.facesModeActive || !hasFace);
+  if (el.btnRemoveFace) el.btnRemoveFace.classList.toggle("hidden", !faceEditor.facesModeActive || !hasFace);
   const hasText = faceEditor.activeTextIdx >= 0 && !!faceEditor.textOverlays[faceEditor.activeTextIdx];
   [el.textInputRow, el.textFontRow, el.textSizeRow, el.textColorRow, el.textOutlineColorRow, el.textOutlineWidthRow, el.textOpacityRow, el.textScaleXRow, el.textScaleYRow, el.textStrokeFactorRow, el.textWeightRow, el.textAlignRow, el.textFlagsRow, el.textAnchorFlagsRow, el.textRenderFlagsRow].forEach((n)=>n.classList.toggle("hidden", !hasText));
 }
@@ -1693,9 +1748,7 @@ function syncFaceSelectFromState() {
     if (idx === faceEditor.activeFaceIdx) opt.selected = true;
     select.appendChild(opt);
   });
-  if (faceEditor.activeFaceIdx >= 0 && faceEditor.faces[faceEditor.activeFaceIdx]) {
-    el.faceFaceLabelInput.value = faceEditor.faces[faceEditor.activeFaceIdx].label || "";
-  } else {
+  if (!faceEditor.faceRenameMode) {
     el.faceFaceLabelInput.value = "";
   }
   updateSelectionRows();
@@ -1794,7 +1847,7 @@ async function refreshEditorPreview(previewFilters = null) {
   }
   const requestId = ++faceEditor.previewRequestId;
   try {
-    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, effectiveFilters, 2048, faceEditor.cropRect64 || "");
+    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, effectiveFilters, 2048, "");
     if (requestId !== faceEditor.previewRequestId) {
       if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
       return;
@@ -1860,6 +1913,9 @@ function renderFaceRects() {
       add.onclick = (ev) => {
         ev.stopPropagation();
         faceEditor.pendingDetectedFaceIdx = idx;
+        faceEditor.activeFaceIdx = -1;
+        faceEditor.faceRenameMode = true;
+        syncFaceSelectFromState();
         el.faceLabelRow.classList.remove('hidden');
         el.faceFaceLabelInput.value = '';
         el.faceFaceLabelInput.focus();
@@ -2014,10 +2070,15 @@ function setFacesMode(active) {
   faceEditor.facesModeActive = !!active;
   el.faceFaceSelectWrap.classList.toggle('hidden', !faceEditor.facesModeActive);
   el.btnFaceAdd.classList.toggle('hidden', !faceEditor.facesModeActive);
-  el.faceLabelRow.classList.toggle('hidden', !faceEditor.facesModeActive);
+  if (el.btnRenameFace) el.btnRenameFace.classList.toggle('hidden', !faceEditor.facesModeActive || faceEditor.activeFaceIdx < 0);
+  if (el.btnRemoveFace) el.btnRemoveFace.classList.toggle('hidden', !faceEditor.facesModeActive || faceEditor.activeFaceIdx < 0);
+  faceEditor.faceRenameMode = false;
+  el.faceLabelRow.classList.add('hidden');
   el.btnFacesMode.textContent = faceEditor.facesModeActive ? 'Hide faces' : 'Faces';
   if (!faceEditor.facesModeActive) {
     faceEditor.pendingDetectedFaceIdx = -1;
+  faceEditor.pendingNewFaceIdx = -1;
+  faceEditor.faceRenameMode = false;
     faceEditor.detectedFaces = [];
   }
   renderFaceRects();
@@ -2031,6 +2092,8 @@ function openFaceEditor(imageItem) {
   faceEditor.facesModeActive = false;
   faceEditor.detectedFaces = [];
   faceEditor.pendingDetectedFaceIdx = -1;
+  faceEditor.pendingNewFaceIdx = -1;
+  faceEditor.faceRenameMode = false;
   faceEditor.selectedAlbumTokens = new Set();
   el.faceCaptionInput.value = imageItem.caption || '';
   faceEditor.cropRect64 = imageItem.cropRect64 || 'gui:0.05|0.05|0.9|0.9';
@@ -2144,6 +2207,8 @@ function closeFaceEditor() {
   faceEditor.facesModeActive = false;
   faceEditor.detectedFaces = [];
   faceEditor.pendingDetectedFaceIdx = -1;
+  faceEditor.pendingNewFaceIdx = -1;
+  faceEditor.faceRenameMode = false;
   faceEditor.selectedAlbumTokens = new Set();
   if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
   if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
@@ -2632,6 +2697,7 @@ async function loadAlbumsFromPMP() {
     state.albums = [...state.albums, ...iniAlbums].sort((a,b)=>(a.name||"").localeCompare(b.name||"", undefined, { sensitivity:"base", numeric:true }));
   }
   state.folderItems = buildFolderItems(state.albums.filter((a)=>a.source !== "ini"));
+  ensureSpecialAlbums();
   await saveLibrarySnapshot({
     libraryId: state.libraryId,
     rootName: state.libraryRoot.name || "",
@@ -2744,6 +2810,7 @@ async function selectAlbum(idx) {
     setPicasaLog(`INI album token=${album.token} refs=${refs.length}`);
     el.resolvePill.textContent = `INI album (${refs.length} refs)`;
     await renderTiles(images);
+  ensureSpecialAlbums();
     console.log("[selectAlbum] ini images loaded", { count: images.length, token: album.token, pathRel: album.pathRel });
     setStatus(images.length ? "Ready." : "No images found for this INI album.", images.length ? "ok" : "warn");
     return;
@@ -2828,6 +2895,7 @@ async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
   const { images, picasa } = await listImagesInDirectory(dirHandle, pathRel, options);
   setPicasaLog(formatPicasaLog(pathRel, picasa, options.album?.token ? String(options.album.token) : ""));
   await renderTiles(images);
+  ensureSpecialAlbums();
   await saveLibrarySnapshot({
     id: state.libraryId,
     label: state.libraryRoot?.name || "Library",
@@ -3233,6 +3301,7 @@ el.btnRenameAlbum.onclick = async () => {
   }
   renderNavigation();
   if (state.currentViewMode === "albums" && idx >= 0) el.viewTitle.textContent = `Album: ${newName}`;
+  ensureSpecialAlbums();
   await saveLibrarySnapshot({
     id: state.libraryId,
     label: state.libraryRoot?.name || "Library",
@@ -3383,6 +3452,7 @@ el.btnToggleStar.onclick = async () => {
   it.star = !it.star;
   try {
     await savePicasaInfoForImage(it, it.caption || "", it.faces || [], it.albumTokens || [], it.cropRect64 || "", it.keywords || [], it.star, it.filters || []);
+    ensureSpecialAlbums();
     updateSlide();
   } catch (e) {
     setStatus(`Failed to toggle star: ${String(e?.message || e)}`, "err");
@@ -3440,6 +3510,21 @@ el.btnFinetune2Mode.onclick = () => {
 el.btnFacesMode.onclick = () => {
   setFacesMode(!faceEditor.facesModeActive);
 };
+el.btnRenameFace.onclick = () => {
+  if (faceEditor.activeFaceIdx < 0 || !faceEditor.faces[faceEditor.activeFaceIdx]) return;
+  faceEditor.faceRenameMode = true;
+  el.faceLabelRow.classList.remove("hidden");
+  el.faceFaceLabelInput.value = faceEditor.faces[faceEditor.activeFaceIdx].label || "";
+  el.faceFaceLabelInput.focus();
+};
+el.btnRemoveFace.onclick = () => {
+  if (faceEditor.activeFaceIdx < 0 || !faceEditor.faces[faceEditor.activeFaceIdx]) return;
+  faceEditor.faces.splice(faceEditor.activeFaceIdx, 1);
+  faceEditor.activeFaceIdx = -1;
+  faceEditor.faceRenameMode = false;
+  syncFaceSelectFromState();
+  renderFaceRects();
+};
 el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
@@ -3489,6 +3574,7 @@ el.faceFaceSelect.onmousedown = (ev) => {
   ev.preventDefault();
   const idx = Number(opt.value);
   faceEditor.activeFaceIdx = (faceEditor.activeFaceIdx === idx) ? -1 : idx;
+  faceEditor.faceRenameMode = false;
   syncFaceSelectFromState();
   renderFaceRects();
 };
@@ -3501,15 +3587,24 @@ el.faceFaceLabelInput.onkeydown = (ev) => {
     faceEditor.faces.push({ label, rect64: boxToRect64({ x: b.x, y: b.y, w: b.w, h: b.h }) });
     faceEditor.activeFaceIdx = faceEditor.faces.length - 1;
     faceEditor.pendingDetectedFaceIdx = -1;
+  faceEditor.pendingNewFaceIdx = -1;
+  faceEditor.faceRenameMode = false;
     syncFaceSelectFromState();
     renderFaceRects();
     el.faceEditorStatus.textContent = `Added detected face: ${label}`;
     el.faceFaceLabelInput.value = "";
+    faceEditor.faceRenameMode = false;
+    syncFaceSelectFromState();
+  } else if (faceEditor.activeFaceIdx >= 0 && faceEditor.faces[faceEditor.activeFaceIdx]) {
+    faceEditor.faces[faceEditor.activeFaceIdx].label = label;
+    faceEditor.faceRenameMode = false;
+    syncFaceSelectFromState();
+    el.faceEditorStatus.textContent = `Renamed face: ${label}`;
   }
 };
 el.faceFaceLabelInput.oninput = () => {
   const idx = faceEditor.activeFaceIdx;
-  if (idx < 0 || !faceEditor.faces[idx]) return;
+  if (!faceEditor.faceRenameMode || idx < 0 || !faceEditor.faces[idx]) return;
   faceEditor.faces[idx].label = el.faceFaceLabelInput.value;
   syncFaceSelectFromState();
 };
@@ -3550,12 +3645,13 @@ el.btnUndoFilter.onclick = () => {
 };
 
 el.btnFaceAdd.onclick = () => {
-  const label = window.prompt("Face label", "New person");
-  if (!label) return;
-  faceEditor.faces.push({ label: label.trim(), rect64: "gui:0.1|0.1|0.2|0.2" });
-  faceEditor.activeFaceIdx = faceEditor.faces.length - 1;
+  faceEditor.faces.push({ label: "", rect64: "gui:0.1|0.1|0.2|0.2" });
+  faceEditor.pendingNewFaceIdx = faceEditor.faces.length - 1;
+  faceEditor.activeFaceIdx = faceEditor.pendingNewFaceIdx;
+  faceEditor.faceRenameMode = false;
   syncFaceSelectFromState();
   renderFaceRects();
+  el.faceEditorStatus.textContent = "Position/resize the new face rectangle, then release to enter label.";
 };
 el.btnTextAdd.onclick = () => {
   faceEditor.textOverlays.push({ enabled: true, caption: "New text", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, fillARGB: 4294967295, strokeARGB: 4278190080, opacity255: 128, scaleXUnknown: 1, strokeWidthFactor: 0, scaleYUnknown: 1, fontWeight: 400, renderFlags: 0, textStyleAnchorFlags: 49152, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 1 });
@@ -3675,12 +3771,22 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
   }
   renderFaceRects();
 });
-window.addEventListener('pointerup', () => { faceEditor.draggingIdx = -1;
+window.addEventListener('pointerup', () => {
+  const finishedNew = faceEditor.pendingNewFaceIdx >= 0 ? faceEditor.pendingNewFaceIdx : -1;
+  faceEditor.draggingIdx = -1;
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
   faceEditor.cropMode = "move";
   faceEditor.textDragging = false;
   faceEditor.textDragMode = "move";
+  if (finishedNew >= 0 && faceEditor.faces[finishedNew]) {
+    faceEditor.activeFaceIdx = finishedNew;
+    faceEditor.pendingNewFaceIdx = -1;
+    faceEditor.faceRenameMode = true;
+    el.faceLabelRow.classList.remove("hidden");
+    el.faceFaceLabelInput.value = "";
+    el.faceFaceLabelInput.focus();
+  }
 });
 el.btnFaceSave.onclick = async () => {
   if (!faceEditor.imageItem) return;
