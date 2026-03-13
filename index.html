@@ -298,6 +298,15 @@
         <label>Save keywords preference
           <select id="selWriteKeywordsPref"><option value="ini">.ini/.info</option><option value="iptc">IPTC (fallback to .ini/.info)</option></select>
         </label>
+        <label>Gallery thumbnail source
+          <select id="selThumbSourcePref">
+            <option value="generated">Generated from original image</option>
+            <option value="bigthumbs">bigthumbs_0.db</option>
+            <option value="thumbs2">thumbs2_0.db</option>
+            <option value="thumbs">thumbs_0.db</option>
+            <option value="previews">previews_0.db</option>
+          </select>
+        </label>
         <div style="display:flex; gap:8px;"><button id="btnSettingsSave">Save settings</button><button id="btnSettingsClose">Close</button></div>
       </div>
     </div>
@@ -308,6 +317,7 @@
  *  Helpers: path + file types
  *  =========================== */
 const IMG_EXTS = new Set(["jpg","jpeg","png","bmp","gif","webp"]);
+const THUMB_DB_SOURCES = ["bigthumbs", "thumbs2", "thumbs", "previews"];
 function normPath(p) {
   return (p || "")
     .replaceAll("\\", "/")
@@ -486,6 +496,109 @@ async function getFileHandleByPath(rootDirHandle, relPath) {
 async function readFileAsArrayBuffer(fileHandle) {
   const file = await fileHandle.getFile();
   return await file.arrayBuffer();
+}
+
+function revokeThumbCache(cacheMap) {
+  if (!(cacheMap instanceof Map)) return;
+  for (const url of cacheMap.values()) {
+    if (String(url || "").startsWith("blob:")) URL.revokeObjectURL(url);
+  }
+  cacheMap.clear();
+}
+
+function collectLikelyImageNames(text) {
+  const out = new Set();
+  const re = /([A-Za-z0-9 _().\-]+\.(?:jpe?g|png|bmp|gif|webp))/gi;
+  let m;
+  while ((m = re.exec(text))) out.add(String(m[1] || "").trim().toLowerCase());
+  return out;
+}
+
+function extractEmbeddedImageBlobs(buffer) {
+  const bytes = new Uint8Array(buffer);
+  const out = [];
+  for (let i = 0; i < bytes.length - 3; i++) {
+    // JPEG SOI ... EOI
+    if (bytes[i] === 0xFF && bytes[i + 1] === 0xD8 && bytes[i + 2] === 0xFF) {
+      let end = i + 3;
+      while (end + 1 < bytes.length) {
+        if (bytes[end] === 0xFF && bytes[end + 1] === 0xD9) {
+          end += 2;
+          out.push(new Blob([bytes.slice(i, end)], { type: "image/jpeg" }));
+          i = end - 1;
+          break;
+        }
+        end += 1;
+      }
+      continue;
+    }
+    // PNG signature
+    if (bytes[i] === 0x89 && bytes[i + 1] === 0x50 && bytes[i + 2] === 0x4E && bytes[i + 3] === 0x47) {
+      let end = i + 8;
+      while (end + 12 < bytes.length) {
+        const len = (bytes[end] << 24) | (bytes[end + 1] << 16) | (bytes[end + 2] << 8) | bytes[end + 3];
+        const type = String.fromCharCode(bytes[end + 4], bytes[end + 5], bytes[end + 6], bytes[end + 7]);
+        end += 8 + len + 4;
+        if (type === "IEND") {
+          out.push(new Blob([bytes.slice(i, end)], { type: "image/png" }));
+          i = end - 1;
+          break;
+        }
+      }
+    }
+  }
+  return out;
+}
+
+async function readOptionalBuffer(rootHandle, relPath) {
+  try {
+    const fh = await getFileHandleByPath(rootHandle, relPath);
+    return await readFileAsArrayBuffer(fh);
+  } catch {
+    return null;
+  }
+}
+
+async function importThumbSource(source) {
+  if (!state.pmpRoot || !THUMB_DB_SOURCES.includes(source)) return { source, count: 0 };
+  const cacheMap = state.thumbCaches[source];
+  revokeThumbCache(cacheMap);
+  const dbName = `${source}_0.db`;
+  const idxName = `${source}_0_index.db`;
+  const dbBuf = await readOptionalBuffer(state.pmpRoot, dbName) || await readOptionalBuffer(state.pmpRoot, `db/${dbName}`);
+  if (!dbBuf) return { source, count: 0 };
+  const idxBuf = await readOptionalBuffer(state.pmpRoot, idxName) || await readOptionalBuffer(state.pmpRoot, `db/${idxName}`);
+
+  const thumbs = extractEmbeddedImageBlobs(dbBuf);
+  if (!thumbs.length) return { source, count: 0 };
+
+  const names = [];
+  if (idxBuf) {
+    try {
+      const latin1 = new TextDecoder("latin1").decode(new Uint8Array(idxBuf));
+      for (const nm of collectLikelyImageNames(latin1)) names.push(nm);
+    } catch {}
+    try {
+      const u16 = new Uint16Array(idxBuf);
+      let out = "";
+      for (let i = 0; i < u16.length; i++) {
+        const code = u16[i];
+        out += (code >= 32 && code <= 0x7e) ? String.fromCharCode(code) : "\n";
+      }
+      for (const nm of collectLikelyImageNames(out)) names.push(nm);
+    } catch {}
+  }
+
+  const dedupNames = Array.from(new Set(names));
+  const n = Math.min(dedupNames.length, thumbs.length);
+  for (let i = 0; i < n; i++) cacheMap.set(dedupNames[i], URL.createObjectURL(thumbs[i]));
+  return { source, count: cacheMap.size, totalThumbs: thumbs.length };
+}
+
+async function importThumbCachesFromPmp() {
+  const out = [];
+  for (const source of THUMB_DB_SOURCES) out.push(await importThumbSource(source));
+  return out;
 }
 /** ===========================
  *  IndexedDB persistence
@@ -1271,8 +1384,14 @@ const state = {
   activeListIndex: -1,
   libraryId: "default",
   slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true, enableFinetune2: true },
-  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini" },
-  finetune2: { useWebglPreview: true }
+  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini", thumbSource: "generated" },
+  finetune2: { useWebglPreview: true },
+  thumbCaches: {
+    bigthumbs: new Map(),
+    thumbs2: new Map(),
+    thumbs: new Map(),
+    previews: new Map()
+  }
 };
 /** ===========================
  *  UI elements
@@ -1411,6 +1530,7 @@ const el = {
   selReadKeywordsPref: document.getElementById("selReadKeywordsPref"),
   selWriteCaptionPref: document.getElementById("selWriteCaptionPref"),
   selWriteKeywordsPref: document.getElementById("selWriteKeywordsPref"),
+  selThumbSourcePref: document.getElementById("selThumbSourcePref"),
   btnSettingsSave: document.getElementById("btnSettingsSave"),
   btnSettingsClose: document.getElementById("btnSettingsClose"),
 };
@@ -2729,6 +2849,7 @@ async function scanAndStoreAllPmpColumns() {
 async function loadAlbumsFromPMP() {
   if (!state.pmpRoot) throw new Error("No PMP import folder selected");
   if (!state.libraryRoot || !state.dirIndex) throw new Error("No library folder selected");
+  const thumbStats = await importThumbCachesFromPmp();
   await scanAndStoreAllPmpColumns();
   const required = [
     "db/albumdata_name.pmp",
@@ -2804,7 +2925,8 @@ async function loadAlbumsFromPMP() {
     folders: state.folderItems
   });
   el.btnExport.disabled = false;
-  el.pillInfo.textContent = `${albums.length} albums`;
+  const thumbSummary = thumbStats.map((s) => `${s.source}:${s.count || 0}`).join(" ");
+  el.pillInfo.textContent = `${albums.length} albums | thumbs ${thumbSummary}`;
   renderNavigation();
 }
 function buildFolderItems(albums) {
@@ -3084,9 +3206,16 @@ async function renderTiles(images) {
       img.alt = it.name;
       // thumb
       try {
-        const chain = buildEffectiveFilterChain(it.filters || [], it.cropRect64 || "");
-        it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "");
-        img.src = it.thumbUrl;
+        const selectedSource = String(state.prefs.thumbSource || "generated");
+        const sourceMap = state.thumbCaches[selectedSource];
+        const cachedThumb = sourceMap instanceof Map ? sourceMap.get(String(it.name || "").toLowerCase()) : "";
+        if (cachedThumb) {
+          img.src = cachedThumb;
+        } else {
+          const chain = buildEffectiveFilterChain(it.filters || [], it.cropRect64 || "");
+          it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "");
+          img.src = it.thumbUrl;
+        }
       } catch {
         // fallback: full url (still ok for prototype)
         it.url = URL.createObjectURL(it.file);
@@ -3505,6 +3634,11 @@ el.btnApplyFinetune2Filter.onclick = () => {
   el.faceEditorStatus.textContent = `Applied filter: finetune2 (${faceEditor.filters.length})`;
 };
 el.btnSettings.onclick = () => {
+  el.selReadCaptionPref.value = state.prefs.readCaption || "ini";
+  el.selReadKeywordsPref.value = state.prefs.readKeywords || "ini";
+  el.selWriteCaptionPref.value = state.prefs.writeCaption || "ini";
+  el.selWriteKeywordsPref.value = state.prefs.writeKeywords || "ini";
+  el.selThumbSourcePref.value = state.prefs.thumbSource || "generated";
   el.settingsOverlay.classList.add("show");
   el.settingsOverlay.setAttribute("aria-hidden", "false");
 };
@@ -3517,8 +3651,10 @@ el.btnSettingsSave.onclick = () => {
   state.prefs.readKeywords = el.selReadKeywordsPref.value;
   state.prefs.writeCaption = el.selWriteCaptionPref.value;
   state.prefs.writeKeywords = el.selWriteKeywordsPref.value;
+  state.prefs.thumbSource = el.selThumbSourcePref.value;
   el.settingsOverlay.classList.remove("show");
   el.settingsOverlay.setAttribute("aria-hidden", "true");
+  if (state.currentImages.length) void renderTiles(state.currentImages);
   setStatus("Settings saved.", "ok");
 };
 el.settingsOverlay.addEventListener("click", (ev) => {
