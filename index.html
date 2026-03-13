@@ -53,7 +53,9 @@
     }
     .tile { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; cursor: pointer; }
     .tile:hover { border-color: #3a3a3a; }
+    .rawThumbTile { display:inline-flex; flex-direction:column; align-items:flex-start; padding:8px; gap:6px; }
     .thumb { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #0f0f0f; }
+    .thumbRaw { width:auto; height:auto; max-width:none; max-height:none; aspect-ratio:auto; object-fit:initial; display:block; background:transparent; }
     .caption { padding: 8px 10px; font-size: 12px; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tileMetaRow { display:flex; gap:8px; align-items:center; padding: 0 8px 8px; }
     .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
@@ -152,6 +154,7 @@
         <span class="pill" id="countPill"></span>
         <span class="pill" id="resolvePill"></span>
         <span class="pill" id="albumMetaPill"></span>
+        <button id="btnShowAllThumbs" class="miniBtn">Show all thumbnails</button>
         <span style="margin-left:auto" class="pill">Slideshow: <span class="kbd">←</span>/<span class="kbd">→</span> <span class="kbd">Space</span> <span class="kbd">Esc</span></span>
       </div>
       <div class="grid" id="grid"></div>
@@ -739,10 +742,54 @@ async function readOptionalBuffer(rootHandle, relPath) {
   }
 }
 
+function revokeThumbRawUrls(source) {
+  const arr = state.thumbRawUrls[source];
+  if (!Array.isArray(arr)) return;
+  for (const url of arr) {
+    if (String(url || "").startsWith("blob:")) URL.revokeObjectURL(url);
+  }
+  state.thumbRawUrls[source] = [];
+}
+
+function renderAllThumbsGallery() {
+  const selectedSource = String(state.prefs.thumbSource || "generated");
+  if (!THUMB_DB_SOURCES.includes(selectedSource)) {
+    setStatus("Select a thumb DB source in Settings first.", "warn");
+    return;
+  }
+  const urls = Array.isArray(state.thumbRawUrls[selectedSource]) ? state.thumbRawUrls[selectedSource] : [];
+  if (!urls.length) {
+    setStatus(`No imported thumbnails available for source: ${selectedSource}.`, "warn");
+    return;
+  }
+  state.galleryMode = "thumbs";
+  el.viewTitle.textContent = `Thumbnails (${selectedSource})`;
+  el.resolvePill.textContent = `Original thumbnail size`;
+  el.countPill.textContent = `${urls.length} thumbnails`;
+  el.grid.innerHTML = "";
+  for (let i = 0; i < urls.length; i++) {
+    const tile = document.createElement("div");
+    tile.className = "tile rawThumbTile";
+    const img = document.createElement("img");
+    img.className = "thumbRaw";
+    img.loading = "lazy";
+    img.src = urls[i];
+    img.alt = `${selectedSource} thumbnail ${i + 1}`;
+    const cap = document.createElement("div");
+    cap.className = "caption mono";
+    cap.textContent = `${selectedSource}[${i}]`;
+    tile.appendChild(img);
+    tile.appendChild(cap);
+    el.grid.appendChild(tile);
+  }
+  if (el.btnShowAllThumbs) el.btnShowAllThumbs.textContent = "Back to image gallery";
+}
+
 async function importThumbSource(source) {
   if (!state.pmpRoot || !THUMB_DB_SOURCES.includes(source)) return { source, count: 0 };
   const cacheMap = state.thumbCaches[source];
   revokeThumbCache(cacheMap);
+  revokeThumbRawUrls(source);
   const dbName = `${source}_0.db`;
   const idxName = `${source}_0_index.db`;
   const dbBuf = await readOptionalBuffer(state.pmpRoot, dbName) || await readOptionalBuffer(state.pmpRoot, `db/${dbName}`);
@@ -751,14 +798,16 @@ async function importThumbSource(source) {
 
   const thumbs = extractThumbCandidatesFromBuffer(dbBuf);
   if (!thumbs.length) return { source, count: 0, totalThumbs: 0, discoveredNames: 0 };
+  const rawUrls = thumbs.map((b) => URL.createObjectURL(b));
+  state.thumbRawUrls[source] = rawUrls;
 
   const namesSet = new Set();
   for (const nm of collectLikelyImageNamesFromBuffer(dbBuf)) namesSet.add(nm);
   if (idxBuf) for (const nm of collectLikelyImageNamesFromBuffer(idxBuf)) namesSet.add(nm);
 
   const dedupNames = Array.from(namesSet);
-  const n = Math.min(dedupNames.length, thumbs.length);
-  for (let i = 0; i < n; i++) cacheMap.set(dedupNames[i], URL.createObjectURL(thumbs[i]));
+  const n = Math.min(dedupNames.length, rawUrls.length);
+  for (let i = 0; i < n; i++) cacheMap.set(dedupNames[i], rawUrls[i]);
   return { source, count: cacheMap.size, totalThumbs: thumbs.length, discoveredNames: dedupNames.length };
 }
 
@@ -1558,7 +1607,14 @@ const state = {
     thumbs2: new Map(),
     thumbs: new Map(),
     previews: new Map()
-  }
+  },
+  thumbRawUrls: {
+    bigthumbs: [],
+    thumbs2: [],
+    thumbs: [],
+    previews: []
+  },
+  galleryMode: "images"
 };
 /** ===========================
  *  UI elements
@@ -1581,6 +1637,7 @@ const el = {
   countPill: document.getElementById("countPill"),
   resolvePill: document.getElementById("resolvePill"),
   albumMetaPill: document.getElementById("albumMetaPill"),
+  btnShowAllThumbs: document.getElementById("btnShowAllThumbs"),
   mainStatus: document.getElementById("mainStatus"),
   picasaLogPanel: document.getElementById("picasaLogPanel"),
   picasaLog: document.getElementById("picasaLog"),
@@ -1723,6 +1780,8 @@ function clearGrid() {
   el.countPill.textContent = "";
   el.resolvePill.textContent = "";
   el.albumMetaPill.textContent = "";
+  state.galleryMode = "images";
+  if (el.btnShowAllThumbs) el.btnShowAllThumbs.textContent = "Show all thumbnails";
   setPicasaLog("");
 }
 function setPicasaLog(text) {
@@ -3344,6 +3403,8 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
 }
 /** Render tiles with thumbnails */
 async function renderTiles(images) {
+  state.galleryMode = "images";
+  if (el.btnShowAllThumbs) el.btnShowAllThumbs.textContent = "Show all thumbnails";
   state.currentImages = images;
   el.countPill.textContent = `${images.length} images`;
   el.grid.innerHTML = "";
@@ -3830,6 +3891,14 @@ el.settingsOverlay.addEventListener("click", (ev) => {
     el.settingsOverlay.setAttribute("aria-hidden", "true");
   }
 });
+el.btnShowAllThumbs.onclick = () => {
+  if (state.galleryMode === "thumbs") {
+    void renderTiles(state.currentImages || []);
+    return;
+  }
+  renderAllThumbsGallery();
+};
+
 el.btnViewFolders.onclick = () => {
   if (!state.libraryRoot || !state.dirIndex) {
     setStatus("Choose a Library folder first to browse subfolders.", "warn");
