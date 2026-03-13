@@ -550,6 +550,186 @@ function extractEmbeddedImageBlobs(buffer) {
   return out;
 }
 
+function parseCfbStreams(buffer) {
+  const dv = new DataView(buffer);
+  const sig = [0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1];
+  for (let i = 0; i < sig.length; i++) {
+    if (dv.getUint8(i) !== sig[i]) return null;
+  }
+  const sectorShift = dv.getUint16(30, true);
+  const miniSectorShift = dv.getUint16(32, true);
+  const sectorSize = 1 << sectorShift;
+  const miniSectorSize = 1 << miniSectorShift;
+  const nFat = dv.getUint32(44, true);
+  const firstDirSector = dv.getUint32(48, true);
+  const miniCutoff = dv.getUint32(56, true);
+  const firstMiniFatSector = dv.getUint32(60, true);
+  const nMiniFat = dv.getUint32(64, true);
+  const firstDifatSector = dv.getUint32(68, true);
+  const nDifat = dv.getUint32(72, true);
+  const END = 0xFFFFFFFE;
+  const FREE = 0xFFFFFFFF;
+  const FATSECT = 0xFFFFFFFD;
+
+  const readSector = (sid) => {
+    const off = 512 + sid * sectorSize;
+    if (off < 0 || off + sectorSize > buffer.byteLength) return null;
+    return new Uint8Array(buffer, off, sectorSize);
+  };
+  const difat = [];
+  for (let i = 0; i < 109; i++) {
+    const v = dv.getUint32(76 + i * 4, true);
+    if (v !== FREE) difat.push(v);
+  }
+  let nextDifat = firstDifatSector;
+  for (let i = 0; i < nDifat && nextDifat !== END && nextDifat !== FREE; i++) {
+    const sec = readSector(nextDifat);
+    if (!sec) break;
+    const sdv = new DataView(sec.buffer, sec.byteOffset, sec.byteLength);
+    const entries = (sectorSize / 4) - 1;
+    for (let j = 0; j < entries; j++) {
+      const v = sdv.getUint32(j * 4, true);
+      if (v !== FREE) difat.push(v);
+    }
+    nextDifat = sdv.getUint32(entries * 4, true);
+  }
+
+  const fat = [];
+  for (const sid of difat.slice(0, nFat)) {
+    const sec = readSector(sid);
+    if (!sec) continue;
+    const sdv = new DataView(sec.buffer, sec.byteOffset, sec.byteLength);
+    for (let i = 0; i < sec.byteLength / 4; i++) fat.push(sdv.getUint32(i * 4, true));
+  }
+
+  const readChainSectors = (startSid) => {
+    const out = [];
+    let sid = startSid;
+    let guard = 0;
+    while (sid !== END && sid !== FREE && sid < fat.length && guard++ < 200000) {
+      const sec = readSector(sid);
+      if (!sec) break;
+      out.push(sec);
+      sid = fat[sid];
+      if (sid === FATSECT) break;
+    }
+    return out;
+  };
+  const concatSectors = (secs, size = null) => {
+    const total = secs.reduce((a, b) => a + b.length, 0);
+    const used = size == null ? total : Math.max(0, Math.min(total, Number(size) || 0));
+    const out = new Uint8Array(used);
+    let off = 0;
+    for (const sec of secs) {
+      if (off >= used) break;
+      const take = Math.min(sec.length, used - off);
+      out.set(sec.slice(0, take), off);
+      off += take;
+    }
+    return out;
+  };
+
+  const dirBytes = concatSectors(readChainSectors(firstDirSector));
+  if (!dirBytes.length) return null;
+  const entries = [];
+  for (let off = 0; off + 128 <= dirBytes.length; off += 128) {
+    const ddv = new DataView(dirBytes.buffer, dirBytes.byteOffset + off, 128);
+    const nameLen = ddv.getUint16(64, true);
+    const type = ddv.getUint8(66);
+    const start = ddv.getUint32(116, true);
+    const sizeLo = ddv.getUint32(120, true);
+    const sizeHi = ddv.getUint32(124, true);
+    const size = sizeLo + sizeHi * 0x100000000;
+    let name = "";
+    if (nameLen >= 2 && nameLen <= 64) {
+      const nbytes = dirBytes.slice(off, off + nameLen - 2);
+      try { name = new TextDecoder('utf-16le').decode(nbytes).replace(/\0+$/g, ''); } catch {}
+    }
+    entries.push({ name, type, start, size });
+  }
+
+  const root = entries.find((e) => e.type === 5);
+  const miniStream = root ? concatSectors(readChainSectors(root.start), root.size) : new Uint8Array();
+  const miniFat = [];
+  if (nMiniFat && firstMiniFatSector !== END && firstMiniFatSector !== FREE) {
+    const miniFatSectors = readChainSectors(firstMiniFatSector).slice(0, nMiniFat);
+    for (const sec of miniFatSectors) {
+      const sdv = new DataView(sec.buffer, sec.byteOffset, sec.byteLength);
+      for (let i = 0; i < sec.byteLength / 4; i++) miniFat.push(sdv.getUint32(i * 4, true));
+    }
+  }
+  const readMiniChain = (startMini, size) => {
+    if (!miniStream.length) return new Uint8Array();
+    const out = [];
+    let sid = startMini;
+    let guard = 0;
+    while (sid !== END && sid !== FREE && sid < miniFat.length && guard++ < 200000) {
+      const off = sid * miniSectorSize;
+      if (off < 0 || off + miniSectorSize > miniStream.length) break;
+      out.push(miniStream.slice(off, off + miniSectorSize));
+      sid = miniFat[sid];
+    }
+    return concatSectors(out, size);
+  };
+
+  const streams = [];
+  for (const e of entries) {
+    if (e.type !== 2 || !e.size) continue;
+    const data = e.size < miniCutoff ? readMiniChain(e.start, e.size) : concatSectors(readChainSectors(e.start), e.size);
+    if (data.length) streams.push({ name: e.name || '', data });
+  }
+  return streams;
+}
+
+function extractThumbCandidatesFromBuffer(buffer) {
+  const out = [];
+  for (const b of extractEmbeddedImageBlobs(buffer)) out.push(b);
+  const streams = parseCfbStreams(buffer);
+  if (streams) {
+    for (const st of streams) {
+      const buf = st.data.buffer.slice(st.data.byteOffset, st.data.byteOffset + st.data.byteLength);
+      const imgs = extractEmbeddedImageBlobs(buf);
+      if (imgs.length) {
+        for (const b of imgs) out.push(b);
+      } else if (st.data.length > 8) {
+        const b0 = st.data[0], b1 = st.data[1], b2 = st.data[2], b3 = st.data[3];
+        if (b0 === 0xFF && b1 === 0xD8 && b2 === 0xFF) out.push(new Blob([st.data], { type: 'image/jpeg' }));
+        else if (b0 === 0x89 && b1 === 0x50 && b2 === 0x4E && b3 === 0x47) out.push(new Blob([st.data], { type: 'image/png' }));
+        else if (b0 === 0x42 && b1 === 0x4D) out.push(new Blob([st.data], { type: 'image/bmp' }));
+      }
+    }
+  }
+  return out;
+}
+
+function collectLikelyImageNamesFromBuffer(buffer) {
+  const names = new Set();
+  try {
+    const latin1 = new TextDecoder('latin1').decode(new Uint8Array(buffer));
+    for (const nm of collectLikelyImageNames(latin1)) names.add(nm);
+  } catch {}
+  try {
+    const u16 = new Uint16Array(buffer);
+    let txt = '';
+    for (let i = 0; i < u16.length; i++) {
+      const c = u16[i];
+      txt += (c >= 32 && c <= 0x7e) ? String.fromCharCode(c) : '\n';
+    }
+    for (const nm of collectLikelyImageNames(txt)) names.add(nm);
+  } catch {}
+  const streams = parseCfbStreams(buffer);
+  if (streams) {
+    for (const st of streams) {
+      for (const nm of collectLikelyImageNames(st.name || '')) names.add(nm);
+      try {
+        const txt = new TextDecoder('latin1').decode(st.data);
+        for (const nm of collectLikelyImageNames(txt)) names.add(nm);
+      } catch {}
+    }
+  }
+  return Array.from(names);
+}
+
 async function readOptionalBuffer(rootHandle, relPath) {
   try {
     const fh = await getFileHandleByPath(rootHandle, relPath);
@@ -569,30 +749,17 @@ async function importThumbSource(source) {
   if (!dbBuf) return { source, count: 0 };
   const idxBuf = await readOptionalBuffer(state.pmpRoot, idxName) || await readOptionalBuffer(state.pmpRoot, `db/${idxName}`);
 
-  const thumbs = extractEmbeddedImageBlobs(dbBuf);
-  if (!thumbs.length) return { source, count: 0 };
+  const thumbs = extractThumbCandidatesFromBuffer(dbBuf);
+  if (!thumbs.length) return { source, count: 0, totalThumbs: 0, discoveredNames: 0 };
 
-  const names = [];
-  if (idxBuf) {
-    try {
-      const latin1 = new TextDecoder("latin1").decode(new Uint8Array(idxBuf));
-      for (const nm of collectLikelyImageNames(latin1)) names.push(nm);
-    } catch {}
-    try {
-      const u16 = new Uint16Array(idxBuf);
-      let out = "";
-      for (let i = 0; i < u16.length; i++) {
-        const code = u16[i];
-        out += (code >= 32 && code <= 0x7e) ? String.fromCharCode(code) : "\n";
-      }
-      for (const nm of collectLikelyImageNames(out)) names.push(nm);
-    } catch {}
-  }
+  const namesSet = new Set();
+  for (const nm of collectLikelyImageNamesFromBuffer(dbBuf)) namesSet.add(nm);
+  if (idxBuf) for (const nm of collectLikelyImageNamesFromBuffer(idxBuf)) namesSet.add(nm);
 
-  const dedupNames = Array.from(new Set(names));
+  const dedupNames = Array.from(namesSet);
   const n = Math.min(dedupNames.length, thumbs.length);
   for (let i = 0; i < n; i++) cacheMap.set(dedupNames[i], URL.createObjectURL(thumbs[i]));
-  return { source, count: cacheMap.size, totalThumbs: thumbs.length };
+  return { source, count: cacheMap.size, totalThumbs: thumbs.length, discoveredNames: dedupNames.length };
 }
 
 async function importThumbCachesFromPmp() {
@@ -2925,7 +3092,7 @@ async function loadAlbumsFromPMP() {
     folders: state.folderItems
   });
   el.btnExport.disabled = false;
-  const thumbSummary = thumbStats.map((s) => `${s.source}:${s.count || 0}`).join(" ");
+  const thumbSummary = thumbStats.map((s) => `${s.source}:${s.count || 0}/${s.totalThumbs || 0}(${s.discoveredNames || 0})`).join(" ");
   el.pillInfo.textContent = `${albums.length} albums | thumbs ${thumbSummary}`;
   renderNavigation();
 }
