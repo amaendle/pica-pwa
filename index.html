@@ -13,9 +13,9 @@
     button.active { background: #3a3a3a; border-color: #5a5a5a; }
     button:disabled { opacity: .5; cursor: not-allowed; }
     .pill { font-size: 12px; padding: 4px 8px; border: 1px solid #3a3a3a; border-radius: 999px; color: #bbb; }
-    .layout { display: grid; grid-template-columns: 320px 1fr; min-height: calc(100vh - 52px); }
-    aside { border-right: 1px solid #2a2a2a; overflow: auto; }
-    main { overflow: auto; }
+    .layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 52px); min-height: 0; }
+    aside { border-right: 1px solid #2a2a2a; display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+    main { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
     .sectionTitle { padding: 10px 12px; font-weight: 600; color: #ddd; border-bottom: 1px solid #222; }
     .list { display: flex; flex-direction: column; }
     .item { padding: 10px 12px; border-bottom: 1px solid #222; cursor: pointer; }
@@ -24,7 +24,8 @@
     .item small { display: block; color: #aaa; margin-top: 4px; word-break: break-all; }
     .item .broken { color: #ffb4b4; }
     .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #222; background: #141414; position: sticky; top: 0; z-index: 5; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 12px; overflow: auto; min-height: 0; flex: 1; align-content: start; }
+    #albumList { overflow: auto; min-height: 0; flex: 1; }
     .logPanel {
       margin: 0 12px 12px;
       border: 1px solid #2a2a2a;
@@ -150,6 +151,7 @@
         <button id="btnRenameAlbum" class="hidden">Rename album</button>
         <span class="pill" id="countPill"></span>
         <span class="pill" id="resolvePill"></span>
+        <span class="pill" id="albumMetaPill"></span>
         <span style="margin-left:auto" class="pill">Slideshow: <span class="kbd">←</span>/<span class="kbd">→</span> <span class="kbd">Space</span> <span class="kbd">Esc</span></span>
       </div>
       <div class="grid" id="grid"></div>
@@ -821,9 +823,11 @@ async function makeTiltThenCropURL(file, size = 2048, cropRect64 = "", tiltVal =
 
 
 
-function buildEffectiveFilterChain(filters = [], fallbackCropRect64 = "") {
+function buildEffectiveFilterChain(filters = [], fallbackCropRect64 = "", options = {}) {
   const chain = Array.isArray(filters) ? filters.map((f) => String(f || "").trim()).filter(Boolean) : [];
-  if (!chain.length && fallbackCropRect64) chain.push(`crop64=1,${fallbackCropRect64}`);
+  const includeFallbackCrop = options.includeFallbackCrop !== false;
+  const hasCrop = chain.some((f) => /^crop64=1,/i.test(String(f || "").trim()));
+  if (includeFallbackCrop && fallbackCropRect64 && !hasCrop) chain.push(`crop64=1,${fallbackCropRect64}`);
   return chain;
 }
 
@@ -1290,6 +1294,7 @@ const el = {
   btnRenameAlbum: document.getElementById("btnRenameAlbum"),
   countPill: document.getElementById("countPill"),
   resolvePill: document.getElementById("resolvePill"),
+  albumMetaPill: document.getElementById("albumMetaPill"),
   mainStatus: document.getElementById("mainStatus"),
   picasaLogPanel: document.getElementById("picasaLogPanel"),
   picasaLog: document.getElementById("picasaLog"),
@@ -1430,6 +1435,7 @@ function clearGrid() {
   el.grid.innerHTML = "";
   el.countPill.textContent = "";
   el.resolvePill.textContent = "";
+  el.albumMetaPill.textContent = "";
   setPicasaLog("");
 }
 function setPicasaLog(text) {
@@ -2890,6 +2896,7 @@ async function selectAlbum(idx) {
   clearGrid();
   state.currentTitle = album.name || "(unnamed album)";
   el.viewTitle.textContent = `Album: ${state.currentTitle}`;
+  el.albumMetaPill.textContent = `token: ${album.token || "(none)"} | id: ${album.id || "(none)"}`;
   refreshAlbumNameEditor();
   if (album.source === "ini" || album.source === "system") {
     const refs = Array.isArray(album.imageRefs) ? album.imageRefs : [];
@@ -2973,6 +2980,7 @@ async function openFolderPath(pathRel) {
   const folderLabel = pathRel || "/";
   state.currentTitle = folderLabel;
   el.viewTitle.textContent = `Folder: ${folderLabel}`;
+  el.albumMetaPill.textContent = "";
   refreshAlbumNameEditor();
   await showImagesForResolvedPath(pathRel, `Folder: ${folderLabel}`);
 }
