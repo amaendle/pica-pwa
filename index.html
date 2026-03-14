@@ -752,13 +752,21 @@ function revokeThumbRawUrls(source) {
   state.thumbRawUrls[source] = [];
 }
 
-function renderAllThumbsGallery() {
+async function renderAllThumbsGallery() {
   const selectedSource = String(state.prefs.thumbSource || "generated");
   if (!THUMB_DB_SOURCES.includes(selectedSource)) {
     setStatus("Select a thumb DB source in Settings first.", "warn");
     return;
   }
-  const urls = Array.isArray(state.thumbRawUrls[selectedSource]) ? state.thumbRawUrls[selectedSource] : [];
+  let urls = Array.isArray(state.thumbRawUrls[selectedSource]) ? state.thumbRawUrls[selectedSource] : [];
+  if (!urls.length) {
+    try {
+      const loaded = await loadIndexedThumbsForSource(selectedSource);
+      state.thumbRawUrls[selectedSource] = loaded.rawUrls;
+      state.thumbCaches[selectedSource] = loaded.mapped;
+      urls = loaded.rawUrls;
+    } catch {}
+  }
   if (!urls.length) {
     setStatus(`No imported thumbnails available for source: ${selectedSource}.`, "warn");
     return;
@@ -799,7 +807,10 @@ async function importThumbSource(source) {
   const idxBuf = await readOptionalBuffer(state.pmpRoot, idxName) || await readOptionalBuffer(state.pmpRoot, `db/${idxName}`);
 
   const thumbs = extractThumbCandidatesFromBuffer(dbBuf);
-  if (!thumbs.length) return { source, count: 0, totalThumbs: 0, discoveredNames: 0 };
+  if (!thumbs.length) {
+    await saveIndexedThumbsForSource(source, [], []);
+    return { source, count: 0, totalThumbs: 0, discoveredNames: 0 };
+  }
   const rawUrls = thumbs.map((b) => URL.createObjectURL(b));
   state.thumbRawUrls[source] = rawUrls;
 
@@ -810,6 +821,7 @@ async function importThumbSource(source) {
   const dedupNames = Array.from(namesSet);
   const n = Math.min(dedupNames.length, rawUrls.length);
   for (let i = 0; i < n; i++) cacheMap.set(dedupNames[i], rawUrls[i]);
+  await saveIndexedThumbsForSource(source, thumbs, dedupNames);
   return { source, count: cacheMap.size, totalThumbs: thumbs.length, discoveredNames: dedupNames.length };
 }
 
@@ -822,13 +834,14 @@ async function importThumbCachesFromPmp() {
  *  IndexedDB persistence
  *  =========================== */
 const DB_NAME = "pica-library";
-const DB_VERSION = 2;
+const DB_VERSION = 3;
 const STORES = {
   libraries: "libraries",
   albums: "albums",
   folders: "folders",
   images: "images",
-  pmpColumns: "pmpColumns"
+  pmpColumns: "pmpColumns",
+  thumbnails: "thumbnails"
 };
 function openLibraryDB() {
   return new Promise((resolve, reject) => {
@@ -855,6 +868,12 @@ function openLibraryDB() {
         const pmp = db.createObjectStore(STORES.pmpColumns, { keyPath: "id" });
         pmp.createIndex("libraryId", "libraryId", { unique: false });
         pmp.createIndex("table", "table", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORES.thumbnails)) {
+        const thumbs = db.createObjectStore(STORES.thumbnails, { keyPath: "id" });
+        thumbs.createIndex("libraryId", "libraryId", { unique: false });
+        thumbs.createIndex("librarySource", "librarySource", { unique: false });
+        thumbs.createIndex("mappedName", "mappedName", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -990,6 +1009,69 @@ async function upsertIndexedImages(imageItems = []) {
       });
     }
     await txDone(tx);
+  } finally {
+    db.close();
+  }
+}
+
+async function saveIndexedThumbsForSource(source, thumbBlobs = [], mappedNames = []) {
+  if (!THUMB_DB_SOURCES.includes(source)) return;
+  const db = await openLibraryDB();
+  const libraryId = String(state.libraryId || "default");
+  const librarySource = `${libraryId}:${source}`;
+  try {
+    const tx = db.transaction([STORES.thumbnails], "readwrite");
+    const store = tx.objectStore(STORES.thumbnails);
+    const idx = store.index("librarySource");
+    const existingKeys = await new Promise((resolve, reject) => {
+      const req = idx.getAllKeys(librarySource);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error || new Error("Failed to list thumbnail keys"));
+    });
+    for (const k of existingKeys) store.delete(k);
+    for (let i = 0; i < thumbBlobs.length; i++) {
+      const mappedName = String(mappedNames[i] || "").trim().toLowerCase();
+      store.put({
+        id: `${librarySource}:${i}`,
+        libraryId,
+        source,
+        librarySource,
+        idx: i,
+        mappedName,
+        blob: thumbBlobs[i],
+        importedAt: Date.now()
+      });
+    }
+    await txDone(tx);
+  } finally {
+    db.close();
+  }
+}
+
+async function loadIndexedThumbsForSource(source) {
+  if (!THUMB_DB_SOURCES.includes(source)) return { rawUrls: [], mapped: new Map() };
+  const db = await openLibraryDB();
+  const libraryId = String(state.libraryId || "default");
+  const librarySource = `${libraryId}:${source}`;
+  try {
+    const tx = db.transaction([STORES.thumbnails], "readonly");
+    const store = tx.objectStore(STORES.thumbnails);
+    const rows = await new Promise((resolve, reject) => {
+      const req = store.index("librarySource").getAll(librarySource);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error || new Error("Failed to read thumbnails"));
+    });
+    rows.sort((a, b) => (Number(a.idx) || 0) - (Number(b.idx) || 0));
+    const rawUrls = [];
+    const mapped = new Map();
+    for (const row of rows) {
+      if (!(row?.blob instanceof Blob)) continue;
+      const url = URL.createObjectURL(row.blob);
+      rawUrls.push(url);
+      const mappedName = String(row.mappedName || "").trim().toLowerCase();
+      if (mappedName && !mapped.has(mappedName)) mapped.set(mappedName, url);
+    }
+    return { rawUrls, mapped };
   } finally {
     db.close();
   }
@@ -3413,6 +3495,17 @@ async function renderTiles(images) {
   el.grid.classList.remove("rawThumbGrid");
   el.grid.innerHTML = "";
   // Render progressively for responsiveness
+  const selectedSourceGlobal = String(state.prefs.thumbSource || "generated");
+  if (THUMB_DB_SOURCES.includes(selectedSourceGlobal)) {
+    const existingMap = state.thumbCaches[selectedSourceGlobal];
+    if (!(existingMap instanceof Map) || !existingMap.size) {
+      try {
+        const loaded = await loadIndexedThumbsForSource(selectedSourceGlobal);
+        state.thumbRawUrls[selectedSourceGlobal] = loaded.rawUrls;
+        state.thumbCaches[selectedSourceGlobal] = loaded.mapped;
+      } catch {}
+    }
+  }
   const batch = 24;
   for (let i=0; i<images.length; i+=batch) {
     const slice = images.slice(i, i+batch);
@@ -3440,7 +3533,7 @@ async function renderTiles(images) {
       try {
         const selectedSource = String(state.prefs.thumbSource || "generated");
         const sourceMap = state.thumbCaches[selectedSource];
-        const cachedThumb = sourceMap instanceof Map ? sourceMap.get(String(it.name || "").toLowerCase()) : "";
+        let cachedThumb = sourceMap instanceof Map ? sourceMap.get(String(it.name || "").toLowerCase()) : "";
         if (cachedThumb) {
           img.src = cachedThumb;
         } else {
@@ -3900,7 +3993,7 @@ el.btnShowAllThumbs.onclick = () => {
     void renderTiles(state.currentImages || []);
     return;
   }
-  renderAllThumbsGallery();
+  void renderAllThumbsGallery();
 };
 
 el.btnViewFolders.onclick = () => {
