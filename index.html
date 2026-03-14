@@ -801,10 +801,19 @@ async function importThumbSource(source) {
   revokeThumbCache(cacheMap);
   revokeThumbRawUrls(source);
   const dbName = `${source}_0.db`;
-  const idxName = `${source}_0_index.db`;
   const dbBuf = await readOptionalBuffer(state.pmpRoot, dbName) || await readOptionalBuffer(state.pmpRoot, `db/${dbName}`);
   if (!dbBuf) return { source, count: 0 };
-  const idxBuf = await readOptionalBuffer(state.pmpRoot, idxName) || await readOptionalBuffer(state.pmpRoot, `db/${idxName}`);
+
+  const idxCandidates = [
+    `${source}_0_index.db`,
+    `${source}_index.db`
+  ];
+  const idxFiles = [];
+  for (const fileName of idxCandidates) {
+    const buf = await readOptionalBuffer(state.pmpRoot, fileName) || await readOptionalBuffer(state.pmpRoot, `db/${fileName}`);
+    if (buf) idxFiles.push({ fileName, buffer: buf });
+  }
+  await saveIndexedThumbIndexFiles(source, idxFiles);
 
   const thumbs = extractThumbCandidatesFromBuffer(dbBuf);
   if (!thumbs.length) {
@@ -816,7 +825,9 @@ async function importThumbSource(source) {
 
   const namesSet = new Set();
   for (const nm of collectLikelyImageNamesFromBuffer(dbBuf)) namesSet.add(nm);
-  if (idxBuf) for (const nm of collectLikelyImageNamesFromBuffer(idxBuf)) namesSet.add(nm);
+  for (const idx of idxFiles) {
+    for (const nm of collectLikelyImageNamesFromBuffer(idx.buffer)) namesSet.add(nm);
+  }
 
   const dedupNames = Array.from(namesSet);
   const n = Math.min(dedupNames.length, rawUrls.length);
@@ -834,14 +845,15 @@ async function importThumbCachesFromPmp() {
  *  IndexedDB persistence
  *  =========================== */
 const DB_NAME = "pica-library";
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const STORES = {
   libraries: "libraries",
   albums: "albums",
   folders: "folders",
   images: "images",
   pmpColumns: "pmpColumns",
-  thumbnails: "thumbnails"
+  thumbnails: "thumbnails",
+  thumbnailIndexes: "thumbnailIndexes"
 };
 function openLibraryDB() {
   return new Promise((resolve, reject) => {
@@ -874,6 +886,11 @@ function openLibraryDB() {
         thumbs.createIndex("libraryId", "libraryId", { unique: false });
         thumbs.createIndex("librarySource", "librarySource", { unique: false });
         thumbs.createIndex("mappedName", "mappedName", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORES.thumbnailIndexes)) {
+        const idx = db.createObjectStore(STORES.thumbnailIndexes, { keyPath: "id" });
+        idx.createIndex("libraryId", "libraryId", { unique: false });
+        idx.createIndex("librarySource", "librarySource", { unique: false });
       }
     };
     req.onsuccess = () => resolve(req.result);
@@ -1048,6 +1065,80 @@ async function saveIndexedThumbsForSource(source, thumbBlobs = [], mappedNames =
   }
 }
 
+
+async function saveIndexedThumbIndexFiles(source, indexFiles = []) {
+  if (!THUMB_DB_SOURCES.includes(source)) return;
+  const db = await openLibraryDB();
+  const libraryId = String(state.libraryId || "default");
+  const librarySource = `${libraryId}:${source}`;
+  try {
+    const tx = db.transaction([STORES.thumbnailIndexes], "readwrite");
+    const store = tx.objectStore(STORES.thumbnailIndexes);
+    const idx = store.index("librarySource");
+    const existingKeys = await new Promise((resolve, reject) => {
+      const req = idx.getAllKeys(librarySource);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error || new Error("Failed to list thumbnail index keys"));
+    });
+    for (const k of existingKeys) store.delete(k);
+    let row = 0;
+    for (const it of (indexFiles || [])) {
+      if (!it?.buffer) continue;
+      const fileName = String(it.fileName || `index_${row}.db`);
+      const blob = new Blob([it.buffer], { type: "application/octet-stream" });
+      const extractedNames = collectLikelyImageNamesFromBuffer(it.buffer);
+      store.put({
+        id: `${librarySource}:idx:${row}`,
+        libraryId,
+        source,
+        librarySource,
+        row,
+        fileName,
+        blob,
+        extractedNames,
+        importedAt: Date.now()
+      });
+      row += 1;
+    }
+    await txDone(tx);
+  } finally {
+    db.close();
+  }
+}
+
+async function loadIndexedThumbIndexNames(source) {
+  if (!THUMB_DB_SOURCES.includes(source)) return [];
+  const db = await openLibraryDB();
+  const libraryId = String(state.libraryId || "default");
+  const librarySource = `${libraryId}:${source}`;
+  try {
+    const tx = db.transaction([STORES.thumbnailIndexes], "readonly");
+    const store = tx.objectStore(STORES.thumbnailIndexes);
+    const rows = await new Promise((resolve, reject) => {
+      const req = store.index("librarySource").getAll(librarySource);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error || new Error("Failed to read thumbnail index rows"));
+    });
+    rows.sort((a,b)=>(Number(a.row)||0)-(Number(b.row)||0));
+    const names = [];
+    for (const row of rows) {
+      if (Array.isArray(row.extractedNames) && row.extractedNames.length) {
+        for (const nm of row.extractedNames) names.push(String(nm || "").toLowerCase());
+        continue;
+      }
+      if (row.blob instanceof Blob) {
+        try {
+          const buf = await row.blob.arrayBuffer();
+          for (const nm of collectLikelyImageNamesFromBuffer(buf)) names.push(String(nm || "").toLowerCase());
+        } catch {}
+      }
+    }
+    return Array.from(new Set(names));
+  } finally {
+    db.close();
+  }
+}
+
 async function loadIndexedThumbsForSource(source) {
   if (!THUMB_DB_SOURCES.includes(source)) return { rawUrls: [], mapped: new Map() };
   const db = await openLibraryDB();
@@ -1070,6 +1161,16 @@ async function loadIndexedThumbsForSource(source) {
       rawUrls.push(url);
       const mappedName = String(row.mappedName || "").trim().toLowerCase();
       if (mappedName && !mapped.has(mappedName)) mapped.set(mappedName, url);
+    }
+    if (!mapped.size && rawUrls.length) {
+      try {
+        const idxNames = await loadIndexedThumbIndexNames(source);
+        const n = Math.min(idxNames.length, rawUrls.length);
+        for (let i = 0; i < n; i++) {
+          const nm = String(idxNames[i] || "").trim().toLowerCase();
+          if (nm && !mapped.has(nm)) mapped.set(nm, rawUrls[i]);
+        }
+      } catch {}
     }
     return { rawUrls, mapped };
   } finally {
