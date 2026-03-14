@@ -746,10 +746,122 @@ async function readOptionalBuffer(rootHandle, relPath) {
 function revokeThumbRawUrls(source) {
   const arr = state.thumbRawUrls[source];
   if (!Array.isArray(arr)) return;
-  for (const url of arr) {
-    if (String(url || "").startsWith("blob:")) URL.revokeObjectURL(url);
-  }
+  for (const idx of arr) releaseThumbUrl(source, idx);
   state.thumbRawUrls[source] = [];
+}
+
+function revokeThumbUrlCache(source = "") {
+  const targets = source ? [source] : THUMB_DB_SOURCES;
+  for (const src of targets) {
+    const cache = state.thumbUrlCache[src];
+    if (!(cache instanceof Map)) continue;
+    for (const ent of cache.values()) {
+      if (ent?.url && String(ent.url).startsWith("blob:")) URL.revokeObjectURL(ent.url);
+    }
+    cache.clear();
+  }
+}
+
+function touchThumbCacheEntry(source, idx) {
+  const cache = state.thumbUrlCache[source];
+  const ent = cache?.get(idx);
+  if (ent) ent.lastUsed = Date.now();
+}
+
+function enforceThumbUrlLru(source) {
+  const cache = state.thumbUrlCache[source];
+  const max = Math.max(100, Number(state.thumbUrlLruMax || 1200));
+  if (!(cache instanceof Map) || cache.size <= max) return;
+  const victims = Array.from(cache.entries())
+    .filter(([, ent]) => !(ent?.refs > 0))
+    .sort((a,b)=>(Number(a[1]?.lastUsed||0)-Number(b[1]?.lastUsed||0)));
+  for (const [idx, ent] of victims) {
+    if (cache.size <= max) break;
+    if (ent?.url && String(ent.url).startsWith("blob:")) URL.revokeObjectURL(ent.url);
+    cache.delete(idx);
+  }
+}
+
+function acquireThumbUrl(source, idx) {
+  const rows = state.thumbIndexedRows[source];
+  if (!Array.isArray(rows) || idx < 0 || idx >= rows.length) return "";
+  const row = rows[idx];
+  if (!(row?.blob instanceof Blob)) return "";
+  const cache = state.thumbUrlCache[source];
+  if (!(cache instanceof Map)) return "";
+  let ent = cache.get(idx);
+  if (!ent) {
+    ent = { url: URL.createObjectURL(row.blob), refs: 0, lastUsed: Date.now() };
+    cache.set(idx, ent);
+  }
+  ent.refs = (Number(ent.refs) || 0) + 1;
+  ent.lastUsed = Date.now();
+  enforceThumbUrlLru(source);
+  return ent.url;
+}
+
+function releaseThumbUrl(source, idx) {
+  const cache = state.thumbUrlCache[source];
+  const ent = cache?.get(idx);
+  if (!ent) return;
+  ent.refs = Math.max(0, (Number(ent.refs) || 0) - 1);
+  ent.lastUsed = Date.now();
+}
+
+function bindThumbImage(imgNode, source, idx) {
+  if (!imgNode) return;
+  unbindThumbImage(imgNode);
+  const url = acquireThumbUrl(source, idx);
+  if (!url) return;
+  imgNode.dataset.thumbSource = source;
+  imgNode.dataset.thumbIdx = String(idx);
+  imgNode.src = url;
+}
+
+function unbindThumbImage(imgNode) {
+  if (!imgNode?.dataset) return;
+  const source = String(imgNode.dataset.thumbSource || "");
+  const idx = Number(imgNode.dataset.thumbIdx);
+  if (source && Number.isFinite(idx)) releaseThumbUrl(source, idx);
+  delete imgNode.dataset.thumbSource;
+  delete imgNode.dataset.thumbIdx;
+}
+
+function releaseAllBoundThumbImages() {
+  document.querySelectorAll('img[data-thumb-source][data-thumb-idx]').forEach((img) => unbindThumbImage(img));
+}
+
+function teardownRawThumbObserver() {
+  if (state.rawThumbObserver) {
+    try { state.rawThumbObserver.disconnect(); } catch {}
+  }
+  state.rawThumbObserver = null;
+}
+
+function teardownTileThumbObserver() {
+  if (state.tileThumbObserver) {
+    try { state.tileThumbObserver.disconnect(); } catch {}
+  }
+  state.tileThumbObserver = null;
+}
+
+async function ensureThumbSourceLoaded(source) {
+  if (!THUMB_DB_SOURCES.includes(source)) return;
+  const rows = state.thumbIndexedRows[source];
+  const names = state.thumbNameToIdx[source];
+  if (Array.isArray(rows) && rows.length) return;
+  try {
+    const loaded = await loadIndexedThumbsForSource(source);
+    state.thumbIndexedRows[source] = loaded.rows;
+    state.thumbNameToIdx[source] = loaded.nameToIdx;
+  } catch {}
+}
+
+function releaseThumbResourcesOnVisibility() {
+  releaseAllBoundThumbImages();
+  teardownRawThumbObserver();
+  teardownTileThumbObserver();
+  revokeThumbUrlCache();
 }
 
 async function renderAllThumbsGallery() {
@@ -758,32 +870,41 @@ async function renderAllThumbsGallery() {
     setStatus("Select a thumb DB source in Settings first.", "warn");
     return;
   }
-  let urls = Array.isArray(state.thumbRawUrls[selectedSource]) ? state.thumbRawUrls[selectedSource] : [];
-  if (!urls.length) {
-    try {
-      const loaded = await loadIndexedThumbsForSource(selectedSource);
-      state.thumbRawUrls[selectedSource] = loaded.rawUrls;
-      state.thumbCaches[selectedSource] = loaded.mapped;
-      urls = loaded.rawUrls;
-    } catch {}
-  }
-  if (!urls.length) {
+  await ensureThumbSourceLoaded(selectedSource);
+  const rows = Array.isArray(state.thumbIndexedRows[selectedSource]) ? state.thumbIndexedRows[selectedSource] : [];
+  if (!rows.length) {
     setStatus(`No imported thumbnails available for source: ${selectedSource}.`, "warn");
     return;
   }
+  revokeThumbRawUrls(selectedSource);
+  state.thumbRawUrls[selectedSource] = rows.map((r) => Number(r.idx)).filter((n)=>Number.isFinite(n));
   state.galleryMode = "thumbs";
   el.viewTitle.textContent = `Thumbnails (${selectedSource})`;
   el.resolvePill.textContent = `Original thumbnail size`;
-  el.countPill.textContent = `${urls.length} thumbnails`;
+  el.countPill.textContent = `${rows.length} thumbnails`;
   el.grid.classList.add("rawThumbGrid");
   el.grid.innerHTML = "";
-  for (let i = 0; i < urls.length; i++) {
+  teardownRawThumbObserver();
+  const observer = new IntersectionObserver((entries) => {
+    for (const ent of entries) {
+      const img = ent.target;
+      const idx = Number(img.dataset.rawIdx || "-1");
+      if (!Number.isFinite(idx) || idx < 0) continue;
+      if (ent.isIntersecting) {
+        bindThumbImage(img, selectedSource, idx);
+      } else {
+        unbindThumbImage(img);
+      }
+    }
+  }, { root: el.grid, rootMargin: "600px 0px", threshold: 0.01 });
+  state.rawThumbObserver = observer;
+  for (let i = 0; i < rows.length; i++) {
     const tile = document.createElement("div");
     tile.className = "tile rawThumbTile";
     const img = document.createElement("img");
     img.className = "thumbRaw";
     img.loading = "lazy";
-    img.src = urls[i];
+    img.dataset.rawIdx = String(i);
     img.alt = `${selectedSource} thumbnail ${i + 1}`;
     const cap = document.createElement("div");
     cap.className = "caption mono";
@@ -791,23 +912,20 @@ async function renderAllThumbsGallery() {
     tile.appendChild(img);
     tile.appendChild(cap);
     el.grid.appendChild(tile);
+    observer.observe(img);
   }
   if (el.btnShowAllThumbs) el.btnShowAllThumbs.textContent = "Back to image gallery";
 }
-
 async function importThumbSource(source) {
   if (!state.pmpRoot || !THUMB_DB_SOURCES.includes(source)) return { source, count: 0 };
-  const cacheMap = state.thumbCaches[source];
-  revokeThumbCache(cacheMap);
+  revokeThumbCache(state.thumbCaches[source]);
   revokeThumbRawUrls(source);
+  revokeThumbUrlCache(source);
   const dbName = `${source}_0.db`;
   const dbBuf = await readOptionalBuffer(state.pmpRoot, dbName) || await readOptionalBuffer(state.pmpRoot, `db/${dbName}`);
   if (!dbBuf) return { source, count: 0 };
 
-  const idxCandidates = [
-    `${source}_0_index.db`,
-    `${source}_index.db`
-  ];
+  const idxCandidates = [`${source}_0_index.db`, `${source}_index.db`];
   const idxFiles = [];
   for (const fileName of idxCandidates) {
     const buf = await readOptionalBuffer(state.pmpRoot, fileName) || await readOptionalBuffer(state.pmpRoot, `db/${fileName}`);
@@ -817,25 +935,27 @@ async function importThumbSource(source) {
 
   const thumbs = extractThumbCandidatesFromBuffer(dbBuf);
   if (!thumbs.length) {
+    state.thumbIndexedRows[source] = [];
+    state.thumbNameToIdx[source] = new Map();
     await saveIndexedThumbsForSource(source, [], []);
     return { source, count: 0, totalThumbs: 0, discoveredNames: 0 };
   }
-  const rawUrls = thumbs.map((b) => URL.createObjectURL(b));
-  state.thumbRawUrls[source] = rawUrls;
 
   const namesSet = new Set();
   for (const nm of collectLikelyImageNamesFromBuffer(dbBuf)) namesSet.add(nm);
-  for (const idx of idxFiles) {
-    for (const nm of collectLikelyImageNamesFromBuffer(idx.buffer)) namesSet.add(nm);
-  }
-
+  for (const idx of idxFiles) for (const nm of collectLikelyImageNamesFromBuffer(idx.buffer)) namesSet.add(nm);
   const dedupNames = Array.from(namesSet);
-  const n = Math.min(dedupNames.length, rawUrls.length);
-  for (let i = 0; i < n; i++) cacheMap.set(dedupNames[i], rawUrls[i]);
-  await saveIndexedThumbsForSource(source, thumbs, dedupNames);
-  return { source, count: cacheMap.size, totalThumbs: thumbs.length, discoveredNames: dedupNames.length };
-}
 
+  const rows = thumbs.map((blob, idx) => ({ idx, blob }));
+  state.thumbIndexedRows[source] = rows;
+  const nameToIdx = new Map();
+  const n = Math.min(dedupNames.length, rows.length);
+  for (let i = 0; i < n; i++) nameToIdx.set(String(dedupNames[i] || "").toLowerCase(), i);
+  state.thumbNameToIdx[source] = nameToIdx;
+
+  await saveIndexedThumbsForSource(source, thumbs, dedupNames);
+  return { source, count: nameToIdx.size, totalThumbs: thumbs.length, discoveredNames: dedupNames.length };
+}
 async function importThumbCachesFromPmp() {
   const out = [];
   for (const source of THUMB_DB_SOURCES) out.push(await importThumbSource(source));
@@ -1140,46 +1260,44 @@ async function loadIndexedThumbIndexNames(source) {
 }
 
 async function loadIndexedThumbsForSource(source) {
-  if (!THUMB_DB_SOURCES.includes(source)) return { rawUrls: [], mapped: new Map() };
+  if (!THUMB_DB_SOURCES.includes(source)) return { rows: [], nameToIdx: new Map() };
   const db = await openLibraryDB();
   const libraryId = String(state.libraryId || "default");
   const librarySource = `${libraryId}:${source}`;
   try {
     const tx = db.transaction([STORES.thumbnails], "readonly");
     const store = tx.objectStore(STORES.thumbnails);
-    const rows = await new Promise((resolve, reject) => {
+    const rowsRaw = await new Promise((resolve, reject) => {
       const req = store.index("librarySource").getAll(librarySource);
       req.onsuccess = () => resolve(req.result || []);
       req.onerror = () => reject(req.error || new Error("Failed to read thumbnails"));
     });
-    rows.sort((a, b) => (Number(a.idx) || 0) - (Number(b.idx) || 0));
-    const rawUrls = [];
-    const mapped = new Map();
-    for (const row of rows) {
+    rowsRaw.sort((a, b) => (Number(a.idx) || 0) - (Number(b.idx) || 0));
+    const rows = [];
+    const nameToIdx = new Map();
+    for (const row of rowsRaw) {
       if (!(row?.blob instanceof Blob)) continue;
-      const url = URL.createObjectURL(row.blob);
-      rawUrls.push(url);
+      const idx = Number(row.idx);
+      if (!Number.isFinite(idx) || idx < 0) continue;
+      rows[idx] = { idx, blob: row.blob };
       const mappedName = String(row.mappedName || "").trim().toLowerCase();
-      if (mappedName && !mapped.has(mappedName)) mapped.set(mappedName, url);
+      if (mappedName && !nameToIdx.has(mappedName)) nameToIdx.set(mappedName, idx);
     }
-    if (!mapped.size && rawUrls.length) {
+    if (!nameToIdx.size && rows.length) {
       try {
         const idxNames = await loadIndexedThumbIndexNames(source);
-        const n = Math.min(idxNames.length, rawUrls.length);
+        const n = Math.min(idxNames.length, rows.length);
         for (let i = 0; i < n; i++) {
           const nm = String(idxNames[i] || "").trim().toLowerCase();
-          if (nm && !mapped.has(nm)) mapped.set(nm, rawUrls[i]);
+          if (nm && !nameToIdx.has(nm)) nameToIdx.set(nm, i);
         }
       } catch {}
     }
-    return { rawUrls, mapped };
+    return { rows: rows.filter(Boolean), nameToIdx };
   } finally {
     db.close();
   }
 }
-/** ===========================
- *  Directory index + path resolver
- *  =========================== */
 async function buildDirectoryIndex(rootDirHandle, onProgress = null) {
   // Returns Map<relativePath, FileSystemDirectoryHandle>
   const map = new Map();
@@ -1799,6 +1917,27 @@ const state = {
     thumbs: [],
     previews: []
   },
+  thumbIndexedRows: {
+    bigthumbs: [],
+    thumbs2: [],
+    thumbs: [],
+    previews: []
+  },
+  thumbNameToIdx: {
+    bigthumbs: new Map(),
+    thumbs2: new Map(),
+    thumbs: new Map(),
+    previews: new Map()
+  },
+  thumbUrlCache: {
+    bigthumbs: new Map(),
+    thumbs2: new Map(),
+    thumbs: new Map(),
+    previews: new Map()
+  },
+  thumbUrlLruMax: 1200,
+  rawThumbObserver: null,
+  tileThumbObserver: null,
   galleryMode: "images"
 };
 /** ===========================
@@ -1960,6 +2099,9 @@ function clearGrid() {
     if (it.cropTiltUrl?.startsWith("blob:")) URL.revokeObjectURL(it.cropTiltUrl);
     if (it.slidePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(it.slidePreviewUrl);
   }
+  releaseAllBoundThumbImages();
+  teardownRawThumbObserver();
+  teardownTileThumbObserver();
   state.currentImages = [];
   el.grid.classList.remove("rawThumbGrid");
   el.grid.innerHTML = "";
@@ -3595,17 +3737,23 @@ async function renderTiles(images) {
   el.countPill.textContent = `${images.length} images`;
   el.grid.classList.remove("rawThumbGrid");
   el.grid.innerHTML = "";
+  teardownRawThumbObserver();
+  teardownTileThumbObserver();
+  const tileObs = new IntersectionObserver((entries) => {
+    for (const ent of entries) {
+      const img = ent.target;
+      const src = String(img.dataset.lazyThumbSource || "");
+      const idx = Number(img.dataset.lazyThumbIdx || "-1");
+      if (!src || !Number.isFinite(idx) || idx < 0) continue;
+      if (ent.isIntersecting) bindThumbImage(img, src, idx);
+      else unbindThumbImage(img);
+    }
+  }, { root: el.grid, rootMargin: "700px 0px", threshold: 0.01 });
+  state.tileThumbObserver = tileObs;
   // Render progressively for responsiveness
   const selectedSourceGlobal = String(state.prefs.thumbSource || "generated");
   if (THUMB_DB_SOURCES.includes(selectedSourceGlobal)) {
-    const existingMap = state.thumbCaches[selectedSourceGlobal];
-    if (!(existingMap instanceof Map) || !existingMap.size) {
-      try {
-        const loaded = await loadIndexedThumbsForSource(selectedSourceGlobal);
-        state.thumbRawUrls[selectedSourceGlobal] = loaded.rawUrls;
-        state.thumbCaches[selectedSourceGlobal] = loaded.mapped;
-      } catch {}
-    }
+    await ensureThumbSourceLoaded(selectedSourceGlobal);
   }
   const batch = 24;
   for (let i=0; i<images.length; i+=batch) {
@@ -3633,10 +3781,13 @@ async function renderTiles(images) {
       // thumb
       try {
         const selectedSource = String(state.prefs.thumbSource || "generated");
-        const sourceMap = state.thumbCaches[selectedSource];
-        let cachedThumb = sourceMap instanceof Map ? sourceMap.get(String(it.name || "").toLowerCase()) : "";
-        if (cachedThumb) {
-          img.src = cachedThumb;
+        const nameMap = state.thumbNameToIdx[selectedSource];
+        const thumbIdx = nameMap instanceof Map ? nameMap.get(String(it.name || "").toLowerCase()) : -1;
+        if (Number.isFinite(thumbIdx) && thumbIdx >= 0) {
+          img.loading = "lazy";
+          img.dataset.lazyThumbSource = selectedSource;
+          img.dataset.lazyThumbIdx = String(thumbIdx);
+          tileObs.observe(img);
         } else {
           const chain = buildEffectiveFilterChain(it.filters || [], it.cropRect64 || "");
           it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "");
@@ -4077,7 +4228,14 @@ el.btnSettingsSave.onclick = () => {
   state.prefs.readKeywords = el.selReadKeywordsPref.value;
   state.prefs.writeCaption = el.selWriteCaptionPref.value;
   state.prefs.writeKeywords = el.selWriteKeywordsPref.value;
+  const prevThumbSource = state.prefs.thumbSource;
   state.prefs.thumbSource = el.selThumbSourcePref.value;
+  if (prevThumbSource !== state.prefs.thumbSource) {
+    releaseAllBoundThumbImages();
+    teardownRawThumbObserver();
+    teardownTileThumbObserver();
+    revokeThumbUrlCache(prevThumbSource || "");
+  }
   el.settingsOverlay.classList.remove("show");
   el.settingsOverlay.setAttribute("aria-hidden", "true");
   if (state.currentImages.length) void renderTiles(state.currentImages);
@@ -4089,8 +4247,18 @@ el.settingsOverlay.addEventListener("click", (ev) => {
     el.settingsOverlay.setAttribute("aria-hidden", "true");
   }
 });
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") releaseThumbResourcesOnVisibility();
+});
+window.addEventListener("beforeunload", () => {
+  releaseThumbResourcesOnVisibility();
+});
 el.btnShowAllThumbs.onclick = () => {
   if (state.galleryMode === "thumbs") {
+    releaseAllBoundThumbImages();
+    teardownRawThumbObserver();
+    teardownTileThumbObserver();
     void renderTiles(state.currentImages || []);
     return;
   }
