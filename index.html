@@ -6,14 +6,15 @@
   <title>Pixasa Web Prototype (Frontend-only, PMP + Folder Picker)</title>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
-    body { margin: 0; background: #111; color: #eee; }
+    html, body { height: 100%; }
+    body { margin: 0; background: #111; color: #eee; display:grid; grid-template-rows:auto 1fr; height:100dvh; overflow:hidden; }
     header { display: flex; gap: 10px; align-items: center; padding: 10px 12px; background: #1b1b1b; position: sticky; top: 0; z-index: 10; }
     button { background: #2b2b2b; color: #eee; border: 1px solid #3a3a3a; padding: 8px 10px; border-radius: 8px; cursor: pointer; }
     button:hover { background: #333; }
     button.active { background: #3a3a3a; border-color: #5a5a5a; }
     button:disabled { opacity: .5; cursor: not-allowed; }
     .pill { font-size: 12px; padding: 4px 8px; border: 1px solid #3a3a3a; border-radius: 999px; color: #bbb; }
-    .layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 52px); min-height: 0; }
+    .layout { display: grid; grid-template-columns: 320px 1fr; height: 100%; min-height: 0; overflow: hidden; }
     aside { border-right: 1px solid #2a2a2a; display:flex; flex-direction:column; min-height:0; overflow:hidden; }
     main { display:flex; flex-direction:column; min-height:0; height:100%; overflow:hidden; }
     .sectionTitle { padding: 10px 12px; font-weight: 600; color: #ddd; border-bottom: 1px solid #222; }
@@ -24,7 +25,7 @@
     .item small { display: block; color: #aaa; margin-top: 4px; word-break: break-all; }
     .item .broken { color: #ffb4b4; }
     .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #222; background: #141414; position: sticky; top: 0; z-index: 5; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 12px; overflow: auto; min-height: 0; flex: 1 1 0%; align-content: start; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 12px; overflow: auto; min-height: 0; flex: 1 1 0%; align-content: start; grid-auto-rows: max-content; }
     #albumList { overflow: auto; min-height: 0; flex: 1; }
     .logPanel {
       margin: 0 12px 12px;
@@ -46,18 +47,20 @@
       color: #aeb7c2;
       font-size: 12px;
       line-height: 1.45;
-      max-height: 96px;
+      max-height: 72px;
       overflow: hidden;
       white-space: pre-wrap;
       word-break: break-word;
     }
-    .tile { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; cursor: pointer; display:flex; flex-direction:column; align-items:stretch; height:auto; min-height:max-content; }
+    .tile { background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 12px; overflow: hidden; cursor: pointer; }
+    .tile.thumbFromDb { border-color:#2f86ff; }
+    .tile.thumbFromOriginal { border-color:#2a2a2a; }
     .tile:hover { border-color: #3a3a3a; }
     .rawThumbTile { display:flex; flex-direction:column; align-items:flex-start; padding:8px; gap:6px; height:auto !important; min-height:1px; width:max-content; max-width:none; overflow:visible; }
     .grid.rawThumbGrid { display:flex; flex-wrap:wrap; align-content:flex-start; gap:10px; }
     .thumb { width: 100%; aspect-ratio: 1 / 1; object-fit: cover; display: block; background: #0f0f0f; }
     .thumbRaw { width:auto; height:auto; max-width:none; max-height:none; aspect-ratio:auto; object-fit:initial; display:block; background:transparent; }
-    .caption { padding: 8px 10px; font-size: 12px; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex:0 0 auto; }
+    .caption { padding: 8px 10px; font-size: 12px; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tileMetaRow { display:flex; gap:8px; align-items:center; padding: 0 8px 8px; }
     .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
     .faceEditorBox { background:#1a1a1a; border:1px solid #333; border-radius:10px; padding:10px; width:min(90vw,1000px); height:min(90vh,760px); max-height:calc(100vh - 36px); display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:10px; }
@@ -70,7 +73,7 @@
     .slideFaceLayer { position:absolute; inset:0; pointer-events:none; }
     .slideFaceRect { position:absolute; border:2px solid #ffd166; background:rgba(255,209,102,.18); }
     .slideTextOverlay { position:absolute; pointer-events:none; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); font-weight:600; }
-    .tileImageWrap { position:relative; flex:0 0 auto; }
+    .tileImageWrap { position:relative; }
     .tileTextOverlay { position:absolute; pointer-events:none; color:#fff; text-shadow:0 1px 2px rgba(0,0,0,.85); font-weight:600; left:8%; top:8%; font-size:14px; max-width:80%; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
     .faceRect.active { border-color:#ff6b6b; background:rgba(255,107,107,.15); }
 
@@ -546,6 +549,22 @@ function findThumbIdxForImageItem(imageItem, nameMap) {
   return -1;
 }
 
+
+function findImageIndexForThumb(source, thumbIdx) {
+  const nameMap = state.thumbNameToIdx[source];
+  if (!(nameMap instanceof Map) || !Number.isFinite(thumbIdx) || thumbIdx < 0) return -1;
+  const keys = [];
+  for (const [k, v] of nameMap.entries()) {
+    if (Number(v) === Number(thumbIdx)) keys.push(normalizeThumbKey(k));
+  }
+  if (!keys.length) return -1;
+  for (let i = 0; i < state.currentImages.length; i++) {
+    const variants = thumbKeyVariantsForImageItem(state.currentImages[i]);
+    if (variants.some((v) => keys.includes(normalizeThumbKey(v)))) return i;
+  }
+  return -1;
+}
+
 function extractEmbeddedImageBlobs(buffer) {
   const bytes = new Uint8Array(buffer);
   const out = [];
@@ -939,6 +958,11 @@ async function renderAllThumbsGallery() {
     cap.textContent = `${selectedSource}[${i}]`;
     tile.appendChild(img);
     tile.appendChild(cap);
+    tile.onclick = () => {
+      const imageIdx = findImageIndexForThumb(selectedSource, i);
+      if (imageIdx >= 0) openSlideshow(imageIdx);
+      else setStatus("No matching image found for this thumbnail in current list.", "warn");
+    };
     el.grid.appendChild(tile);
     observer.observe(img);
   }
@@ -3812,11 +3836,13 @@ async function renderTiles(images) {
         const nameMap = state.thumbNameToIdx[selectedSource];
         const thumbIdx = findThumbIdxForImageItem(it, nameMap);
         if (Number.isFinite(thumbIdx) && thumbIdx >= 0) {
+          tile.classList.add("thumbFromDb");
           img.loading = "lazy";
           img.dataset.lazyThumbSource = selectedSource;
           img.dataset.lazyThumbIdx = String(thumbIdx);
           tileObs.observe(img);
         } else {
+          tile.classList.add("thumbFromOriginal");
           const chain = buildEffectiveFilterChain(it.filters || [], it.cropRect64 || "");
           it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "");
           img.src = it.thumbUrl;
