@@ -15,7 +15,7 @@
     .pill { font-size: 12px; padding: 4px 8px; border: 1px solid #3a3a3a; border-radius: 999px; color: #bbb; }
     .layout { display: grid; grid-template-columns: 320px 1fr; height: calc(100vh - 52px); min-height: 0; }
     aside { border-right: 1px solid #2a2a2a; display:flex; flex-direction:column; min-height:0; overflow:hidden; }
-    main { display:flex; flex-direction:column; min-height:0; overflow:hidden; }
+    main { display:flex; flex-direction:column; min-height:0; height:100%; overflow:hidden; }
     .sectionTitle { padding: 10px 12px; font-weight: 600; color: #ddd; border-bottom: 1px solid #222; }
     .list { display: flex; flex-direction: column; }
     .item { padding: 10px 12px; border-bottom: 1px solid #222; cursor: pointer; }
@@ -24,7 +24,7 @@
     .item small { display: block; color: #aaa; margin-top: 4px; word-break: break-all; }
     .item .broken { color: #ffb4b4; }
     .toolbar { display: flex; gap: 8px; align-items: center; padding: 10px 12px; border-bottom: 1px solid #222; background: #141414; position: sticky; top: 0; z-index: 5; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 12px; overflow: auto; min-height: 0; flex: 1; align-content: start; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; padding: 12px; overflow: auto; min-height: 0; flex: 1 1 0%; align-content: start; }
     #albumList { overflow: auto; min-height: 0; flex: 1; }
     .logPanel {
       margin: 0 12px 12px;
@@ -46,8 +46,8 @@
       color: #aeb7c2;
       font-size: 12px;
       line-height: 1.45;
-      max-height: 220px;
-      overflow: auto;
+      max-height: 96px;
+      overflow: hidden;
       white-space: pre-wrap;
       word-break: break-word;
     }
@@ -519,6 +519,33 @@ function collectLikelyImageNames(text) {
   return out;
 }
 
+
+function normalizeThumbKey(name) {
+  const raw = String(name || "").trim();
+  if (!raw) return "";
+  return raw.replaceAll("\\", "/").replace(/^\.\//, "").toLowerCase();
+}
+
+function thumbKeyVariantsForImageItem(imageItem) {
+  const out = new Set();
+  const name = normalizeThumbKey(imageItem?.name || "");
+  const rel = normalizeThumbKey(imageItem?.relPath || "");
+  if (name) out.add(name);
+  if (rel) out.add(rel);
+  if (rel.includes("/")) out.add(rel.split("/").pop());
+  if (name && rel) out.add(`${folderOfRelPath(rel)}/${name}`.replace(/^\/+/, ""));
+  return Array.from(out).filter(Boolean);
+}
+
+function findThumbIdxForImageItem(imageItem, nameMap) {
+  if (!(nameMap instanceof Map)) return -1;
+  for (const key of thumbKeyVariantsForImageItem(imageItem)) {
+    const idx = nameMap.get(key);
+    if (Number.isFinite(idx) && idx >= 0) return idx;
+  }
+  return -1;
+}
+
 function extractEmbeddedImageBlobs(buffer) {
   const bytes = new Uint8Array(buffer);
   const out = [];
@@ -951,7 +978,7 @@ async function importThumbSource(source) {
   state.thumbIndexedRows[source] = rows;
   const nameToIdx = new Map();
   const n = Math.min(dedupNames.length, rows.length);
-  for (let i = 0; i < n; i++) nameToIdx.set(String(dedupNames[i] || "").toLowerCase(), i);
+  for (let i = 0; i < n; i++) nameToIdx.set(normalizeThumbKey(dedupNames[i] || ""), i);
   state.thumbNameToIdx[source] = nameToIdx;
 
   await saveIndexedThumbsForSource(source, thumbs, dedupNames);
@@ -1244,13 +1271,13 @@ async function loadIndexedThumbIndexNames(source) {
     const names = [];
     for (const row of rows) {
       if (Array.isArray(row.extractedNames) && row.extractedNames.length) {
-        for (const nm of row.extractedNames) names.push(String(nm || "").toLowerCase());
+        for (const nm of row.extractedNames) names.push(normalizeThumbKey(nm || ""));
         continue;
       }
       if (row.blob instanceof Blob) {
         try {
           const buf = await row.blob.arrayBuffer();
-          for (const nm of collectLikelyImageNamesFromBuffer(buf)) names.push(String(nm || "").toLowerCase());
+          for (const nm of collectLikelyImageNamesFromBuffer(buf)) names.push(normalizeThumbKey(nm || ""));
         } catch {}
       }
     }
@@ -1281,7 +1308,7 @@ async function loadIndexedThumbsForSource(source) {
       const idx = Number(row.idx);
       if (!Number.isFinite(idx) || idx < 0) continue;
       rows[idx] = { idx, blob: row.blob };
-      const mappedName = String(row.mappedName || "").trim().toLowerCase();
+      const mappedName = normalizeThumbKey(row.mappedName || "");
       if (mappedName && !nameToIdx.has(mappedName)) nameToIdx.set(mappedName, idx);
     }
     if (!nameToIdx.size && rows.length) {
@@ -1289,7 +1316,7 @@ async function loadIndexedThumbsForSource(source) {
         const idxNames = await loadIndexedThumbIndexNames(source);
         const n = Math.min(idxNames.length, rows.length);
         for (let i = 0; i < n; i++) {
-          const nm = String(idxNames[i] || "").trim().toLowerCase();
+          const nm = normalizeThumbKey(idxNames[i] || "");
           if (nm && !nameToIdx.has(nm)) nameToIdx.set(nm, i);
         }
       } catch {}
@@ -3783,7 +3810,7 @@ async function renderTiles(images) {
       try {
         const selectedSource = String(state.prefs.thumbSource || "generated");
         const nameMap = state.thumbNameToIdx[selectedSource];
-        const thumbIdx = nameMap instanceof Map ? nameMap.get(String(it.name || "").toLowerCase()) : -1;
+        const thumbIdx = findThumbIdxForImageItem(it, nameMap);
         if (Number.isFinite(thumbIdx) && thumbIdx >= 0) {
           img.loading = "lazy";
           img.dataset.lazyThumbSource = selectedSource;
