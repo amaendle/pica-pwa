@@ -781,6 +781,47 @@ function collectLikelyImageNamesFromBuffer(buffer) {
   return Array.from(names);
 }
 
+function extractThumbIndexNameMappingsFromBuffer(buffer) {
+  const out = [];
+  if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 8) return out;
+  const dv = new DataView(buffer);
+  let text = "";
+  try {
+    text = new TextDecoder("latin1").decode(new Uint8Array(buffer));
+  } catch {
+    return out;
+  }
+  const re = /([A-Za-z0-9 _().\-\\/]+\.(?:jpe?g|png|bmp|gif|webp))/gi;
+  let m;
+  while ((m = re.exec(text))) {
+    const name = normalizeThumbKey(m[1] || "");
+    if (!name) continue;
+    const at = Number(m.index);
+    if (!Number.isFinite(at) || at <= 0) continue;
+    let best = null;
+    const from = Math.max(0, at - 80);
+    const to = Math.max(0, at - 4);
+    for (let p = from; p <= to; p++) {
+      if (p + 4 > dv.byteLength) break;
+      const idx = dv.getUint32(p, true);
+      if (!Number.isFinite(idx) || idx > 10_000_000) continue;
+      let score = 0;
+      const dist = at - p;
+      if (dist === 4) score += 8;
+      else if (dist <= 8) score += 6;
+      else if (dist <= 16) score += 4;
+      else if (dist <= 32) score += 2;
+      if ((p % 4) === 0) score += 2;
+      if (idx < 2_000_000) score += 2;
+      if (!best || score > best.score) best = { idx, score, pos: p };
+    }
+    if (best && best.score >= 6) {
+      out.push({ idx: Number(best.idx), name, score: best.score, nameOffset: at, idxOffset: best.pos });
+    }
+  }
+  return out;
+}
+
 async function readOptionalBuffer(rootHandle, relPath) {
   try {
     const fh = await getFileHandleByPath(rootHandle, relPath);
@@ -993,19 +1034,50 @@ async function importThumbSource(source) {
     return { source, count: 0, totalThumbs: 0, discoveredNames: 0 };
   }
 
-  const namesSet = new Set();
-  for (const nm of collectLikelyImageNamesFromBuffer(dbBuf)) namesSet.add(nm);
-  for (const idx of idxFiles) for (const nm of collectLikelyImageNamesFromBuffer(idx.buffer)) namesSet.add(nm);
-  const dedupNames = Array.from(namesSet);
-
   const rows = thumbs.map((blob, idx) => ({ idx, blob }));
   state.thumbIndexedRows[source] = rows;
+
+  const dedupNames = [];
+  const dedupSet = new Set();
   const nameToIdx = new Map();
-  const n = Math.min(dedupNames.length, rows.length);
-  for (let i = 0; i < n; i++) nameToIdx.set(normalizeThumbKey(dedupNames[i] || ""), i);
+  const mappedNamesByIdx = new Array(rows.length).fill("");
+
+  for (const idxFile of idxFiles) {
+    const mappings = extractThumbIndexNameMappingsFromBuffer(idxFile.buffer);
+    for (const m of mappings) {
+      const idx = Number(m?.idx);
+      const nm = normalizeThumbKey(m?.name || "");
+      if (!nm) continue;
+      if (!dedupSet.has(nm)) { dedupSet.add(nm); dedupNames.push(nm); }
+      if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length) continue;
+      if (!nameToIdx.has(nm)) nameToIdx.set(nm, idx);
+      if (!mappedNamesByIdx[idx]) mappedNamesByIdx[idx] = nm;
+    }
+  }
+
+  if (!nameToIdx.size) {
+    for (const nm of collectLikelyImageNamesFromBuffer(dbBuf)) {
+      const key = normalizeThumbKey(nm || "");
+      if (key && !dedupSet.has(key)) { dedupSet.add(key); dedupNames.push(key); }
+    }
+    for (const idxFile of idxFiles) {
+      for (const nm of collectLikelyImageNamesFromBuffer(idxFile.buffer)) {
+        const key = normalizeThumbKey(nm || "");
+        if (key && !dedupSet.has(key)) { dedupSet.add(key); dedupNames.push(key); }
+      }
+    }
+    const n = Math.min(dedupNames.length, rows.length);
+    for (let i = 0; i < n; i++) {
+      const nm = dedupNames[i];
+      if (!nm) continue;
+      if (!nameToIdx.has(nm)) nameToIdx.set(nm, i);
+      if (!mappedNamesByIdx[i]) mappedNamesByIdx[i] = nm;
+    }
+  }
+
   state.thumbNameToIdx[source] = nameToIdx;
 
-  await saveIndexedThumbsForSource(source, thumbs, dedupNames);
+  await saveIndexedThumbsForSource(source, thumbs, mappedNamesByIdx);
   return { source, count: nameToIdx.size, totalThumbs: thumbs.length, discoveredNames: dedupNames.length };
 }
 async function importThumbCachesFromPmp() {
@@ -1259,6 +1331,7 @@ async function saveIndexedThumbIndexFiles(source, indexFiles = []) {
       const fileName = String(it.fileName || `index_${row}.db`);
       const blob = new Blob([it.buffer], { type: "application/octet-stream" });
       const extractedNames = collectLikelyImageNamesFromBuffer(it.buffer);
+      const extractedMappings = extractThumbIndexNameMappingsFromBuffer(it.buffer);
       store.put({
         id: `${librarySource}:idx:${row}`,
         libraryId,
@@ -1268,6 +1341,7 @@ async function saveIndexedThumbIndexFiles(source, indexFiles = []) {
         fileName,
         blob,
         extractedNames,
+        extractedMappings,
         importedAt: Date.now()
       });
       row += 1;
@@ -1311,6 +1385,47 @@ async function loadIndexedThumbIndexNames(source) {
   }
 }
 
+async function loadIndexedThumbIndexMappings(source) {
+  if (!THUMB_DB_SOURCES.includes(source)) return [];
+  const db = await openLibraryDB();
+  const libraryId = String(state.libraryId || "default");
+  const librarySource = `${libraryId}:${source}`;
+  try {
+    const tx = db.transaction([STORES.thumbnailIndexes], "readonly");
+    const store = tx.objectStore(STORES.thumbnailIndexes);
+    const rows = await new Promise((resolve, reject) => {
+      const req = store.index("librarySource").getAll(librarySource);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error || new Error("Failed to read thumbnail index rows"));
+    });
+    rows.sort((a,b)=>(Number(a.row)||0)-(Number(b.row)||0));
+    const out = [];
+    for (const row of rows) {
+      if (Array.isArray(row.extractedMappings) && row.extractedMappings.length) {
+        for (const it of row.extractedMappings) {
+          const idx = Number(it?.idx);
+          const name = normalizeThumbKey(it?.name || "");
+          if (Number.isFinite(idx) && idx >= 0 && name) out.push({ idx, name });
+        }
+        continue;
+      }
+      if (row.blob instanceof Blob) {
+        try {
+          const buf = await row.blob.arrayBuffer();
+          for (const it of extractThumbIndexNameMappingsFromBuffer(buf)) {
+            const idx = Number(it?.idx);
+            const name = normalizeThumbKey(it?.name || "");
+            if (Number.isFinite(idx) && idx >= 0 && name) out.push({ idx, name });
+          }
+        } catch {}
+      }
+    }
+    return out;
+  } finally {
+    db.close();
+  }
+}
+
 async function loadIndexedThumbsForSource(source) {
   if (!THUMB_DB_SOURCES.includes(source)) return { rows: [], nameToIdx: new Map() };
   const db = await openLibraryDB();
@@ -1334,6 +1449,17 @@ async function loadIndexedThumbsForSource(source) {
       rows[idx] = { idx, blob: row.blob };
       const mappedName = normalizeThumbKey(row.mappedName || "");
       if (mappedName && !nameToIdx.has(mappedName)) nameToIdx.set(mappedName, idx);
+    }
+    if (rows.length) {
+      try {
+        const idxMappings = await loadIndexedThumbIndexMappings(source);
+        for (const it of idxMappings) {
+          const idx = Number(it?.idx);
+          const nm = normalizeThumbKey(it?.name || "");
+          if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length || !nm) continue;
+          if (!nameToIdx.has(nm)) nameToIdx.set(nm, idx);
+        }
+      } catch {}
     }
     if (!nameToIdx.size && rows.length) {
       try {
