@@ -822,7 +822,7 @@ function extractThumbIndexNameMappingsFromBuffer(buffer) {
   return out;
 }
 
-function parseThumbsIndexDb(buffer) {
+function parseThumbindexDb(buffer) {
   const out = [];
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 8) return out;
   const dv = new DataView(buffer);
@@ -869,9 +869,9 @@ function parseThumbsIndexDb(buffer) {
     if (!e.name || e.parentIdx === 0xFFFFFFFF) continue; // folder rows are not image mappings
     const full = resolvePath(e.row);
     if (!full) continue;
-    out.push({ idx: e.row, name: full, source: "thumbs_index.db" });
+    out.push({ idx: e.row, name: full, source: "thumbindex.db" });
     const base = full.split("/").pop();
-    if (base && base !== full) out.push({ idx: e.row, name: base, source: "thumbs_index.db" });
+    if (base && base !== full) out.push({ idx: e.row, name: base, source: "thumbindex.db" });
   }
   return out;
 }
@@ -1074,7 +1074,7 @@ async function importThumbSource(source) {
   if (!dbBuf) return { source, count: 0 };
 
   const idxCandidates = [`${source}_0_index.db`, `${source}_index.db`];
-  if (source === "thumbs") idxCandidates.push("thumbs_index.db");
+  if (source === "thumbs") idxCandidates.push("thumbindex.db");
   const idxFiles = [];
   for (const fileName of idxCandidates) {
     const buf = await readOptionalBuffer(state.pmpRoot, fileName) || await readOptionalBuffer(state.pmpRoot, `db/${fileName}`);
@@ -1388,8 +1388,8 @@ async function saveIndexedThumbIndexFiles(source, indexFiles = []) {
       const blob = new Blob([it.buffer], { type: "application/octet-stream" });
       const extractedNames = collectLikelyImageNamesFromBuffer(it.buffer);
       let extractedMappings = extractThumbIndexNameMappingsFromBuffer(it.buffer);
-      if (!extractedMappings.length && fileName.toLowerCase() === "thumbs_index.db") {
-        extractedMappings = parseThumbsIndexDb(it.buffer);
+      if (!extractedMappings.length && fileName.toLowerCase() === "thumbindex.db") {
+        extractedMappings = parseThumbindexDb(it.buffer);
       }
       store.put({
         id: `${librarySource}:idx:${row}`,
@@ -1472,7 +1472,7 @@ async function loadIndexedThumbIndexMappings(source) {
         try {
           const buf = await row.blob.arrayBuffer();
           const parsed = extractThumbIndexNameMappingsFromBuffer(buf);
-          const parsedFallback = parsed.length ? parsed : parseThumbsIndexDb(buf);
+          const parsedFallback = parsed.length ? parsed : parseThumbindexDb(buf);
           for (const it of parsedFallback) {
             const idx = Number(it?.idx);
             const name = normalizeThumbKey(it?.name || "");
