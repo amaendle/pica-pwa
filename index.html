@@ -1073,8 +1073,7 @@ async function importThumbSource(source) {
   const dbBuf = await readOptionalBuffer(state.pmpRoot, dbName) || await readOptionalBuffer(state.pmpRoot, `db/${dbName}`);
   if (!dbBuf) return { source, count: 0 };
 
-  const idxCandidates = [`${source}_0_index.db`, `${source}_index.db`];
-  if (source === "thumbs") idxCandidates.push("thumbindex.db");
+  const idxCandidates = [`${source}_0_index.db`, `${source}_index.db`, "thumbindex.db"];
   const idxFiles = [];
   for (const fileName of idxCandidates) {
     const buf = await readOptionalBuffer(state.pmpRoot, fileName) || await readOptionalBuffer(state.pmpRoot, `db/${fileName}`);
