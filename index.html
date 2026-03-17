@@ -216,6 +216,10 @@
           <button id="btnTiltMode">Tilt</button>
           <button id="btnFillLightMode">Fill Light</button>
           <button id="btnFinetune2Mode">Fine Tune 2</button>
+          <button id="btnApplySepiaFilter">Sepia</button>
+          <button id="btnApplyBwFilter">B/W</button>
+          <button id="btnApplyWarmFilter">Warm</button>
+          <button id="btnApplyGrain2Filter">Grain2</button>
           <button id="btnFacesMode">Faces</button>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -252,7 +256,7 @@
             <button id="btnFaceFinetuneClearNeutral" class="miniBtn">Clear neutral</button>
           </div>
           <label>Neutral ARGB (AARRGGBB)<input id="faceFinetuneNeutralInput" type="text" value="00000000" maxlength="8" placeholder="00000000" readonly></label>
-          <label style="display:flex; align-items:center; gap:8px;"><input id="faceFinetuneUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for finetune2 preview</label>
+          <label style="display:flex; align-items:center; gap:8px;"><input id="facePreviewUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for preview</label>
           <button id="btnApplyFinetune2Filter">Apply finetune2 filter</button>
         </div>
         <label class="hidden" id="faceFaceSelectWrap">Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
@@ -1706,6 +1710,84 @@ function applyFillLightOnCanvas(canvas, strength = 0) {
   return canvas;
 }
 
+function applyFillLightOnCanvasWebGL(canvas, strength = 0) {
+  const fl = Math.max(0, Math.min(1, Number(strength) || 0));
+  if (!(fl > 0) || !canvas) return false;
+  const glCanvas = document.createElement("canvas");
+  glCanvas.width = canvas.width;
+  glCanvas.height = canvas.height;
+  const gl = glCanvas.getContext("webgl2", { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
+  if (!gl) return false;
+  const vsSrc = `#version 300 es
+    in vec2 aPos; out vec2 vUv;
+    void main(){ vUv=aPos*0.5+0.5; gl_Position=vec4(aPos,0.0,1.0);} `;
+  const fsSrc = `#version 300 es
+    precision highp float;
+    uniform sampler2D uImage; uniform float uStrength;
+    in vec2 vUv; out vec4 outColor;
+    void main(){
+      vec4 texel = texture(uImage, vUv);
+      vec3 rgb = texel.rgb;
+      float lum = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+      float y = clamp(lum + uStrength * (1.0 - lum) * (1.0 - pow(lum, 2.4)), 0.0, 1.0);
+      float gain = lum > 1e-6 ? (y / lum) : (1.0 + uStrength);
+      outColor = vec4(clamp(rgb * gain, 0.0, 1.0), texel.a);
+    }`;
+  const compile=(type,src)=>{const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){throw new Error(gl.getShaderInfoLog(sh)||"shader");}return sh;};
+  try {
+    const vs=compile(gl.VERTEX_SHADER,vsSrc), fs=compile(gl.FRAGMENT_SHADER,fsSrc);
+    const prog=gl.createProgram(); gl.attachShader(prog,vs); gl.attachShader(prog,fs); gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog)||"link");
+    gl.useProgram(prog);
+    const aPos=gl.getAttribLocation(prog,'aPos');
+    gl.uniform1i(gl.getUniformLocation(prog,'uImage'),0);
+    gl.uniform1f(gl.getUniformLocation(prog,'uStrength'), fl);
+    const quad=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+    const tex=gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,canvas);
+    gl.viewport(0,0,glCanvas.width,glCanvas.height); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES,0,6);
+    const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(glCanvas,0,0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function applySimpleToneFilterOnCanvas(canvas, mode = "") {
+  if (!canvas) return canvas;
+  const m = String(mode || "").toLowerCase();
+  const ctx = canvas.getContext("2d");
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imgData.data;
+  for (let i = 0; i < d.length; i += 4) {
+    let r = d[i], g = d[i + 1], b = d[i + 2];
+    if (m === "sepia") {
+      const nr = Math.min(255, Math.round(0.393 * r + 0.769 * g + 0.189 * b));
+      const ng = Math.min(255, Math.round(0.349 * r + 0.686 * g + 0.168 * b));
+      const nb = Math.min(255, Math.round(0.272 * r + 0.534 * g + 0.131 * b));
+      r = nr; g = ng; b = nb;
+    } else if (m === "bw") {
+      const y = Math.round(0.2126 * r + 0.7152 * g + 0.0722 * b);
+      r = y; g = y; b = y;
+    } else if (m === "warm") {
+      r = Math.min(255, Math.round(r * 1.08 + 6));
+      g = Math.min(255, Math.round(g * 1.01 + 1));
+      b = Math.max(0, Math.round(b * 0.93 - 4));
+    } else if (m === "grain2") {
+      const n = Math.round((Math.random() - 0.5) * 24);
+      r = Math.max(0, Math.min(255, r + n));
+      g = Math.max(0, Math.min(255, g + n));
+      b = Math.max(0, Math.min(255, b + n));
+    }
+    d[i] = r; d[i + 1] = g; d[i + 2] = b;
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
 const FINETUNE_CURVE_POINTS = 8;
 const FINETUNE2_FILL_BASE = [
   [0.00, 0.15], [0.05, 0.52], [0.10, 0.63], [0.20, 0.70],
@@ -1956,17 +2038,37 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     }
     m = String(f).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
     if (m) {
-      applyFillLightOnCanvas(canvas, Number(m[1]));
+      const fl = Number(m[1]);
+      const canUseWebgl = !!state.preview?.useWebglPreview && !hasAppliedTilt;
+      if (!(canUseWebgl && applyFillLightOnCanvasWebGL(canvas, fl))) {
+        applyFillLightOnCanvas(canvas, fl);
+      }
       continue;
     }
     m = parseFinetune2Filter(f);
     if (m) {
-      const canUseWebgl = !!state.finetune2?.useWebglPreview && !hasAppliedTilt;
+      const canUseWebgl = !!state.preview?.useWebglPreview && !hasAppliedTilt;
       if (canUseWebgl) {
         if (!applyFinetune2OnCanvasWebGL(canvas, m)) applyFinetune2OnCanvas(canvas, m);
       } else {
         applyFinetune2OnCanvas(canvas, m);
       }
+      continue;
+    }
+    if (/^sepia=1$/i.test(String(f).trim())) {
+      applySimpleToneFilterOnCanvas(canvas, "sepia");
+      continue;
+    }
+    if (/^bw=1$/i.test(String(f).trim())) {
+      applySimpleToneFilterOnCanvas(canvas, "bw");
+      continue;
+    }
+    if (/^warm=1$/i.test(String(f).trim())) {
+      applySimpleToneFilterOnCanvas(canvas, "warm");
+      continue;
+    }
+    if (/^grain2=1$/i.test(String(f).trim())) {
+      applySimpleToneFilterOnCanvas(canvas, "grain2");
       continue;
     }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
@@ -2031,7 +2133,7 @@ const state = {
   libraryId: "default",
   slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true, enableFinetune2: true },
   prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini", thumbSource: "generated" },
-  finetune2: { useWebglPreview: true },
+  preview: { useWebglPreview: true },
   thumbCaches: {
     bigthumbs: new Map(),
     thumbs2: new Map(),
@@ -2140,7 +2242,7 @@ const el = {
   faceFinetuneTempSlider: document.getElementById("faceFinetuneTempSlider"),
   faceFinetuneTempValue: document.getElementById("faceFinetuneTempValue"),
   faceFinetuneNeutralInput: document.getElementById("faceFinetuneNeutralInput"),
-  faceFinetuneUseWebgl: document.getElementById("faceFinetuneUseWebgl"),
+  facePreviewUseWebgl: document.getElementById("facePreviewUseWebgl"),
   faceFinetuneSwatch: document.getElementById("faceFinetuneSwatch"),
   btnFaceFinetunePickNeutral: document.getElementById("btnFaceFinetunePickNeutral"),
   btnFaceFinetuneClearNeutral: document.getElementById("btnFaceFinetuneClearNeutral"),
@@ -2189,6 +2291,10 @@ const el = {
   btnTiltMode: document.getElementById("btnTiltMode"),
   btnFillLightMode: document.getElementById("btnFillLightMode"),
   btnFinetune2Mode: document.getElementById("btnFinetune2Mode"),
+  btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
+  btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
+  btnApplyWarmFilter: document.getElementById("btnApplyWarmFilter"),
+  btnApplyGrain2Filter: document.getElementById("btnApplyGrain2Filter"),
   btnFacesMode: document.getElementById("btnFacesMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnRenameFace: document.getElementById("btnRenameFace"),
@@ -3018,7 +3124,7 @@ function openFaceEditor(imageItem) {
     b: finetune.neutralColor.b || 0
   } : null;
   el.faceFinetuneSwatch.style.background = faceEditor.finetuneNeutralColor ? `rgb(${faceEditor.finetuneNeutralColor.r}, ${faceEditor.finetuneNeutralColor.g}, ${faceEditor.finetuneNeutralColor.b})` : "#000";
-  el.faceFinetuneUseWebgl.checked = !!state.finetune2.useWebglPreview;
+  el.facePreviewUseWebgl.checked = !!state.preview.useWebglPreview;
   el.faceCanvasImg.style.transform = "";
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
@@ -3061,7 +3167,7 @@ function closeFaceEditor() {
   el.faceEditorOverlay.classList.remove('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'true');
   el.faceCanvasImg.style.transform = "";
-  el.faceFinetuneUseWebgl.checked = !!state.finetune2.useWebglPreview;
+  el.facePreviewUseWebgl.checked = !!state.preview.useWebglPreview;
   faceEditor.draggingIdx = -1;
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
@@ -4300,6 +4406,18 @@ el.btnApplyFillLightFilter.onclick = () => {
   el.faceEditorStatus.textContent = `Applied filter: filllight (${faceEditor.filters.length})`;
 };
 
+const applyNoParamFilter = (filterToken) => {
+  faceEditor.filters.push(filterToken);
+  renderFilterList();
+  refreshEditorPreview();
+  el.faceEditorStatus.textContent = `Applied filter: ${filterToken} (${faceEditor.filters.length})`;
+};
+
+el.btnApplySepiaFilter.onclick = () => applyNoParamFilter("sepia=1");
+el.btnApplyBwFilter.onclick = () => applyNoParamFilter("bw=1");
+el.btnApplyWarmFilter.onclick = () => applyNoParamFilter("warm=1");
+el.btnApplyGrain2Filter.onclick = () => applyNoParamFilter("grain2=1");
+
 const refreshFinetune2Draft = () => {
   const fill = Math.max(0, Math.min(1, Number(el.faceFinetuneFillSlider.value || "0")));
   const hi = Math.max(0, Math.min(0.48, Number(el.faceFinetuneHighlightsSlider.value || "0")));
@@ -4332,8 +4450,8 @@ el.btnFaceFinetuneClearNeutral.onclick = () => {
   el.btnFaceFinetunePickNeutral.textContent = "Pick neutral";
   refreshFinetune2Draft();
 };
-el.faceFinetuneUseWebgl.onchange = () => {
-  state.finetune2.useWebglPreview = !!el.faceFinetuneUseWebgl.checked;
+el.facePreviewUseWebgl.onchange = () => {
+  state.preview.useWebglPreview = !!el.facePreviewUseWebgl.checked;
   refreshEditorPreview();
 };
 el.btnApplyFinetune2Filter.onclick = () => {
