@@ -514,15 +514,6 @@ function revokeThumbCache(cacheMap) {
   cacheMap.clear();
 }
 
-function collectLikelyImageNames(text) {
-  const out = new Set();
-  const re = /([A-Za-z0-9 _().\-]+\.(?:jpe?g|png|bmp|gif|webp))/gi;
-  let m;
-  while ((m = re.exec(text))) out.add(String(m[1] || "").trim().toLowerCase());
-  return out;
-}
-
-
 function normalizeThumbKey(name) {
   const raw = String(name || "").trim();
   if (!raw) return "";
@@ -751,34 +742,6 @@ function extractThumbCandidatesFromBuffer(buffer) {
     }
   }
   return out;
-}
-
-function collectLikelyImageNamesFromBuffer(buffer) {
-  const names = new Set();
-  try {
-    const latin1 = new TextDecoder('latin1').decode(new Uint8Array(buffer));
-    for (const nm of collectLikelyImageNames(latin1)) names.add(nm);
-  } catch {}
-  try {
-    const u16 = new Uint16Array(buffer);
-    let txt = '';
-    for (let i = 0; i < u16.length; i++) {
-      const c = u16[i];
-      txt += (c >= 32 && c <= 0x7e) ? String.fromCharCode(c) : '\n';
-    }
-    for (const nm of collectLikelyImageNames(txt)) names.add(nm);
-  } catch {}
-  const streams = parseCfbStreams(buffer);
-  if (streams) {
-    for (const st of streams) {
-      for (const nm of collectLikelyImageNames(st.name || '')) names.add(nm);
-      try {
-        const txt = new TextDecoder('latin1').decode(st.data);
-        for (const nm of collectLikelyImageNames(txt)) names.add(nm);
-      } catch {}
-    }
-  }
-  return Array.from(names);
 }
 
 function parseThumbindexDb(buffer) {
@@ -1072,7 +1035,7 @@ async function importThumbSource(source) {
   const dbBuf = await readOptionalBuffer(state.pmpRoot, dbName) || await readOptionalBuffer(state.pmpRoot, `db/${dbName}`);
   if (!dbBuf) return { source, count: 0 };
 
-  const idxCandidates = [`${source}_0_index.db`, `${source}_index.db`, "thumbindex.db"];
+  const idxCandidates = ["thumbindex.db"];
   const idxFiles = [];
   for (const fileName of idxCandidates) {
     const buf = await readOptionalBuffer(state.pmpRoot, fileName) || await readOptionalBuffer(state.pmpRoot, `db/${fileName}`);
@@ -1358,27 +1321,21 @@ async function saveIndexedThumbIndexFiles(source, indexFiles = []) {
       req.onerror = () => reject(req.error || new Error("Failed to list thumbnail index keys"));
     });
     for (const k of existingKeys) store.delete(k);
-    let row = 0;
-    for (const it of (indexFiles || [])) {
-      if (!it?.buffer) continue;
-      const fileName = String(it.fileName || `index_${row}.db`);
-      const blob = new Blob([it.buffer], { type: "application/octet-stream" });
-      const isThumbindex = fileName.toLowerCase() === "thumbindex.db";
-      const extractedNames = isThumbindex ? collectLikelyImageNamesFromBuffer(it.buffer) : [];
-      const extractedMappings = isThumbindex ? parseThumbindexDb(it.buffer) : [];
+    const thumbindex = (indexFiles || []).find((it) => String(it?.fileName || "").toLowerCase() === "thumbindex.db" && it?.buffer);
+    if (thumbindex) {
+      const blob = new Blob([thumbindex.buffer], { type: "application/octet-stream" });
+      const extractedMappings = parseThumbindexDb(thumbindex.buffer);
       store.put({
-        id: `${librarySource}:idx:${row}`,
+        id: `${librarySource}:idx:0`,
         libraryId,
         source,
         librarySource,
-        row,
-        fileName,
+        row: 0,
+        fileName: "thumbindex.db",
         blob,
-        extractedNames,
         extractedMappings,
         importedAt: Date.now()
       });
-      row += 1;
     }
     await txDone(tx);
   } finally {
