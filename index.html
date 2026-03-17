@@ -1097,16 +1097,31 @@ async function importThumbSource(source) {
   const nameToIdx = new Map();
   const mappedNamesByIdx = new Array(rows.length).fill("");
 
-  for (const idxFile of idxFiles) {
-    const mappings = extractThumbIndexNameMappingsFromBuffer(idxFile.buffer);
-    for (const m of mappings) {
-      const idx = Number(m?.idx);
-      const nm = normalizeThumbKey(m?.name || "");
-      if (!nm) continue;
-      if (!dedupSet.has(nm)) { dedupSet.add(nm); dedupNames.push(nm); }
-      if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length) continue;
-      if (!nameToIdx.has(nm)) nameToIdx.set(nm, idx);
-      if (!mappedNamesByIdx[idx]) mappedNamesByIdx[idx] = nm;
+  const thumbindexFile = idxFiles.find((f) => String(f?.fileName || "").toLowerCase() === "thumbindex.db");
+  const thumbindexMappings = thumbindexFile ? parseThumbindexDb(thumbindexFile.buffer) : [];
+  for (const m of thumbindexMappings) {
+    const idx = Number(m?.idx);
+    const nm = normalizeThumbKey(m?.name || "");
+    if (!nm) continue;
+    if (!dedupSet.has(nm)) { dedupSet.add(nm); dedupNames.push(nm); }
+    if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length) continue;
+    if (!nameToIdx.has(nm)) nameToIdx.set(nm, idx);
+    if (!mappedNamesByIdx[idx]) mappedNamesByIdx[idx] = nm;
+  }
+
+  if (!nameToIdx.size) {
+    for (const idxFile of idxFiles) {
+      if (String(idxFile?.fileName || "").toLowerCase() === "thumbindex.db") continue;
+      const mappings = extractThumbIndexNameMappingsFromBuffer(idxFile.buffer);
+      for (const m of mappings) {
+        const idx = Number(m?.idx);
+        const nm = normalizeThumbKey(m?.name || "");
+        if (!nm) continue;
+        if (!dedupSet.has(nm)) { dedupSet.add(nm); dedupNames.push(nm); }
+        if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length) continue;
+        if (!nameToIdx.has(nm)) nameToIdx.set(nm, idx);
+        if (!mappedNamesByIdx[idx]) mappedNamesByIdx[idx] = nm;
+      }
     }
   }
 
@@ -1386,10 +1401,10 @@ async function saveIndexedThumbIndexFiles(source, indexFiles = []) {
       const fileName = String(it.fileName || `index_${row}.db`);
       const blob = new Blob([it.buffer], { type: "application/octet-stream" });
       const extractedNames = collectLikelyImageNamesFromBuffer(it.buffer);
-      let extractedMappings = extractThumbIndexNameMappingsFromBuffer(it.buffer);
-      if (!extractedMappings.length && fileName.toLowerCase() === "thumbindex.db") {
-        extractedMappings = parseThumbindexDb(it.buffer);
-      }
+      const isThumbindex = fileName.toLowerCase() === "thumbindex.db";
+      let extractedMappings = isThumbindex
+        ? parseThumbindexDb(it.buffer)
+        : extractThumbIndexNameMappingsFromBuffer(it.buffer);
       store.put({
         id: `${librarySource}:idx:${row}`,
         libraryId,
@@ -1458,6 +1473,24 @@ async function loadIndexedThumbIndexMappings(source) {
     });
     rows.sort((a,b)=>(Number(a.row)||0)-(Number(b.row)||0));
     const out = [];
+    const thumbindexRows = rows.filter((r) => String(r?.fileName || "").toLowerCase() === "thumbindex.db");
+    if (thumbindexRows.length) {
+      for (const row of thumbindexRows) {
+        let mappings = Array.isArray(row.extractedMappings) ? row.extractedMappings : [];
+        if (!mappings.length && row.blob instanceof Blob) {
+          try {
+            const buf = await row.blob.arrayBuffer();
+            mappings = parseThumbindexDb(buf);
+          } catch {}
+        }
+        for (const it of mappings) {
+          const idx = Number(it?.idx);
+          const name = normalizeThumbKey(it?.name || "");
+          if (Number.isFinite(idx) && idx >= 0 && name) out.push({ idx, name });
+        }
+      }
+      return out;
+    }
     for (const row of rows) {
       if (Array.isArray(row.extractedMappings) && row.extractedMappings.length) {
         for (const it of row.extractedMappings) {
@@ -1470,9 +1503,7 @@ async function loadIndexedThumbIndexMappings(source) {
       if (row.blob instanceof Blob) {
         try {
           const buf = await row.blob.arrayBuffer();
-          const parsed = extractThumbIndexNameMappingsFromBuffer(buf);
-          const parsedFallback = parsed.length ? parsed : parseThumbindexDb(buf);
-          for (const it of parsedFallback) {
+          for (const it of extractThumbIndexNameMappingsFromBuffer(buf)) {
             const idx = Number(it?.idx);
             const name = normalizeThumbKey(it?.name || "");
             if (Number.isFinite(idx) && idx >= 0 && name) out.push({ idx, name });
