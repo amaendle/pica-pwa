@@ -1941,6 +1941,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   canvas.getContext("2d").drawImage(img, 0, 0);
 
   let view = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+  let hasAppliedTilt = false;
 
   for (const f of chain) {
     let m = String(f).match(/^crop64=1,(.+)$/i);
@@ -1960,7 +1961,8 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     }
     m = parseFinetune2Filter(f);
     if (m) {
-      if (state.finetune2?.useWebglPreview) {
+      const canUseWebgl = !!state.finetune2?.useWebglPreview && !hasAppliedTilt;
+      if (canUseWebgl) {
         if (!applyFinetune2OnCanvasWebGL(canvas, m)) applyFinetune2OnCanvas(canvas, m);
       } else {
         applyFinetune2OnCanvas(canvas, m);
@@ -1980,6 +1982,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       octx.rotate(rad);
       octx.drawImage(canvas, -cx, -cy);
       canvas = out;
+      hasAppliedTilt = true;
     }
   }
 
@@ -2346,6 +2349,12 @@ function renderFilterList() {
     opt.textContent = `${idx + 1}. ${flt}`;
     el.faceFilterList.appendChild(opt);
   });
+}
+
+function resetTiltDraftUI() {
+  el.faceTiltSlider.value = "0.00";
+  el.faceTiltValue.textContent = "0.00";
+  el.faceCanvasImg.style.transform = "";
 }
 
 
@@ -4456,8 +4465,11 @@ el.btnTiltMode.onclick = () => {
   faceEditor.tiltUiVisible = !faceEditor.tiltUiVisible;
   el.tiltControls.classList.toggle("hidden", !faceEditor.tiltUiVisible);
   el.btnTiltMode.textContent = faceEditor.tiltUiVisible ? "Hide tilt" : "Tilt";
+  if (faceEditor.tiltUiVisible) {
+    resetTiltDraftUI();
+  }
   if (!faceEditor.tiltUiVisible) {
-    el.faceCanvasImg.style.transform = "";
+    resetTiltDraftUI();
     refreshEditorPreview();
   }
 };
@@ -4509,7 +4521,7 @@ el.btnApplyTiltFilter.onclick = () => {
   if (!Number.isFinite(t)) return;
   faceEditor.filters.push(`tilt=1,${t.toFixed(6)},0.000000`);
   renderFilterList();
-  el.faceCanvasImg.style.transform = "";
+  resetTiltDraftUI();
   refreshEditorPreview();
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
