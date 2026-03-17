@@ -830,21 +830,60 @@ function parseThumbindexDb(buffer) {
   if (dv.getUint32(0, true) !== MAGIC) return out;
   const entryCount = dv.getUint32(4, true);
   const bytes = new Uint8Array(buffer);
+  const decLatin1 = new TextDecoder("latin1");
+  const decUtf16 = new TextDecoder("utf-16le");
+
+  const findAsciiTerminator = (from) => {
+    for (let i = from; i < bytes.length; i++) {
+      if (bytes[i] === 0) return i;
+    }
+    return -1;
+  };
+  const findUtf16Terminator = (from) => {
+    for (let i = from; i + 1 < bytes.length; i += 2) {
+      if (bytes[i] === 0 && bytes[i + 1] === 0) return i;
+    }
+    return -1;
+  };
+  const looksUtf16 = (from) => {
+    if (from + 1 >= bytes.length || bytes[from + 1] !== 0) return false;
+    const utf16Term = findUtf16Terminator(from);
+    const limit = utf16Term > from ? Math.min(utf16Term, from + 64) : Math.min(bytes.length, from + 32);
+    let pairs = 0;
+    let oddZeros = 0;
+    for (let i = from; i + 1 < limit; i += 2) {
+      pairs += 1;
+      if (bytes[i + 1] === 0) oddZeros += 1;
+    }
+    return pairs >= 3 && oddZeros >= Math.floor(pairs * 0.7);
+  };
+  const readEntryString = (from) => {
+    const utf16 = looksUtf16(from);
+    if (utf16) {
+      const term = findUtf16Terminator(from);
+      if (term < 0) return null;
+      const raw = bytes.slice(from, term);
+      return { value: normalizeThumbKey(decUtf16.decode(raw).trim()), next: term + 2 };
+    }
+    const term = findAsciiTerminator(from);
+    if (term < 0) return null;
+    const raw = bytes.slice(from, term);
+    return { value: normalizeThumbKey(decLatin1.decode(raw).trim()), next: term + 1 };
+  };
+
   let off = 8;
   const entries = [];
   for (let i = 0; i < entryCount && off < bytes.length; i++) {
-    const start = off;
-    while (off < bytes.length && bytes[off] !== 0) off += 1;
-    if (off >= bytes.length) break;
-    const raw = bytes.slice(start, off);
-    off += 1; // null terminator
+    const parsed = readEntryString(off);
+    if (!parsed) break;
+    off = parsed.next;
     if (off + 30 > bytes.length) break; // 26 bytes padding + 4 bytes index
-    const name = normalizeThumbKey(new TextDecoder("latin1").decode(raw).trim());
     off += 26;
     const parentIdx = dv.getUint32(off, true);
     off += 4;
-    entries.push({ row: i, name, parentIdx });
+    entries.push({ row: i, name: parsed.value, parentIdx });
   }
+
   const pathByRow = new Map();
   const resolving = new Set();
   const resolvePath = (row) => {
@@ -866,7 +905,7 @@ function parseThumbindexDb(buffer) {
     return pathByRow.get(row);
   };
   for (const e of entries) {
-    if (!e.name || e.parentIdx === 0xFFFFFFFF) continue; // folder rows are not image mappings
+    if (!e.name || e.parentIdx === 0xFFFFFFFF) continue;
     const full = resolvePath(e.row);
     if (!full) continue;
     out.push({ idx: e.row, name: full, source: "thumbindex.db" });
@@ -875,6 +914,7 @@ function parseThumbindexDb(buffer) {
   }
   return out;
 }
+
 
 
 async function readOptionalBuffer(rootHandle, relPath) {
