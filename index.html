@@ -182,6 +182,7 @@
           <button id="btnToggleCrop">Crop: On</button>
           <button id="btnToggleText">Text: On</button>
           <button id="btnToggleFinetune2">FineTune2: On</button>
+          <button id="btnToggleSlideWebgl">WebGL: On</button>
           <button id="btnToggleStar">Star: Off</button>
           <button id="btnClose">Close (Esc)</button>
         </div>
@@ -216,12 +217,16 @@
           <button id="btnTiltMode">Tilt</button>
           <button id="btnFillLightMode">Fill Light</button>
           <button id="btnFinetune2Mode">Fine Tune 2</button>
+          <button id="btnTintMode">Tint</button>
+          <button id="btnSatMode">Saturation</button>
+          <button id="btnAnselMode">Ansel</button>
           <button id="btnApplySepiaFilter">Sepia</button>
           <button id="btnApplyBwFilter">B/W</button>
           <button id="btnApplyWarmFilter">Warm</button>
           <button id="btnApplyGrain2Filter">Grain2</button>
           <button id="btnFacesMode">Faces</button>
         </div>
+        <label style="display:flex; align-items:center; gap:8px;"><input id="facePreviewUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for preview</label>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
         <button id="btnFaceStarToggle" title="Toggle star">☆ Star</button>
@@ -256,8 +261,20 @@
             <button id="btnFaceFinetuneClearNeutral" class="miniBtn">Clear neutral</button>
           </div>
           <label>Neutral ARGB (AARRGGBB)<input id="faceFinetuneNeutralInput" type="text" value="00000000" maxlength="8" placeholder="00000000" readonly></label>
-          <label style="display:flex; align-items:center; gap:8px;"><input id="facePreviewUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for preview</label>
           <button id="btnApplyFinetune2Filter">Apply finetune2 filter</button>
+        </div>
+        <div id="tintControls" class="hidden">
+          <label>Preserve Color <span id="faceTintPreserveValue" class="mono">0.000000</span><input id="faceTintPreserveInput" type="number" step="0.000001" value="0"></label>
+          <label>Tint Color (ARGB hex)<input id="faceTintColorInput" type="text" value="ffffffff" maxlength="8"></label>
+          <button id="btnApplyTintFilter">Apply tint filter</button>
+        </div>
+        <div id="satControls" class="hidden">
+          <label>Saturation <span id="faceSatValue" class="mono">0.000000</span><input id="faceSatSlider" type="range" min="0" max="1" step="0.001" value="0"></label>
+          <button id="btnApplySatFilter">Apply saturation filter</button>
+        </div>
+        <div id="anselControls" class="hidden">
+          <label>Ansel Color (ARGB hex)<input id="faceAnselColorInput" type="text" value="ffffffff" maxlength="8"></label>
+          <button id="btnApplyAnselFilter">Apply ansel filter</button>
         </div>
         <label class="hidden" id="faceFaceSelectWrap">Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
         <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
@@ -2015,6 +2032,175 @@ function argbHexFromRGBA(r, g, b, a = 255) {
   return vals.map((v) => v.toString(16).padStart(2, "0")).join("");
 }
 
+function normalizeFilterHexColor(hex, fallback = "ffffffff") {
+  let s = String(hex || "").trim().replace(/^#/, "").toLowerCase();
+  if (!/^[0-9a-f]*$/i.test(s)) s = "";
+  if (s.length === 3 || s.length === 4) s = s.split("").map((c) => c + c).join("");
+  if (s.length === 6) s = `ff${s}`;
+  if (s.length !== 8) s = fallback.toLowerCase();
+  return s;
+}
+
+function hexColorToRgba01(hex, fallback = "ffffffff") {
+  const s = normalizeFilterHexColor(hex, fallback);
+  return {
+    a: (parseInt(s.slice(0, 2), 16) || 0) / 255,
+    r: (parseInt(s.slice(2, 4), 16) || 0) / 255,
+    g: (parseInt(s.slice(4, 6), 16) || 0) / 255,
+    b: (parseInt(s.slice(6, 8), 16) || 0) / 255,
+    hex: s
+  };
+}
+
+function parseTintFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^tint=1,([^,]+),([0-9a-f#]+)$/i);
+  if (!m) return null;
+  return { preserveColor: Number(m[1]) || 0, color: normalizeFilterHexColor(m[2], "ffffffff") };
+}
+
+function parseSatFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^sat=1,([^,]+)$/i);
+  if (!m) return null;
+  return { saturation: Math.max(0, Math.min(1, Number(m[1]) || 0)) };
+}
+
+function parseAnselFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^ansel=1,([0-9a-f#]+)$/i);
+  if (!m) return null;
+  return { color: normalizeFilterHexColor(m[1], "ffffffff") };
+}
+
+function applyAdvancedColorFilterOnCanvas(canvas, mode = "", params = {}) {
+  if (!canvas) return canvas;
+  const m = String(mode || "").toLowerCase();
+  const ctx = canvas.getContext("2d");
+  const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const d = imgData.data;
+  const tint = hexColorToRgba01(params?.color || "ffffffff");
+  const sat = Math.max(0, Math.min(1, Number(params?.saturation) || 0));
+  const preserveColor = Math.max(0, Number(params?.preserveColor) || 0);
+  const preserve01 = Math.max(0, Math.min(1, preserveColor / 100));
+  for (let i = 0; i < d.length; i += 4) {
+    let r = d[i] / 255, g = d[i + 1] / 255, b = d[i + 2] / 255;
+    const y = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    if (m === "sepia") {
+      const nr = Math.min(1, 0.393 * r + 0.769 * g + 0.189 * b);
+      const ng = Math.min(1, 0.349 * r + 0.686 * g + 0.168 * b);
+      const nb = Math.min(1, 0.272 * r + 0.534 * g + 0.131 * b);
+      r = nr; g = ng; b = nb;
+    } else if (m === "bw") {
+      r = y; g = y; b = y;
+    } else if (m === "warm") {
+      r = Math.min(1, r * 1.08 + 6 / 255);
+      g = Math.min(1, g * 1.01 + 1 / 255);
+      b = Math.max(0, b * 0.93 - 4 / 255);
+    } else if (m === "grain2") {
+      const n = ((Math.sin((i * 12.9898) + 78.233) * 43758.5453) % 1) - 0.5;
+      r = Math.max(0, Math.min(1, r + n * (24 / 255)));
+      g = Math.max(0, Math.min(1, g + n * (24 / 255)));
+      b = Math.max(0, Math.min(1, b + n * (24 / 255)));
+    } else if (m === "sat") {
+      const gain = 1 + sat * 2;
+      r = Math.max(0, Math.min(1, y + (r - y) * gain));
+      g = Math.max(0, Math.min(1, y + (g - y) * gain));
+      b = Math.max(0, Math.min(1, y + (b - y) * gain));
+    } else if (m === "tint") {
+      const tintedR = y * tint.r;
+      const tintedG = y * tint.g;
+      const tintedB = y * tint.b;
+      r = r * preserve01 + tintedR * (1 - preserve01);
+      g = g * preserve01 + tintedG * (1 - preserve01);
+      b = b * preserve01 + tintedB * (1 - preserve01);
+    } else if (m === "ansel") {
+      r = y * tint.r;
+      g = y * tint.g;
+      b = y * tint.b;
+    }
+    d[i] = Math.round(Math.max(0, Math.min(1, r)) * 255);
+    d[i + 1] = Math.round(Math.max(0, Math.min(1, g)) * 255);
+    d[i + 2] = Math.round(Math.max(0, Math.min(1, b)) * 255);
+  }
+  ctx.putImageData(imgData, 0, 0);
+  return canvas;
+}
+
+function applyAdvancedColorFilterWebGL(canvas, mode = "", params = {}) {
+  if (!canvas) return false;
+  const glCanvas = document.createElement("canvas");
+  glCanvas.width = canvas.width;
+  glCanvas.height = canvas.height;
+  const gl = glCanvas.getContext("webgl2", { alpha: false, antialias: false, premultipliedAlpha: false, preserveDrawingBuffer: true });
+  if (!gl) return false;
+  const modeMap = { sepia: 1, bw: 2, warm: 3, grain2: 4, sat: 5, tint: 6, ansel: 7 };
+  const tint = hexColorToRgba01(params?.color || "ffffffff");
+  const sat = Math.max(0, Math.min(1, Number(params?.saturation) || 0));
+  const preserve01 = Math.max(0, Math.min(1, (Number(params?.preserveColor) || 0) / 100));
+  const vsSrc = `#version 300 es
+    in vec2 aPos; out vec2 vUv;
+    void main(){ vUv=aPos*0.5+0.5; gl_Position=vec4(aPos,0.0,1.0);} `;
+  const fsSrc = `#version 300 es
+    precision highp float;
+    uniform sampler2D uImage;
+    uniform int uMode;
+    uniform vec4 uTint;
+    uniform float uSat;
+    uniform float uPreserve;
+    in vec2 vUv; out vec4 outColor;
+    float rand(vec2 co){ return fract(sin(dot(co.xy, vec2(12.9898,78.233))) * 43758.5453); }
+    void main(){
+      vec4 texel = texture(uImage, vUv);
+      vec3 rgb = texel.rgb;
+      float y = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+      if (uMode == 1) {
+        rgb = vec3(
+          min(1.0, 0.393 * rgb.r + 0.769 * rgb.g + 0.189 * rgb.b),
+          min(1.0, 0.349 * rgb.r + 0.686 * rgb.g + 0.168 * rgb.b),
+          min(1.0, 0.272 * rgb.r + 0.534 * rgb.g + 0.131 * rgb.b)
+        );
+      } else if (uMode == 2) {
+        rgb = vec3(y);
+      } else if (uMode == 3) {
+        rgb = vec3(min(1.0, rgb.r * 1.08 + 6.0 / 255.0), min(1.0, rgb.g * 1.01 + 1.0 / 255.0), max(0.0, rgb.b * 0.93 - 4.0 / 255.0));
+      } else if (uMode == 4) {
+        float n = (rand(vUv) - 0.5) * (24.0 / 255.0);
+        rgb = clamp(rgb + vec3(n), 0.0, 1.0);
+      } else if (uMode == 5) {
+        float gain = 1.0 + uSat * 2.0;
+        rgb = clamp(vec3(y) + (rgb - vec3(y)) * gain, 0.0, 1.0);
+      } else if (uMode == 6) {
+        vec3 tinted = vec3(y) * uTint.rgb;
+        rgb = mix(tinted, rgb, uPreserve);
+      } else if (uMode == 7) {
+        rgb = vec3(y) * uTint.rgb;
+      }
+      outColor = vec4(clamp(rgb, 0.0, 1.0), texel.a);
+    }`;
+  const compile=(type,src)=>{const sh=gl.createShader(type);gl.shaderSource(sh,src);gl.compileShader(sh);if(!gl.getShaderParameter(sh,gl.COMPILE_STATUS)){throw new Error(gl.getShaderInfoLog(sh)||"shader");}return sh;};
+  try {
+    const vs=compile(gl.VERTEX_SHADER,vsSrc), fs=compile(gl.FRAGMENT_SHADER,fsSrc);
+    const prog=gl.createProgram(); gl.attachShader(prog,vs); gl.attachShader(prog,fs); gl.linkProgram(prog);
+    if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog)||"link");
+    gl.useProgram(prog);
+    const aPos=gl.getAttribLocation(prog,'aPos');
+    gl.uniform1i(gl.getUniformLocation(prog,'uImage'),0);
+    gl.uniform1i(gl.getUniformLocation(prog,'uMode'), modeMap[String(mode || '').toLowerCase()] || 0);
+    gl.uniform4f(gl.getUniformLocation(prog,'uTint'), tint.r, tint.g, tint.b, tint.a);
+    gl.uniform1f(gl.getUniformLocation(prog,'uSat'), sat);
+    gl.uniform1f(gl.getUniformLocation(prog,'uPreserve'), preserve01);
+    const quad=gl.createBuffer(); gl.bindBuffer(gl.ARRAY_BUFFER,quad); gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,-1,1,1,-1,1,1]),gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(aPos); gl.vertexAttribPointer(aPos,2,gl.FLOAT,false,0,0);
+    const tex=gl.createTexture(); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,tex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true); gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,canvas);
+    gl.viewport(0,0,glCanvas.width,glCanvas.height); gl.clearColor(0,0,0,1); gl.clear(gl.COLOR_BUFFER_BIT); gl.drawArrays(gl.TRIANGLES,0,6);
+    const ctx=canvas.getContext('2d'); ctx.clearRect(0,0,canvas.width,canvas.height); ctx.drawImage(glCanvas,0,0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function applyFinetune2OnCanvasWebGL(canvas, params) {
   if (!canvas || !params) return false;
   const glCanvas = document.createElement("canvas");
@@ -2201,7 +2387,8 @@ function applyFinetune2OnCanvas(canvas, params) {
   return canvas;
 }
 
-async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "") {
+async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "", options = {}) {
+  const useWebglPreview = options.useWebglPreview ?? !!state.preview?.useWebglPreview;
   const src = URL.createObjectURL(file instanceof Blob ? file : new Blob([file]));
   const img = await new Promise((res, rej) => {
     const im = new Image();
@@ -2234,7 +2421,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     m = String(f).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
     if (m) {
       const fl = Number(m[1]);
-      const canUseWebgl = !!state.preview?.useWebglPreview && !hasAppliedTilt;
+      const canUseWebgl = !!useWebglPreview && !hasAppliedTilt;
       if (!(canUseWebgl && applyFillLightOnCanvasWebGL(canvas, fl))) {
         applyFillLightOnCanvas(canvas, fl);
       }
@@ -2242,7 +2429,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     }
     m = parseFinetune2Filter(f);
     if (m) {
-      const canUseWebgl = !!state.preview?.useWebglPreview && !hasAppliedTilt;
+      const canUseWebgl = !!useWebglPreview && !hasAppliedTilt;
       if (canUseWebgl) {
         if (!applyFinetune2OnCanvasWebGL(canvas, m)) applyFinetune2OnCanvas(canvas, m);
       } else {
@@ -2251,19 +2438,34 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       continue;
     }
     if (/^sepia=1$/i.test(String(f).trim())) {
-      applySimpleToneFilterOnCanvas(canvas, "sepia");
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "sepia"))) applyAdvancedColorFilterOnCanvas(canvas, "sepia");
       continue;
     }
     if (/^bw=1$/i.test(String(f).trim())) {
-      applySimpleToneFilterOnCanvas(canvas, "bw");
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "bw"))) applyAdvancedColorFilterOnCanvas(canvas, "bw");
       continue;
     }
     if (/^warm=1$/i.test(String(f).trim())) {
-      applySimpleToneFilterOnCanvas(canvas, "warm");
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "warm"))) applyAdvancedColorFilterOnCanvas(canvas, "warm");
       continue;
     }
     if (/^grain2=1$/i.test(String(f).trim())) {
-      applySimpleToneFilterOnCanvas(canvas, "grain2");
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "grain2"))) applyAdvancedColorFilterOnCanvas(canvas, "grain2");
+      continue;
+    }
+    m = parseSatFilter(f);
+    if (m) {
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "sat", m))) applyAdvancedColorFilterOnCanvas(canvas, "sat", m);
+      continue;
+    }
+    m = parseTintFilter(f);
+    if (m) {
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "tint", m))) applyAdvancedColorFilterOnCanvas(canvas, "tint", m);
+      continue;
+    }
+    m = parseAnselFilter(f);
+    if (m) {
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "ansel", m))) applyAdvancedColorFilterOnCanvas(canvas, "ansel", m);
       continue;
     }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
@@ -2271,7 +2473,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       const rad = tiltValueToRad(Number(m[1]));
       const cx = view.x + view.w / 2;
       const cy = view.y + view.h / 2;
-      const canUseWebgl = !!state.preview?.useWebglPreview;
+      const canUseWebgl = !!useWebglPreview;
       if (canUseWebgl) {
         const outGl = rotateCanvasWebGL(canvas, rad, cx, cy);
         if (outGl) {
@@ -2304,7 +2506,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   const sy = Math.max(0, Math.round(view.y));
   const sw = Math.max(1, Math.round(view.w));
   const sh = Math.max(1, Math.round(view.h));
-  if (!!state.preview?.useWebglPreview) {
+  if (!!useWebglPreview) {
     const croppedGl = cropCanvasWebGL(canvas, sx, sy, sw, sh);
     if (croppedGl) {
       canvas = croppedGl;
@@ -2356,7 +2558,7 @@ const state = {
   currentViewMode: "albums",
   activeListIndex: -1,
   libraryId: "default",
-  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true, enableFinetune2: true },
+  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true, enableFinetune2: true, useWebglPreview: true },
   prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini", thumbSource: "generated" },
   preview: { useWebglPreview: true },
   thumbCaches: {
@@ -2430,6 +2632,7 @@ const el = {
   btnToggleCrop: document.getElementById("btnToggleCrop"),
   btnToggleText: document.getElementById("btnToggleText"),
   btnToggleFinetune2: document.getElementById("btnToggleFinetune2"),
+  btnToggleSlideWebgl: document.getElementById("btnToggleSlideWebgl"),
   btnToggleStar: document.getElementById("btnToggleStar"),
   slideFaceLayer: document.getElementById("slideFaceLayer"),
   slideTextOverlay: document.getElementById("slideTextOverlay"),
@@ -2454,6 +2657,9 @@ const el = {
   tiltControls: document.getElementById("tiltControls"),
   fillLightControls: document.getElementById("fillLightControls"),
   finetune2Controls: document.getElementById("finetune2Controls"),
+  tintControls: document.getElementById("tintControls"),
+  satControls: document.getElementById("satControls"),
+  anselControls: document.getElementById("anselControls"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
   faceFillLightSlider: document.getElementById("faceFillLightSlider"),
@@ -2468,6 +2674,12 @@ const el = {
   faceFinetuneTempValue: document.getElementById("faceFinetuneTempValue"),
   faceFinetuneNeutralInput: document.getElementById("faceFinetuneNeutralInput"),
   facePreviewUseWebgl: document.getElementById("facePreviewUseWebgl"),
+  faceTintPreserveInput: document.getElementById("faceTintPreserveInput"),
+  faceTintPreserveValue: document.getElementById("faceTintPreserveValue"),
+  faceTintColorInput: document.getElementById("faceTintColorInput"),
+  faceSatSlider: document.getElementById("faceSatSlider"),
+  faceSatValue: document.getElementById("faceSatValue"),
+  faceAnselColorInput: document.getElementById("faceAnselColorInput"),
   faceFinetuneSwatch: document.getElementById("faceFinetuneSwatch"),
   btnFaceFinetunePickNeutral: document.getElementById("btnFaceFinetunePickNeutral"),
   btnFaceFinetuneClearNeutral: document.getElementById("btnFaceFinetuneClearNeutral"),
@@ -2516,6 +2728,9 @@ const el = {
   btnTiltMode: document.getElementById("btnTiltMode"),
   btnFillLightMode: document.getElementById("btnFillLightMode"),
   btnFinetune2Mode: document.getElementById("btnFinetune2Mode"),
+  btnTintMode: document.getElementById("btnTintMode"),
+  btnSatMode: document.getElementById("btnSatMode"),
+  btnAnselMode: document.getElementById("btnAnselMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
   btnApplyWarmFilter: document.getElementById("btnApplyWarmFilter"),
@@ -2528,6 +2743,9 @@ const el = {
   btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
   btnApplyFillLightFilter: document.getElementById("btnApplyFillLightFilter"),
   btnApplyFinetune2Filter: document.getElementById("btnApplyFinetune2Filter"),
+  btnApplyTintFilter: document.getElementById("btnApplyTintFilter"),
+  btnApplySatFilter: document.getElementById("btnApplySatFilter"),
+  btnApplyAnselFilter: document.getElementById("btnApplyAnselFilter"),
   btnUndoFilter: document.getElementById("btnUndoFilter"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
@@ -2639,6 +2857,27 @@ function lastFinetune2FromFilters(filters) {
     if (p) return p;
   }
   return null;
+}
+function lastTintFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseTintFilter(filters[i]);
+    if (p) return p;
+  }
+  return { preserveColor: 0, color: "ffffffff" };
+}
+function lastSatFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseSatFilter(filters[i]);
+    if (p) return p;
+  }
+  return { saturation: 0 };
+}
+function lastAnselFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseAnselFilter(filters[i]);
+    if (p) return p;
+  }
+  return { color: "ffffffff" };
 }
 function cssColorToU32(color, fallback = 4294967295) {
   const s = String(color || "").trim();
@@ -3042,7 +3281,7 @@ async function refreshEditorPreview(previewFilters = null) {
     ? previewFilters.map((f) => String(f || "")).filter(Boolean)
     : (faceEditor.filters || []);
   const isDraft = Array.isArray(previewFilters);
-  const key = JSON.stringify({ f: effectiveFilters, draft: isDraft });
+  const key = JSON.stringify({ f: effectiveFilters, draft: isDraft, webgl: !!state.preview.useWebglPreview });
   if (!isDraft && faceEditor.previewKey === key && faceEditor.previewUrl) {
     el.faceCanvasImg.style.transform = "";
     el.faceCanvasImg.src = faceEditor.previewUrl;
@@ -3050,7 +3289,7 @@ async function refreshEditorPreview(previewFilters = null) {
   }
   const requestId = ++faceEditor.previewRequestId;
   try {
-    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, effectiveFilters, EDITOR_PREVIEW_MAX_DIM, "");
+    const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, effectiveFilters, EDITOR_PREVIEW_MAX_DIM, "", { useWebglPreview: !!state.preview.useWebglPreview });
     if (requestId !== faceEditor.previewRequestId) {
       if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
       return;
@@ -3312,10 +3551,16 @@ function openFaceEditor(imageItem) {
   el.tiltControls.classList.add("hidden");
   el.fillLightControls.classList.add("hidden");
   el.finetune2Controls.classList.add("hidden");
+  el.tintControls.classList.add("hidden");
+  el.satControls.classList.add("hidden");
+  el.anselControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
   el.btnFinetune2Mode.textContent = "Fine Tune 2";
+  el.btnTintMode.textContent = "Tint";
+  el.btnSatMode.textContent = "Saturation";
+  el.btnAnselMode.textContent = "Ansel";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
   el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
@@ -3350,6 +3595,15 @@ function openFaceEditor(imageItem) {
   } : null;
   el.faceFinetuneSwatch.style.background = faceEditor.finetuneNeutralColor ? `rgb(${faceEditor.finetuneNeutralColor.r}, ${faceEditor.finetuneNeutralColor.g}, ${faceEditor.finetuneNeutralColor.b})` : "#000";
   el.facePreviewUseWebgl.checked = !!state.preview.useWebglPreview;
+  const tint = lastTintFromFilters(faceEditor.filters);
+  el.faceTintPreserveInput.value = Number(tint.preserveColor || 0).toFixed(6);
+  el.faceTintPreserveValue.textContent = Number(tint.preserveColor || 0).toFixed(6);
+  el.faceTintColorInput.value = tint.color || "ffffffff";
+  const sat = lastSatFromFilters(faceEditor.filters);
+  el.faceSatSlider.value = Number(sat.saturation || 0).toFixed(3);
+  el.faceSatValue.textContent = Number(sat.saturation || 0).toFixed(6);
+  const ansel = lastAnselFromFilters(faceEditor.filters);
+  el.faceAnselColorInput.value = ansel.color || "ffffffff";
   el.faceCanvasImg.style.transform = "";
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
@@ -3400,9 +3654,15 @@ function closeFaceEditor() {
   el.tiltControls.classList.add("hidden");
   el.fillLightControls.classList.add("hidden");
   el.finetune2Controls.classList.add("hidden");
+  el.tintControls.classList.add("hidden");
+  el.satControls.classList.add("hidden");
+  el.anselControls.classList.add("hidden");
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
   el.btnFinetune2Mode.textContent = "Fine Tune 2";
+  el.btnTintMode.textContent = "Tint";
+  el.btnSatMode.textContent = "Saturation";
+  el.btnAnselMode.textContent = "Ansel";
   faceEditor.textDragging = false;
   faceEditor.textDragMode = "move";
   faceEditor.activeTextIdx = -1;
@@ -4373,10 +4633,10 @@ async function updateSlide() {
   if (state.slideshow.showCrop) {
     const chain = maybeStripFinetune2Filters(it.filters || [], state.slideshow.enableFinetune2).map((f) => String(f || "")).filter(Boolean);
     const fallbackCrop = chain.length ? "" : String(it.cropRect64 || "").trim();
-    const cacheKey = JSON.stringify({ filters: chain, crop: fallbackCrop, finetune2: state.slideshow.enableFinetune2 });
+    const cacheKey = JSON.stringify({ filters: chain, crop: fallbackCrop, finetune2: state.slideshow.enableFinetune2, webgl: state.slideshow.useWebglPreview });
     if (!it.slidePreviewUrl || it.slidePreviewKey !== cacheKey) {
       if (it.slidePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(it.slidePreviewUrl);
-      it.slidePreviewUrl = await makeFilteredPreviewURL(it.file, chain, 2048, fallbackCrop);
+      it.slidePreviewUrl = await makeFilteredPreviewURL(it.file, chain, 2048, fallbackCrop, { useWebglPreview: !!state.slideshow.useWebglPreview });
       it.slidePreviewKey = cacheKey;
     }
     el.slideImg.src = it.slidePreviewUrl || it.url;
@@ -4440,6 +4700,7 @@ async function updateSlide() {
   el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
   el.btnToggleText.textContent = state.slideshow.showText ? "Text: On" : "Text: Off";
   if (el.btnToggleFinetune2) el.btnToggleFinetune2.textContent = state.slideshow.enableFinetune2 ? "FineTune2: On" : "FineTune2: Off";
+  if (el.btnToggleSlideWebgl) el.btnToggleSlideWebgl.textContent = state.slideshow.useWebglPreview ? "WebGL: On" : "WebGL: Off";
   el.btnToggleStar.textContent = it.star ? "Star: On" : "Star: Off";
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
@@ -4621,6 +4882,10 @@ el.faceFillLightSlider.oninput = () => {
   const draftFilters = (faceEditor.filters || []).concat([`filllight=1,${fl.toFixed(6)}`]);
   refreshEditorPreview(draftFilters);
 };
+el.faceTintPreserveInput.oninput = () => { refreshTintDraft(); };
+el.faceTintColorInput.onchange = () => { refreshTintDraft(); };
+el.faceSatSlider.oninput = () => { refreshSatDraft(); };
+el.faceAnselColorInput.onchange = () => { refreshAnselDraft(); };
 el.btnApplyFillLightFilter.onclick = () => {
   const fl = Math.max(0, Math.min(1, Number(el.faceFillLightSlider.value || "0")));
   faceEditor.filters.push(`filllight=1,${fl.toFixed(6)}`);
@@ -4638,10 +4903,49 @@ const applyNoParamFilter = (filterToken) => {
   el.faceEditorStatus.textContent = `Applied filter: ${filterToken} (${faceEditor.filters.length})`;
 };
 
+const refreshTintDraft = () => {
+  const preserve = Number(el.faceTintPreserveInput.value || "0") || 0;
+  const color = normalizeFilterHexColor(el.faceTintColorInput.value, "ffffffff");
+  el.faceTintPreserveValue.textContent = preserve.toFixed(6);
+  el.faceTintColorInput.value = color;
+  const draft = `tint=1,${preserve.toFixed(6)},${color}`;
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+};
+const refreshSatDraft = () => {
+  const sat = Math.max(0, Math.min(1, Number(el.faceSatSlider.value || "0") || 0));
+  el.faceSatValue.textContent = sat.toFixed(6);
+  const draft = `sat=1,${sat.toFixed(6)}`;
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+};
+const refreshAnselDraft = () => {
+  const color = normalizeFilterHexColor(el.faceAnselColorInput.value, "ffffffff");
+  el.faceAnselColorInput.value = color;
+  const draft = `ansel=1,${color}`;
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+};
+
 el.btnApplySepiaFilter.onclick = () => applyNoParamFilter("sepia=1");
 el.btnApplyBwFilter.onclick = () => applyNoParamFilter("bw=1");
 el.btnApplyWarmFilter.onclick = () => applyNoParamFilter("warm=1");
 el.btnApplyGrain2Filter.onclick = () => applyNoParamFilter("grain2=1");
+el.btnApplyTintFilter.onclick = () => {
+  applyNoParamFilter(refreshTintDraft());
+  el.tintControls.classList.add("hidden");
+  el.btnTintMode.textContent = "Tint";
+};
+el.btnApplySatFilter.onclick = () => {
+  applyNoParamFilter(refreshSatDraft());
+  el.satControls.classList.add("hidden");
+  el.btnSatMode.textContent = "Saturation";
+};
+el.btnApplyAnselFilter.onclick = () => {
+  applyNoParamFilter(refreshAnselDraft());
+  el.anselControls.classList.add("hidden");
+  el.btnAnselMode.textContent = "Ansel";
+};
 
 const refreshFinetune2Draft = () => {
   const fill = Math.max(0, Math.min(1, Number(el.faceFinetuneFillSlider.value || "0")));
@@ -4763,6 +5067,10 @@ el.btnToggleFinetune2.onclick = async () => {
   state.slideshow.enableFinetune2 = !state.slideshow.enableFinetune2;
   if (state.slideshow.open) await updateSlide();
 };
+el.btnToggleSlideWebgl.onclick = async () => {
+  state.slideshow.useWebglPreview = !state.slideshow.useWebglPreview;
+  if (state.slideshow.open) await updateSlide();
+};
 el.btnToggleStar.onclick = async () => {
   const it = state.currentImages[state.slideshow.index];
   if (!it) return;
@@ -4826,6 +5134,24 @@ el.btnFinetune2Mode.onclick = () => {
   el.finetune2Controls.classList.toggle("hidden", !show);
   el.btnFinetune2Mode.textContent = show ? "Hide Fine Tune 2" : "Fine Tune 2";
   if (show) refreshFinetune2Draft();
+};
+el.btnTintMode.onclick = () => {
+  const show = el.tintControls.classList.contains("hidden");
+  el.tintControls.classList.toggle("hidden", !show);
+  el.btnTintMode.textContent = show ? "Hide Tint" : "Tint";
+  if (show) refreshTintDraft();
+};
+el.btnSatMode.onclick = () => {
+  const show = el.satControls.classList.contains("hidden");
+  el.satControls.classList.toggle("hidden", !show);
+  el.btnSatMode.textContent = show ? "Hide Saturation" : "Saturation";
+  if (show) refreshSatDraft();
+};
+el.btnAnselMode.onclick = () => {
+  const show = el.anselControls.classList.contains("hidden");
+  el.anselControls.classList.toggle("hidden", !show);
+  el.btnAnselMode.textContent = show ? "Hide Ansel" : "Ansel";
+  if (show) refreshAnselDraft();
 };
 el.btnFacesMode.onclick = () => {
   setFacesMode(!faceEditor.facesModeActive);
