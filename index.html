@@ -596,6 +596,73 @@ function extractEmbeddedImageBlobs(buffer) {
   return out;
 }
 
+function detectImageMimeFromBytes(bytes) {
+  if (!(bytes instanceof Uint8Array) || bytes.length < 4) return "";
+  const b0 = bytes[0], b1 = bytes[1], b2 = bytes[2], b3 = bytes[3];
+  if (b0 === 0xFF && b1 === 0xD8 && b2 === 0xFF) return "image/jpeg";
+  if (b0 === 0x89 && b1 === 0x50 && b2 === 0x4E && b3 === 0x47) return "image/png";
+  if (b0 === 0x42 && b1 === 0x4D) return "image/bmp";
+  if (b0 === 0x47 && b1 === 0x49 && b2 === 0x46) return "image/gif";
+  if (bytes.length >= 12) {
+    const riff = String.fromCharCode(bytes[0], bytes[1], bytes[2], bytes[3]);
+    const webp = String.fromCharCode(bytes[8], bytes[9], bytes[10], bytes[11]);
+    if (riff === "RIFF" && webp === "WEBP") return "image/webp";
+  }
+  return "";
+}
+
+function parseThumbSourceIndexDb(indexBuffer) {
+  if (!(indexBuffer instanceof ArrayBuffer) || indexBuffer.byteLength < 20) return null;
+  const dv = new DataView(indexBuffer);
+  let off = 8; // magic + unused
+  const readSeries = () => {
+    if (off + 4 > dv.byteLength) return null;
+    const n = dv.getUint32(off, true);
+    off += 4;
+    if (!Number.isFinite(n) || n > 20_000_000) return null;
+    const need = Number(n) * 4;
+    if (off + need > dv.byteLength) return null;
+    const arr = new Uint32Array(Number(n));
+    for (let i = 0; i < Number(n); i++) {
+      arr[i] = dv.getUint32(off + i * 4, true);
+    }
+    off += need;
+    return arr;
+  };
+  const first = readSeries();
+  const starts = readSeries();
+  const lens = readSeries();
+  if (!first || !starts || !lens) return null;
+  const count = Math.min(first.length, starts.length, lens.length);
+  return {
+    count,
+    starts,
+    lengths: lens
+  };
+}
+
+function extractThumbBlobsFromIndexedDbPair(dbBuffer, indexBuffer) {
+  const parsed = parseThumbSourceIndexDb(indexBuffer);
+  if (!parsed?.count) return [];
+  const bytes = new Uint8Array(dbBuffer);
+  const out = new Array(parsed.count).fill(null);
+  for (let i = 0; i < parsed.count; i++) {
+    const start = Number(parsed.starts[i]);
+    const len = Number(parsed.lengths[i]);
+    if (!Number.isFinite(start) || !Number.isFinite(len) || start < 0 || len <= 0) continue;
+    if (start + len > bytes.length) continue;
+    const chunk = bytes.slice(start, start + len);
+    const mime = detectImageMimeFromBytes(chunk);
+    if (mime) {
+      out[i] = new Blob([chunk], { type: mime });
+      continue;
+    }
+    const embedded = extractEmbeddedImageBlobs(chunk.buffer.slice(chunk.byteOffset, chunk.byteOffset + chunk.byteLength));
+    if (embedded.length) out[i] = embedded[0];
+  }
+  return out;
+}
+
 function parseCfbStreams(buffer) {
   const dv = new DataView(buffer);
   const sig = [0xD0,0xCF,0x11,0xE0,0xA1,0xB1,0x1A,0xE1];
@@ -981,16 +1048,17 @@ async function renderAllThumbsGallery() {
   }
   await ensureThumbSourceLoaded(selectedSource);
   const rows = Array.isArray(state.thumbIndexedRows[selectedSource]) ? state.thumbIndexedRows[selectedSource] : [];
-  if (!rows.length) {
+  const validRows = rows.filter((r) => r?.blob instanceof Blob && Number.isFinite(r.idx));
+  if (!validRows.length) {
     setStatus(`No imported thumbnails available for source: ${selectedSource}.`, "warn");
     return;
   }
   revokeThumbRawUrls(selectedSource);
-  state.thumbRawUrls[selectedSource] = rows.map((r) => Number(r.idx)).filter((n)=>Number.isFinite(n));
+  state.thumbRawUrls[selectedSource] = validRows.map((r) => Number(r.idx)).filter((n)=>Number.isFinite(n));
   state.galleryMode = "thumbs";
   el.viewTitle.textContent = `Thumbnails (${selectedSource})`;
   el.resolvePill.textContent = `Original thumbnail size`;
-  el.countPill.textContent = `${rows.length} thumbnails`;
+  el.countPill.textContent = `${validRows.length} thumbnails`;
   el.grid.classList.add("rawThumbGrid");
   el.grid.innerHTML = "";
   teardownRawThumbObserver();
@@ -1007,21 +1075,21 @@ async function renderAllThumbsGallery() {
     }
   }, { root: el.grid, rootMargin: "600px 0px", threshold: 0.01 });
   state.rawThumbObserver = observer;
-  for (let i = 0; i < rows.length; i++) {
+  for (const row of validRows) {
     const tile = document.createElement("div");
     tile.className = "tile rawThumbTile";
     const img = document.createElement("img");
     img.className = "thumbRaw";
     img.loading = "lazy";
-    img.dataset.rawIdx = String(i);
-    img.alt = `${selectedSource} thumbnail ${i + 1}`;
+    img.dataset.rawIdx = String(row.idx);
+    img.alt = `${selectedSource} thumbnail ${Number(row.idx) + 1}`;
     const cap = document.createElement("div");
     cap.className = "caption mono";
-    cap.textContent = `${selectedSource}[${i}]`;
+    cap.textContent = `${selectedSource}[${row.idx}]`;
     tile.appendChild(img);
     tile.appendChild(cap);
     tile.onclick = () => {
-      const imageIdx = findImageIndexForThumb(selectedSource, i);
+      const imageIdx = findImageIndexForThumb(selectedSource, Number(row.idx));
       if (imageIdx >= 0) openSlideshow(imageIdx);
       else setStatus("No matching image found for this thumbnail in current list.", "warn");
     };
@@ -1039,6 +1107,13 @@ async function importThumbSource(source) {
   const dbBuf = await readOptionalBuffer(state.pmpRoot, dbName) || await readOptionalBuffer(state.pmpRoot, `db/${dbName}`);
   if (!dbBuf) return { source, count: 0 };
 
+  const pairIndexCandidates = [`${source}_0_index.db`, `${source}_index.db`];
+  let sourceIdxBuf = null;
+  for (const fileName of pairIndexCandidates) {
+    sourceIdxBuf = await readOptionalBuffer(state.pmpRoot, fileName) || await readOptionalBuffer(state.pmpRoot, `db/${fileName}`);
+    if (sourceIdxBuf) break;
+  }
+
   const idxCandidates = ["thumbindex.db"];
   const idxFiles = [];
   for (const fileName of idxCandidates) {
@@ -1047,21 +1122,36 @@ async function importThumbSource(source) {
   }
   await saveIndexedThumbIndexFiles(source, idxFiles);
 
-  const thumbs = extractThumbCandidatesFromBuffer(dbBuf);
-  if (!thumbs.length) {
+  let thumbs = [];
+  if (sourceIdxBuf) {
+    thumbs = extractThumbBlobsFromIndexedDbPair(dbBuf, sourceIdxBuf);
+  }
+  if (!thumbs.some((b) => b instanceof Blob)) {
+    // Fallback for malformed/unknown DB variants
+    const legacy = extractThumbCandidatesFromBuffer(dbBuf);
+    thumbs = legacy;
+  }
+  if (!thumbs.length || !thumbs.some((b) => b instanceof Blob)) {
     state.thumbIndexedRows[source] = [];
     state.thumbNameToIdx[source] = new Map();
     await saveIndexedThumbsForSource(source, [], []);
     return { source, count: 0, totalThumbs: 0, discoveredNames: 0 };
   }
 
-  const rows = thumbs.map((blob, idx) => ({ idx, blob }));
+  const rows = new Array(thumbs.length);
+  let rowCount = 0;
+  for (let idx = 0; idx < thumbs.length; idx++) {
+    const blob = thumbs[idx];
+    if (!(blob instanceof Blob)) continue;
+    rows[idx] = { idx, blob };
+    rowCount += 1;
+  }
   state.thumbIndexedRows[source] = rows;
 
   const dedupNames = [];
   const dedupSet = new Set();
   const nameToIdx = new Map();
-  const mappedNamesByIdx = new Array(rows.length).fill("");
+  const mappedNamesByIdx = new Array(thumbs.length).fill("");
 
   const thumbindexFile = idxFiles.find((f) => String(f?.fileName || "").toLowerCase() === "thumbindex.db");
   const thumbindexMappings = thumbindexFile ? parseThumbindexDb(thumbindexFile.buffer) : [];
@@ -1070,7 +1160,7 @@ async function importThumbSource(source) {
     const nm = normalizeThumbKey(m?.name || "");
     if (!nm) continue;
     if (!dedupSet.has(nm)) { dedupSet.add(nm); dedupNames.push(nm); }
-    if (!Number.isFinite(idx) || idx < 0 || idx >= rows.length) continue;
+    if (!Number.isFinite(idx) || idx < 0 || idx >= thumbs.length || !(thumbs[idx] instanceof Blob)) continue;
     if (!nameToIdx.has(nm)) nameToIdx.set(nm, idx);
     if (!mappedNamesByIdx[idx]) mappedNamesByIdx[idx] = nm;
   }
@@ -1078,7 +1168,7 @@ async function importThumbSource(source) {
   state.thumbNameToIdx[source] = nameToIdx;
 
   await saveIndexedThumbsForSource(source, thumbs, mappedNamesByIdx);
-  return { source, count: nameToIdx.size, totalThumbs: thumbs.length, discoveredNames: dedupNames.length };
+  return { source, count: nameToIdx.size, totalThumbs: rowCount, discoveredNames: dedupNames.length };
 }
 async function importThumbCachesFromPmp() {
   const out = [];
@@ -1291,6 +1381,7 @@ async function saveIndexedThumbsForSource(source, thumbBlobs = [], mappedNames =
     });
     for (const k of existingKeys) store.delete(k);
     for (let i = 0; i < thumbBlobs.length; i++) {
+      if (!(thumbBlobs[i] instanceof Blob)) continue;
       const mappedName = String(mappedNames[i] || "").trim().toLowerCase();
       store.put({
         id: `${librarySource}:${i}`,
@@ -1421,7 +1512,7 @@ async function loadIndexedThumbsForSource(source) {
         }
       } catch {}
     }
-    return { rows: rows.filter(Boolean), nameToIdx };
+    return { rows, nameToIdx };
   } finally {
     db.close();
   }
