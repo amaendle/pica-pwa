@@ -4277,6 +4277,22 @@ async function resolvePmpRowIdxForImage(imageItem) {
   return { rowIndex: -1, source: "" };
 }
 
+function formatPmpDumpValue(value) {
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return `[${value.map((it) => formatPmpDumpValue(it)).join(", ")}]`;
+  if (value && typeof value === "object") {
+    const entries = Object.entries(value).map(([key, val]) => `${key}: ${formatPmpDumpValue(val)}`);
+    return `{ ${entries.join(", ")} }`;
+  }
+  if (value === undefined) return "(missing)";
+  if (typeof value === "string") return JSON.stringify(value);
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
+}
+
 async function buildImagedataDumpForImage(imageItem) {
   const columns = await getCachedPmpColumns("imagedata");
   if (!columns.length) {
@@ -4309,7 +4325,7 @@ async function buildImagedataDumpForImage(imageItem) {
   for (const col of sorted) {
     const entries = Array.isArray(col.entries) ? col.entries : [];
     const value = rowIndex < entries.length ? entries[rowIndex] : undefined;
-    lines.push(`${String(col.column || "(unknown)")}: ${value === undefined ? "(missing)" : JSON.stringify(value)}`);
+    lines.push(`${String(col.column || "(unknown)")}: ${formatPmpDumpValue(value)}`);
   }
   return {
     title: `${String(imageItem?.relPath || imageItem?.name || "Current image")} — imagedata row ${rowIndex}`,
