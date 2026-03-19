@@ -4254,34 +4254,27 @@ async function getCachedPmpColumns(table = "") {
   return loaded;
 }
 
-function normalizePmpMatchValue(value) {
-  return normPath(String(value || "").trim()).toLowerCase();
-}
-
-function buildImageMatchCandidates(imageItem) {
-  const relPath = normalizePmpMatchValue(imageItem?.relPath || "");
-  const name = String(imageItem?.name || relPath.split("/").pop() || "").trim().toLowerCase();
-  const out = new Set();
-  if (relPath) {
-    out.add(relPath);
-    out.add("/" + relPath);
-    out.add(relPath.split("/").pop() || relPath);
+async function resolvePmpRowIdxForImage(imageItem) {
+  const cachedIdx = Number(imageItem?.pmpRowIdx);
+  if (Number.isFinite(cachedIdx) && cachedIdx >= 0) {
+    return { rowIndex: cachedIdx, source: String(imageItem?.pmpRowSource || "") };
   }
-  if (name) out.add(name);
-  return out;
-}
-
-function matchPmpEntryRow(entries, candidates) {
-  for (let i = 0; i < entries.length; i++) {
-    const value = normalizePmpMatchValue(entries[i]);
-    if (!value) continue;
-    if (candidates.has(value) || candidates.has(value.replace(/^\/+/, ""))) return i;
-    for (const candidate of candidates) {
-      const stripped = candidate.replace(/^\/+/, "");
-      if (stripped && (value.endsWith("/" + stripped) || stripped.endsWith("/" + value))) return i;
+  const preferredSource = String(state.prefs.thumbSource || "").trim().toLowerCase();
+  const sources = [
+    preferredSource,
+    ...THUMB_DB_SOURCES.filter((src) => src !== preferredSource)
+  ].filter((src, idx, arr) => THUMB_DB_SOURCES.includes(src) && arr.indexOf(src) === idx);
+  for (const source of sources) {
+    await ensureThumbSourceLoaded(source);
+    const nameMap = state.thumbNameToIdx[source];
+    const rowIndex = findThumbIdxForImageItem(imageItem, nameMap);
+    if (Number.isFinite(rowIndex) && rowIndex >= 0) {
+      imageItem.pmpRowIdx = rowIndex;
+      imageItem.pmpRowSource = source;
+      return { rowIndex, source };
     }
   }
-  return -1;
+  return { rowIndex: -1, source: "" };
 }
 
 async function buildImagedataDumpForImage(imageItem) {
@@ -4292,30 +4285,24 @@ async function buildImagedataDumpForImage(imageItem) {
       body: "No imagedata_*.pmp columns are cached for this library."
     };
   }
-  const candidates = buildImageMatchCandidates(imageItem);
-  const prioritizedColumns = ["filename", "relpath", "path", "name", "basename"];
-  let rowIndex = -1;
-  for (const name of prioritizedColumns) {
-    const col = columns.find((row) => String(row?.column || "").toLowerCase() === name);
-    if (!col) continue;
-    rowIndex = matchPmpEntryRow(Array.isArray(col.entries) ? col.entries : [], candidates);
-    if (rowIndex >= 0) break;
-  }
-  if (rowIndex < 0) {
-    for (const col of columns) {
-      rowIndex = matchPmpEntryRow(Array.isArray(col.entries) ? col.entries : [], candidates);
-      if (rowIndex >= 0) break;
-    }
-  }
+  const { rowIndex, source } = await resolvePmpRowIdxForImage(imageItem);
   if (rowIndex < 0) {
     return {
       title: String(imageItem?.relPath || imageItem?.name || "Current image"),
-      body: `No matching imagedata PMP row found for ${String(imageItem?.relPath || imageItem?.name || "the current image")}.`
+      body: `No thumbnail/PMP idx mapping was found for ${String(imageItem?.relPath || imageItem?.name || "the current image")}.`
+    };
+  }
+  const maxEntries = columns.reduce((max, col) => Math.max(max, Array.isArray(col?.entries) ? col.entries.length : 0), 0);
+  if (rowIndex >= maxEntries) {
+    return {
+      title: String(imageItem?.relPath || imageItem?.name || "Current image"),
+      body: `Mapped PMP row idx ${rowIndex} (${source || "unknown source"}) is outside the available imagedata column range (${maxEntries} rows).`
     };
   }
   const lines = [
     `rowIndex: ${rowIndex}`,
     `image: ${String(imageItem?.relPath || imageItem?.name || "")}`,
+    `mappedFromThumbnailSource: ${source || "(unknown)"}`,
     ""
   ];
   const sorted = columns.slice().sort((a, b) => String(a.column || "").localeCompare(String(b.column || ""), undefined, { sensitivity: "base" }));
@@ -4717,6 +4704,8 @@ async function renderTiles(images) {
         const nameMap = state.thumbNameToIdx[selectedSource];
         const thumbIdx = findThumbIdxForImageItem(it, nameMap);
         if (Number.isFinite(thumbIdx) && thumbIdx >= 0) {
+          it.pmpRowIdx = thumbIdx;
+          it.pmpRowSource = selectedSource;
           tile.classList.add("thumbFromDb");
           img.loading = "lazy";
           img.dataset.lazyThumbSource = selectedSource;
