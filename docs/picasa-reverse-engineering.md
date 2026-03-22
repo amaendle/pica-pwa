@@ -29,11 +29,13 @@ Three representations carry overlapping Picasa metadata:
    * binary image cache files such as `bigthumbs_0.db`, `thumbs2_0.db`, `thumbs_0.db`, `previews_0.db`
    * matched back to images by `thumbindex.db`
 
-Current working assumption:
+Current confirmed model:
 
-* **thumbnail row idx == PMP row idx for the corresponding image row**
-* `thumbindex.db` provides the mapping from path/name to thumbnail/PMP row index
-* some **virtual rows** exist in `thumbindex.db` for per-face or per-region objects
+* **`rowIndex` is the primary key across thumbindex + `imagedata_*`**
+* `thumbindex.db` is the structural index / graph layer
+* PMP `imagedata_*` columns are the semantic metadata layer attached to those same row indices
+* `parentIdx` is a general graph edge, not only a folder hierarchy pointer
+* `typeCode = 1001` rows are face nodes attached to image rows
 
 ---
 
@@ -88,7 +90,8 @@ Interpretation:
 
 * face geometry is stored as a `rect64`
 * second value appears to be a face/contact identifier
-* current working theory: PMP stores face geometry on the main image row, but face/contact linkage may live in a separate virtual row
+* PMP stores face geometry / analysis data in `imagedata` columns rather than in the thumbindex 26-byte block
+* face/contact linkage appears to involve separate face-node rows (`thumbindexTypeCode = 1001`) rather than only the main image row
 
 ### 2.4 Text overlays
 
@@ -259,18 +262,24 @@ These extracted thumbnails are cached in IndexedDB and then exposed via lazy-bou
 
 ### 6.1 Purpose
 
-`thumbindex.db` is the key file that maps thumbnail rows back to images and, by extension, to PMP row indices.
+`thumbindex.db` is the structural index for the whole Picasa object graph.
 
-Current working model:
+Confirmed model:
 
-* `thumbindex idx` → thumbnail row index
-* same `idx` → corresponding `imagedata_*` PMP row index
+* `thumbindex idx` / row index is the primary key
+* the same row index addresses the corresponding `imagedata_*` PMP entries
+* `parentIdx` expresses graph edges:
+  * folders → files
+  * images → face nodes
+* thumbindex therefore is not just a directory tree; it is a typed node graph
 
-Recent sample-backed interpretation:
+Confirmed semantic split:
 
-* `facerectdata = "1"` on `filetype = 2` rows appears to mean the main image row knows that face-related side-data exists
-* `facerectdata = "conf(...),pan(...),leye(...),reye(...),mouth(...)"` on `filetype = 1001` rows appears to be a detailed per-face analysis payload
-* `facequality` appears to accompany those virtual rows and is plausibly a quality/confidence score for the detected face object
+* thumbindex 26-byte block = structural/object metadata only
+* PMP `imagedata_*` = semantic metadata (faces, edits, tags, geodata, captions, etc.)
+* `facerectdata = "1"` on `filetype = 2` rows means the main image row knows that face-related side-data exists
+* `facerectdata = "conf(...),pan(...),leye(...),reye(...),mouth(...)"` on `filetype = 1001` rows is a detailed per-face analysis payload
+* `facequality`, `personalbumid`, `facerect`, and `facerectdata` together identify the face-node semantics
 
 ### 6.2 Entry layout (confirmed)
 
@@ -287,10 +296,15 @@ null-terminated name/path
 Current decoded structure:
 
 * bytes `0..7`   → 64-bit Windows `FILETIME` (filesystem timestamp; likely modified time)
-* bytes `8..15`  → 64-bit Windows `FILETIME` (Picasa/import/index timestamp)
+* bytes `8..15`  → 64-bit Windows `FILETIME` (very likely last Picasa activity time: indexing, face detection, edits, tagging)
 * bytes `16..19` → 32-bit file size in bytes
-* bytes `20..23` → 32-bit type code
-* bytes `24..25` → 16-bit flags/status
+* bytes `20..23` → 32-bit Picasa object-class code
+* bytes `24..25` → 16-bit flags/status tied to object role/state
+
+Important conclusion:
+
+* the 26-byte block does **not** contain face geometry or other rich content metadata
+* geometry, identity, edits, tags, captions, and geodata live in PMP columns
 
 ### 6.4 Observed type codes
 
@@ -298,22 +312,29 @@ Observed values:
 
 * `1` → directory
 * `5` → root
-* `2` → normal image (e.g. JPEG)
-* `1001` → virtual face/region-related entry
+* `2` → normal image/file node
+* `1001` → face node
+
+Interpretation:
+
+* `thumbindexTypeCode` describes the Picasa object class
+* `filetype` in PMP describes the actual media/content type
+* so type codes are about how Picasa treats the row in its graph, not about the on-disk file format
 
 ### 6.5 Virtual entries
 
 Important finding:
 
 * virtual entries often have **no filename**
-* they point to a real image via `parentIdx`
+* `parentIdx` links them back to their parent image row
 * multiple virtual entries can exist per real image
-* they correlate with face/region metadata
+* rows with `typeCode = 1001` consistently carry face metadata such as `facerect`, `facequality`, `personalbumid`, and `facerectdata`
 
-Working hypothesis:
+Confirmed interpretation:
 
-* these virtual entries store face/region objects or related side-data
-* the face/contact id from `.picasa.ini/.info` may be linked through these virtual records rather than the main image row itself
+* each `typeCode = 1001` row is one detected face record
+* the parent image row carries image-level state; the child face rows carry per-face state
+* face geometry is stored in PMP columns (`facerect` / `facerectdata`), not inside the thumbindex 26-byte block
 
 Detailed sample:
 
@@ -388,9 +409,8 @@ This overlay is now callable from:
 Open investigations:
 
 1. confirm decimal↔hex conversion for all `facerect` values
-2. trace face/contact IDs through virtual thumbindex/PMP rows
-3. confirm how virtual-face `facerectdata` payloads relate to manual INI face tags and contact IDs
-4. decode remaining PMP-specific fields:
+2. trace face/contact IDs through face-node rows and `Contacts2`
+3. decode remaining PMP-specific fields:
    * `avgcolor`
    * `originfast`
    * `originslow`
@@ -407,8 +427,8 @@ If continuing reverse engineering, prioritize in this order:
 
 1. `facerect`
 2. `facerectdata`
-3. virtual thumbindex rows (`typeCode = 1001`)
-4. linked PMP rows for those virtual entries
+3. `personalbumid` / contact linkage for `typeCode = 1001` rows
+4. flags decoding by object role (`directory`, `file`, `face`)
 5. remaining PMP-only scalar/structured fields
 
 This should clarify where Picasa stores per-face metadata beyond the visible face rectangle.

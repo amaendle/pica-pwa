@@ -981,6 +981,25 @@ function interpretFacerectdata(value, filetype, facequality) {
   return "unclassified facerectdata payload";
 }
 
+function interpretThumbindexTypeCode(typeCode) {
+  const n = Number(typeCode);
+  if (!Number.isFinite(n)) return "(unknown object class)";
+  if (n === 5) return "root node";
+  if (n === 1) return "directory node";
+  if (n === 2) return "image/file node";
+  if (n === 1001) return "face node";
+  return "other Picasa object node";
+}
+
+function interpretThumbindexParentLink(typeCode, parentIdx) {
+  const idx = Number(parentIdx);
+  const n = Number(typeCode);
+  if (!Number.isFinite(idx) || idx < 0) return "(no parent link)";
+  if (n === 1001) return "graph edge to the parent image row";
+  if (n === 1 || n === 5) return "directory/root graph edge";
+  return "structural graph edge to containing folder or parent object";
+}
+
 function summarizeThumbindexEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   return {
@@ -4583,11 +4602,14 @@ async function buildImagedataDumpForImage(imageItem) {
     `thumbindexFolder: ${thumbindexEntry?.folderPath || "(missing)"}`,
     `thumbindexPath: ${thumbindexEntry?.fullPath || "(missing)"}`,
     `thumbindexTypeCode: ${formatNumberWithHex(thumbindexEntry?.typeCode, 8)}`,
+    `thumbindexTypeMeaning: ${interpretThumbindexTypeCode(thumbindexEntry?.typeCode)}`,
     `thumbindexFlags: ${formatNumberWithHex(thumbindexEntry?.flags, 4)}`,
     `thumbindexFileSize: ${formatNumberWithHex(thumbindexEntry?.fileSize, 8)}`,
     `thumbindexFsTimestampDecoded: ${thumbindexEntry?.fsTimestampIso ? `${thumbindexEntry.fsTimestampIso}${fsZone ? ` ${fsZone}` : ""} (${formatBigIntHex(fsRaw, 16)})` : "(missing)"}`,
     `thumbindexPicasaTimestampDecoded: ${thumbindexEntry?.picasaTimestampIso ? `${thumbindexEntry.picasaTimestampIso}${picasaZone ? ` ${picasaZone}` : ""} (${formatBigIntHex(picasaRaw, 16)})` : "(missing)"}`,
     `thumbindexParentIndex: ${formatNumberWithHex(thumbindexEntry?.parentIdx, 8)}`,
+    `thumbindexParentMeaning: ${interpretThumbindexParentLink(thumbindexEntry?.typeCode, thumbindexEntry?.parentIdx)}`,
+    `rowJoinMeaning: rowIndex is the primary key that joins thumbindex and imagedata`,
     `crop64Decoded: ${formatRect64Decoded(crop64Value)}`,
     `facerectDecoded: ${formatRect64Decoded(facerectValue)}`,
     `facerectdataDecoded: ${interpretFacerectdata(facerectdataValue, filetypeValue, facequalityValue)}`,
