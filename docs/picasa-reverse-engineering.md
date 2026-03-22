@@ -161,14 +161,13 @@ Known or strongly supported by samples:
 | `textactive` | `textactive=` | direct scalar mirror |
 | `redo` | `redo=` | direct string mirror |
 | `crop64` | `crop=rect64(...)` / `filters=crop64=1,...;` | same geometry, different representation |
-| `facerect` | `faces=rect64(...),<faceId>` | geometry likely on main image row |
-| `facerectdata` | no confirmed `.picasa` equivalent yet | likely flag/count/presence of virtual face rows |
+| `facerect` | `faces=rect64(...),<faceId>` | geometry is stored as rect64-like packed data; observed on both main image rows and face-related virtual rows |
+| `facerectdata` | no direct `.picasa` equivalent yet | `"1"` appears to be a presence marker on main image rows; detailed face-analysis payloads appear on `filetype = 1001` virtual rows |
 
 ### 3.4 Open PMP questions
 
 Fields still needing more confirmation:
 
-* `facerectdata`
 * `avgcolor`
 * `originfast`
 * `originslow`
@@ -234,6 +233,13 @@ Observed thumbnail database families:
 * `thumbs_0.db`
 * `previews_0.db`
 
+Observed larger thumbnail dimension by source:
+
+* `previews` → `640 px`
+* `bigthumbs` → `288 px`
+* `thumbs` → `144 px`
+* `thumbs2` → `72 px`
+
 Observed paired index files:
 
 * `<source>_0_index.db`
@@ -259,6 +265,12 @@ Current working model:
 
 * `thumbindex idx` → thumbnail row index
 * same `idx` → corresponding `imagedata_*` PMP row index
+
+Recent sample-backed interpretation:
+
+* `facerectdata = "1"` on `filetype = 2` rows appears to mean the main image row knows that face-related side-data exists
+* `facerectdata = "conf(...),pan(...),leye(...),reye(...),mouth(...)"` on `filetype = 1001` rows appears to be a detailed per-face analysis payload
+* `facequality` appears to accompany those virtual rows and is plausibly a quality/confidence score for the detected face object
 
 ### 6.2 Entry layout (confirmed)
 
@@ -303,6 +315,23 @@ Working hypothesis:
 * these virtual entries store face/region objects or related side-data
 * the face/contact id from `.picasa.ini/.info` may be linked through these virtual records rather than the main image row itself
 
+Detailed sample:
+
+```text
+facequality: 32954
+facerect: 12070288535093797128
+facerectdata: "conf(0.330),pan(23.032),leye(0.676,0.326),reye(0.692,0.328),mouth(0.681,0.363)"
+filetype: 1001
+```
+
+Interpretation of that payload:
+
+* `conf(...)` → confidence score for the detected face object
+* `pan(...)` → estimated left/right face angle in degrees
+* `leye(x,y)` → normalized left-eye position within the face rectangle
+* `reye(x,y)` → normalized right-eye position within the face rectangle
+* `mouth(x,y)` → normalized mouth position within the face rectangle
+
 ### 6.6 Folder/path reconstruction
 
 Path reconstruction works by following `parentIdx` recursively and joining leaf names onto parent paths.
@@ -343,6 +372,8 @@ The metadata overlay currently shows:
 * thumbnail source used for the mapping
 * thumbindex metadata for that index
 * raw `imagedata_*` values for the same row
+* decoded helper values for `crop64` / `facerect`
+* raw decimal + hex FILETIME values and decoded timestamp strings for thumbindex timestamps
 
 This overlay is now callable from:
 
@@ -357,8 +388,8 @@ This overlay is now callable from:
 Open investigations:
 
 1. confirm decimal↔hex conversion for all `facerect` values
-2. determine exact meaning of `facerectdata`
-3. trace face/contact IDs through virtual thumbindex/PMP rows
+2. trace face/contact IDs through virtual thumbindex/PMP rows
+3. confirm how virtual-face `facerectdata` payloads relate to manual INI face tags and contact IDs
 4. decode remaining PMP-specific fields:
    * `avgcolor`
    * `originfast`

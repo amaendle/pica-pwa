@@ -878,6 +878,80 @@ function fileTimeToIso(rawValue) {
   }
 }
 
+function formatBigIntHex(rawValue, minWidth = 0) {
+  try {
+    const raw = typeof rawValue === "bigint" ? rawValue : BigInt(rawValue ?? 0);
+    const prefix = raw < 0n ? "-0x" : "0x";
+    const abs = raw < 0n ? -raw : raw;
+    return `${prefix}${abs.toString(16).padStart(Math.max(1, Number(minWidth) || 0), "0")}`;
+  } catch {
+    return "";
+  }
+}
+
+function normalizeRect64Hex(value) {
+  if (value === undefined || value === null) return "";
+  const raw = typeof value === "bigint" ? value.toString() : String(value).trim();
+  if (!raw || raw === "(missing)") return "";
+  const lowered = raw.toLowerCase();
+  if (/^[0-9a-f]+$/.test(lowered)) return lowered.padStart(16, "0").slice(-16);
+  try {
+    return BigInt(raw).toString(16).padStart(16, "0").slice(-16);
+  } catch {
+    return "";
+  }
+}
+
+function decodeRect64Parts(value) {
+  const hex = normalizeRect64Hex(value);
+  if (!hex || hex.length !== 16) return null;
+  const x1Raw = parseInt(hex.slice(0, 4), 16);
+  const y1Raw = parseInt(hex.slice(4, 8), 16);
+  const x2Raw = parseInt(hex.slice(8, 12), 16);
+  const y2Raw = parseInt(hex.slice(12, 16), 16);
+  const x1 = x1Raw / 65535;
+  const y1 = y1Raw / 65535;
+  const x2 = x2Raw / 65535;
+  const y2 = y2Raw / 65535;
+  return {
+    hex,
+    x1Raw,
+    y1Raw,
+    x2Raw,
+    y2Raw,
+    x1,
+    y1,
+    x2,
+    y2,
+    x: x1,
+    y: y1,
+    width: Math.max(0, x2 - x1),
+    height: Math.max(0, y2 - y1)
+  };
+}
+
+function formatRect64Decoded(value) {
+  const rect = decodeRect64Parts(value);
+  if (!rect) return "(not a rect64-like value)";
+  const fmt = (n) => Number(n).toFixed(6);
+  return `hex=${rect.hex} x1=${rect.x1Raw} (${fmt(rect.x1)}) y1=${rect.y1Raw} (${fmt(rect.y1)}) x2=${rect.x2Raw} (${fmt(rect.x2)}) y2=${rect.y2Raw} (${fmt(rect.y2)}) rect=(${fmt(rect.x)}, ${fmt(rect.y)}, ${fmt(rect.width)}, ${fmt(rect.height)})`;
+}
+
+function interpretFacerectdata(value, filetype, facequality) {
+  const txt = String(value ?? "").trim();
+  if (!txt) return "(empty)";
+  if (txt === "1") {
+    return Number(filetype) === 2 ? "marker that face-related side-data exists on the main image row" : "generic face-data presence marker";
+  }
+  const match = txt.match(/^conf\(([-+0-9.]+)\),pan\(([-+0-9.]+)\),leye\(([-+0-9.]+),([-+0-9.]+)\),reye\(([-+0-9.]+),([-+0-9.]+)\),mouth\(([-+0-9.]+),([-+0-9.]+)\)$/i);
+  if (match) {
+    const [, conf, pan, lx, ly, rx, ry, mx, my] = match;
+    const q = Number(facequality);
+    return `detailed per-face analysis payload (confidence=${conf}, pan=${pan}, leftEye=(${lx}, ${ly}), rightEye=(${rx}, ${ry}), mouth=(${mx}, ${my})${Number.isFinite(q) ? `, facequality=${q}` : ""})`;
+  }
+  return "unclassified facerectdata payload";
+}
+
 function summarizeThumbindexEntry(entry) {
   if (!entry || typeof entry !== "object") return null;
   return {
@@ -4432,6 +4506,18 @@ async function buildImagedataDumpForImage(imageItem) {
     };
   }
   const thumbindexEntry = source ? await loadIndexedThumbIndexEntryDetails(source, rowIndex) : null;
+  const valueByColumn = new Map();
+  for (const col of columns) {
+    const entries = Array.isArray(col?.entries) ? col.entries : [];
+    valueByColumn.set(String(col.column || ""), rowIndex < entries.length ? entries[rowIndex] : undefined);
+  }
+  const filetypeValue = valueByColumn.get("filetype");
+  const facequalityValue = valueByColumn.get("facequality");
+  const facerectValue = valueByColumn.get("facerect");
+  const facerectdataValue = valueByColumn.get("facerectdata");
+  const crop64Value = valueByColumn.get("crop64");
+  const fsRaw = thumbindexEntry?.fsFileTime || "";
+  const picasaRaw = thumbindexEntry?.picasaFileTime || "";
   const lines = [
     `rowIndex: ${rowIndex}`,
     `image: ${String(imageItem?.relPath || imageItem?.name || "")}`,
@@ -4442,16 +4528,28 @@ async function buildImagedataDumpForImage(imageItem) {
     `thumbindexTypeCode: ${Number.isFinite(Number(thumbindexEntry?.typeCode)) ? Number(thumbindexEntry.typeCode) : "(missing)"}`,
     `thumbindexFlags: ${Number.isFinite(Number(thumbindexEntry?.flags)) ? Number(thumbindexEntry.flags) : "(missing)"}`,
     `thumbindexFileSize: ${Number.isFinite(Number(thumbindexEntry?.fileSize)) ? Number(thumbindexEntry.fileSize) : "(missing)"}`,
-    `thumbindexFsTimestamp: ${thumbindexEntry?.fsTimestampIso || thumbindexEntry?.fsFileTime || "(missing)"}`,
-    `thumbindexPicasaTimestamp: ${thumbindexEntry?.picasaTimestampIso || thumbindexEntry?.picasaFileTime || "(missing)"}`,
+    `thumbindexFsTimestampRaw: ${fsRaw ? `${fsRaw} (${formatBigIntHex(fsRaw, 16)})` : "(missing)"}`,
+    `thumbindexFsTimestampDecoded: ${thumbindexEntry?.fsTimestampIso || "(missing)"}`,
+    `thumbindexPicasaTimestampRaw: ${picasaRaw ? `${picasaRaw} (${formatBigIntHex(picasaRaw, 16)})` : "(missing)"}`,
+    `thumbindexPicasaTimestampDecoded: ${thumbindexEntry?.picasaTimestampIso || "(missing)"}`,
     `thumbindexParentIndex: ${Number.isFinite(Number(thumbindexEntry?.parentIdx)) ? Number(thumbindexEntry.parentIdx) : "(missing)"}`,
+    `crop64Decoded: ${formatRect64Decoded(crop64Value)}`,
+    `facerectDecoded: ${formatRect64Decoded(facerectValue)}`,
+    `facerectdataDecoded: ${interpretFacerectdata(facerectdataValue, filetypeValue, facequalityValue)}`,
     ""
   ];
   const sorted = columns.slice().sort((a, b) => String(a.column || "").localeCompare(String(b.column || ""), undefined, { sensitivity: "base" }));
   for (const col of sorted) {
     const entries = Array.isArray(col.entries) ? col.entries : [];
     const value = rowIndex < entries.length ? entries[rowIndex] : undefined;
-    lines.push(`${String(col.column || "(unknown)")}: ${formatPmpDumpValue(value)}`);
+    const columnName = String(col.column || "(unknown)");
+    lines.push(`${columnName}: ${formatPmpDumpValue(value)}`);
+    if (columnName === "crop64" || columnName === "facerect") {
+      lines.push(`${columnName}Decoded: ${formatRect64Decoded(value)}`);
+    }
+    if (columnName === "facerectdata") {
+      lines.push(`${columnName}Interpreted: ${interpretFacerectdata(value, filetypeValue, facequalityValue)}`);
+    }
   }
   return {
     title: `${String(imageItem?.relPath || imageItem?.name || "Current image")} — imagedata row ${rowIndex}`,
