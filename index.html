@@ -4462,11 +4462,19 @@ async function buildImagedataDumpForImage(imageItem) {
 /** ===========================
  *  Load PMP albums from db/
  *  =========================== */
+async function loadPmpCachesAndColumns() {
+  if (!state.pmpRoot) throw new Error("No PMP import folder selected");
+  const thumbStats = await importThumbCachesFromPmp();
+  await scanAndStoreAllPmpColumns();
+  const thumbSummary = thumbStats.map((s) => `${s.source}:${s.count || 0}/${s.totalThumbs || 0}(${s.discoveredNames || 0})`).join(" ");
+  el.pillInfo.textContent = thumbSummary ? `thumbs ${thumbSummary}` : "";
+  return thumbStats;
+}
+
 async function loadAlbumsFromPMP() {
   if (!state.pmpRoot) throw new Error("No PMP import folder selected");
   if (!state.libraryRoot || !state.dirIndex) throw new Error("No library folder selected");
-  const thumbStats = await importThumbCachesFromPmp();
-  await scanAndStoreAllPmpColumns();
+  const thumbStats = await loadPmpCachesAndColumns();
   const required = [
     "db/albumdata_name.pmp",
     "db/albumdata_filename.pmp",
@@ -5153,15 +5161,18 @@ el.btnPickPmp.onclick = async () => {
     const dir = await window.showDirectoryPicker({ mode: "read" });
     state.pmpRoot = dir;
     state.activeListIndex = -1;
+    state.picasaByFolder.clear();
+    state.pmpColumnsCache = [];
     if (!state.libraryRoot || !state.dirIndex) {
-      setStatus("PMP folder selected. Now choose “Open Library Folder” to resolve image paths.", "warn");
+      setStatus("Importing PMP thumbnails and columns…", "warn");
+      await loadPmpCachesAndColumns();
+      setAsideState("PMP folder selected", "ok");
+      setStatus("PMP thumbnails/columns loaded. You can inspect raw thumbnails now; choose “Open Library Folder” later to resolve originals.", "ok");
       return;
     }
     el.btnReload.disabled = false;
     clearGrid();
     setStatus("Loading PMP from selected import folder…", "warn");
-    state.picasaByFolder.clear();
-    state.pmpColumnsCache = [];
     await loadAlbumsFromPMP();
     setStatus("Select an item on the left.", "ok");
   } catch (e) {
