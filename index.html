@@ -350,7 +350,11 @@
           Reverse-engineering notes:
           <a id="lnkReverseEngineeringDoc" href="docs/picasa-reverse-engineering.md" target="_blank" rel="noopener" style="color:#8cc8ff;">Open documentation</a>
         </div>
-        <div style="display:flex; gap:8px;"><button id="btnSettingsSave">Save settings</button><button id="btnSettingsClose">Close</button></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnExportPmpCsv">Export PMP imagedata CSV</button>
+          <button id="btnSettingsSave">Save settings</button>
+          <button id="btnSettingsClose">Close</button>
+        </div>
       </div>
     </div>
   </div>
@@ -1760,6 +1764,31 @@ async function loadIndexedThumbIndexEntryDetails(source, idxWanted) {
   }
 }
 
+async function loadIndexedThumbIndexEntries(source) {
+  if (!THUMB_DB_SOURCES.includes(source)) return [];
+  const db = await openLibraryDB();
+  const libraryId = String(state.libraryId || "default");
+  const librarySource = `${libraryId}:${source}`;
+  try {
+    const tx = db.transaction([STORES.thumbnailIndexes], "readonly");
+    const store = tx.objectStore(STORES.thumbnailIndexes);
+    const rows = await new Promise((resolve, reject) => {
+      const req = store.index("librarySource").getAll(librarySource);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error || new Error("Failed to read thumbnail index rows"));
+    });
+    rows.sort((a,b)=>(Number(a.row)||0)-(Number(b.row)||0));
+    const out = [];
+    for (const row of rows) {
+      const entries = Array.isArray(row?.extractedEntries) ? row.extractedEntries : [];
+      for (const entry of entries) out.push(entry);
+    }
+    return out;
+  } finally {
+    db.close();
+  }
+}
+
 async function loadIndexedThumbsForSource(source) {
   if (!THUMB_DB_SOURCES.includes(source)) return { rows: [], nameToIdx: new Map() };
   const db = await openLibraryDB();
@@ -3048,6 +3077,7 @@ const el = {
   selWriteKeywordsPref: document.getElementById("selWriteKeywordsPref"),
   selThumbSourcePref: document.getElementById("selThumbSourcePref"),
   selEditorPreviewSize: document.getElementById("selEditorPreviewSize"),
+  btnExportPmpCsv: document.getElementById("btnExportPmpCsv"),
   btnSettingsSave: document.getElementById("btnSettingsSave"),
   btnSettingsClose: document.getElementById("btnSettingsClose"),
   slideImagedataOverlay: document.getElementById("slideImagedataOverlay"),
@@ -5523,6 +5553,9 @@ el.btnSettingsClose.onclick = () => {
   el.settingsOverlay.classList.remove("show");
   el.settingsOverlay.setAttribute("aria-hidden", "true");
 };
+el.btnExportPmpCsv.onclick = () => {
+  void exportCompletePmpImagedataCsv();
+};
 el.btnSettingsSave.onclick = () => {
   state.prefs.readCaption = el.selReadCaptionPref.value;
   state.prefs.readKeywords = el.selReadKeywordsPref.value;
@@ -6019,6 +6052,130 @@ function downloadJson(filename, data) {
   a.click();
   a.remove();
   URL.revokeObjectURL(url);
+}
+
+function downloadBlob(filename, blob) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
+
+function escapeCsvCell(value) {
+  const text = String(value ?? "");
+  if (!/[",\n]/.test(text)) return text;
+  return `"${text.replace(/"/g, '""')}"`;
+}
+
+function formatCsvCellValue(value) {
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return JSON.stringify(value.map((it) => formatCsvCellValue(it)));
+  if (value && typeof value === "object") {
+    const out = {};
+    for (const [key, val] of Object.entries(value)) out[key] = formatCsvCellValue(val);
+    return JSON.stringify(out);
+  }
+  if (value === undefined) return "";
+  return String(value);
+}
+
+async function findAvailablePmpThumbSource() {
+  const preferred = String(state.prefs.thumbSource || "").trim().toLowerCase();
+  const candidates = [
+    preferred,
+    ...THUMB_DB_SOURCES.filter((src) => src !== preferred)
+  ].filter((src, idx, arr) => THUMB_DB_SOURCES.includes(src) && arr.indexOf(src) === idx);
+  for (const source of candidates) {
+    const entries = await loadIndexedThumbIndexEntries(source);
+    if (entries.length) return { source, entries };
+  }
+  return { source: "", entries: [] };
+}
+
+async function exportCompletePmpImagedataCsv() {
+  const columns = await getCachedPmpColumns("imagedata");
+  const { source, entries } = await findAvailablePmpThumbSource();
+  if (!columns.length && !entries.length) {
+    setStatus("No cached PMP imagedata or thumbindex rows available for CSV export yet.", "warn");
+    return;
+  }
+  const thumbEntryByIdx = new Map(entries.map((entry) => [Number(entry?.idx), entry]));
+  const maxThumbIdx = entries.reduce((max, entry) => Math.max(max, Number(entry?.idx) || -1), -1);
+  const maxColumnEntries = columns.reduce((max, col) => Math.max(max, Array.isArray(col?.entries) ? col.entries.length - 1 : -1), -1);
+  const rowCount = Math.max(maxThumbIdx, maxColumnEntries) + 1;
+  if (rowCount <= 0) {
+    setStatus("No PMP rows available for CSV export.", "warn");
+    return;
+  }
+  const sortedColumns = columns.slice().sort((a, b) => String(a.column || "").localeCompare(String(b.column || ""), undefined, { sensitivity: "base" }));
+  const headers = [
+    "rowIndex",
+    "thumbSource",
+    "thumbindexName",
+    "thumbindexFolder",
+    "thumbindexPath",
+    "thumbindexTypeCode",
+    "thumbindexTypeCodeHex",
+    "thumbindexFlags",
+    "thumbindexFlagsHex",
+    "thumbindexFileSize",
+    "thumbindexFileSizeHex",
+    "thumbindexFsFileTime",
+    "thumbindexFsFileTimeHex",
+    "thumbindexFsTimestampIso",
+    "thumbindexPicasaFileTime",
+    "thumbindexPicasaFileTimeHex",
+    "thumbindexPicasaTimestampIso",
+    "thumbindexParentIndex",
+    "thumbindexParentIndexHex",
+    "crop64Decoded",
+    "facerectDecoded",
+    "facerectdataDecoded",
+    ...sortedColumns.map((col) => String(col.column || "(unknown)"))
+  ];
+  const lines = [headers.map(escapeCsvCell).join(",")];
+  for (let rowIndex = 0; rowIndex < rowCount; rowIndex++) {
+    const entry = thumbEntryByIdx.get(rowIndex) || null;
+    const valueByColumn = new Map();
+    for (const col of sortedColumns) {
+      const entriesForColumn = Array.isArray(col?.entries) ? col.entries : [];
+      valueByColumn.set(String(col.column || ""), rowIndex < entriesForColumn.length ? entriesForColumn[rowIndex] : undefined);
+    }
+    const filetypeValue = valueByColumn.get("filetype");
+    const facequalityValue = valueByColumn.get("facequality");
+    const row = [
+      rowIndex,
+      source,
+      entry?.name || "",
+      entry?.folderPath || "",
+      entry?.fullPath || "",
+      Number.isFinite(Number(entry?.typeCode)) ? Number(entry.typeCode) : "",
+      entry ? formatBigIntHex(BigInt(Math.trunc(Number(entry?.typeCode) || 0)), 8) : "",
+      Number.isFinite(Number(entry?.flags)) ? Number(entry.flags) : "",
+      entry ? formatBigIntHex(BigInt(Math.trunc(Number(entry?.flags) || 0)), 4) : "",
+      Number.isFinite(Number(entry?.fileSize)) ? Number(entry.fileSize) : "",
+      entry ? formatBigIntHex(BigInt(Math.trunc(Number(entry?.fileSize) || 0)), 8) : "",
+      entry?.fsFileTime || "",
+      entry?.fsFileTime ? formatBigIntHex(entry.fsFileTime, 16) : "",
+      entry?.fsTimestampIso || "",
+      entry?.picasaFileTime || "",
+      entry?.picasaFileTime ? formatBigIntHex(entry.picasaFileTime, 16) : "",
+      entry?.picasaTimestampIso || "",
+      Number.isFinite(Number(entry?.parentIdx)) ? Number(entry.parentIdx) : "",
+      entry ? formatBigIntHex(BigInt(Math.trunc(Number(entry?.parentIdx) || 0)), 8) : "",
+      formatRect64Decoded(valueByColumn.get("crop64")),
+      formatRect64Decoded(valueByColumn.get("facerect")),
+      interpretFacerectdata(valueByColumn.get("facerectdata"), filetypeValue, facequalityValue),
+      ...sortedColumns.map((col) => formatCsvCellValue(valueByColumn.get(String(col.column || ""))))
+    ];
+    lines.push(row.map(escapeCsvCell).join(","));
+  }
+  downloadBlob(`pmp-imagedata-${state.libraryId || "default"}-${source || "nosource"}.csv`, new Blob([lines.join("\n")], { type: "text/csv;charset=utf-8" }));
+  setStatus(`Exported PMP imagedata CSV (${rowCount} rows${source ? `, source ${source}` : ""}).`, "ok");
 }
 async function exportIndexedDbLibrary() {
   const snapshot = await loadLibrarySnapshot(state.libraryId);
