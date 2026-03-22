@@ -286,10 +286,16 @@ Confirmed semantic split:
 Each entry is:
 
 ```text
-null-terminated name/path
+(0x00 OR 0x00-terminated name/path string)
 + 26-byte metadata block
 + 4-byte parent index
 ```
+
+Important parser note:
+
+* the first field can be completely empty and represented by a single `0x00`
+* this is different from “a normal string that merely happens to be short”
+* empty-name rows are important for virtual objects, so the parser must treat leading `0x00` as a valid empty first field and then read metadata immediately after that one byte
 
 ### 6.3 26-byte metadata block
 

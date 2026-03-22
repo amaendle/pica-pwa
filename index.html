@@ -1054,6 +1054,9 @@ function parseThumbindexDbEntries(buffer) {
     return pairs >= 3 && oddZeros >= Math.floor(pairs * 0.7);
   };
   const readEntryString = (from) => {
+    if (from < bytes.length && bytes[from] === 0) {
+      return { value: "", next: from + 1 };
+    }
     const utf16 = looksUtf16(from);
     if (utf16) {
       const term = findUtf16Terminator(from);
