@@ -889,6 +889,31 @@ function formatBigIntHex(rawValue, minWidth = 0) {
   }
 }
 
+function getCentralEuropeTzLabel(rawValue) {
+  try {
+    const raw = typeof rawValue === "bigint" ? rawValue : BigInt(rawValue || 0);
+    if (raw <= 0n) return "";
+    const unixMs = Number((raw - 116444736000000000n) / 10000n);
+    if (!Number.isFinite(unixMs) || unixMs <= 0) return "";
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: "Europe/Berlin",
+      timeZoneName: "short"
+    }).formatToParts(new Date(unixMs));
+    const label = String(parts.find((part) => part.type === "timeZoneName")?.value || "").trim();
+    if (label === "GMT+1" || label === "UTC+1" || label === "MEZ") return "CET";
+    if (label === "GMT+2" || label === "UTC+2" || label === "MESZ") return "CEST";
+    return label;
+  } catch {
+    return "";
+  }
+}
+
+function formatNumberWithHex(value, minWidth = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return "(missing)";
+  return `${n} (${formatBigIntHex(BigInt(Math.trunc(n)), minWidth)})`;
+}
+
 function normalizeRect64Hex(value) {
   if (value === undefined || value === null) return "";
   const raw = typeof value === "bigint" ? value.toString() : String(value).trim();
@@ -4518,6 +4543,8 @@ async function buildImagedataDumpForImage(imageItem) {
   const crop64Value = valueByColumn.get("crop64");
   const fsRaw = thumbindexEntry?.fsFileTime || "";
   const picasaRaw = thumbindexEntry?.picasaFileTime || "";
+  const fsZone = getCentralEuropeTzLabel(fsRaw);
+  const picasaZone = getCentralEuropeTzLabel(picasaRaw);
   const lines = [
     `rowIndex: ${rowIndex}`,
     `image: ${String(imageItem?.relPath || imageItem?.name || "")}`,
@@ -4525,14 +4552,12 @@ async function buildImagedataDumpForImage(imageItem) {
     `thumbindexIndex: ${rowIndex}`,
     `thumbindexFolder: ${thumbindexEntry?.folderPath || "(missing)"}`,
     `thumbindexPath: ${thumbindexEntry?.fullPath || "(missing)"}`,
-    `thumbindexTypeCode: ${Number.isFinite(Number(thumbindexEntry?.typeCode)) ? Number(thumbindexEntry.typeCode) : "(missing)"}`,
-    `thumbindexFlags: ${Number.isFinite(Number(thumbindexEntry?.flags)) ? Number(thumbindexEntry.flags) : "(missing)"}`,
-    `thumbindexFileSize: ${Number.isFinite(Number(thumbindexEntry?.fileSize)) ? Number(thumbindexEntry.fileSize) : "(missing)"}`,
-    `thumbindexFsTimestampRaw: ${fsRaw ? `${fsRaw} (${formatBigIntHex(fsRaw, 16)})` : "(missing)"}`,
-    `thumbindexFsTimestampDecoded: ${thumbindexEntry?.fsTimestampIso || "(missing)"}`,
-    `thumbindexPicasaTimestampRaw: ${picasaRaw ? `${picasaRaw} (${formatBigIntHex(picasaRaw, 16)})` : "(missing)"}`,
-    `thumbindexPicasaTimestampDecoded: ${thumbindexEntry?.picasaTimestampIso || "(missing)"}`,
-    `thumbindexParentIndex: ${Number.isFinite(Number(thumbindexEntry?.parentIdx)) ? Number(thumbindexEntry.parentIdx) : "(missing)"}`,
+    `thumbindexTypeCode: ${formatNumberWithHex(thumbindexEntry?.typeCode, 8)}`,
+    `thumbindexFlags: ${formatNumberWithHex(thumbindexEntry?.flags, 4)}`,
+    `thumbindexFileSize: ${formatNumberWithHex(thumbindexEntry?.fileSize, 8)}`,
+    `thumbindexFsTimestampDecoded: ${thumbindexEntry?.fsTimestampIso ? `${thumbindexEntry.fsTimestampIso}${fsZone ? ` ${fsZone}` : ""} (${formatBigIntHex(fsRaw, 16)})` : "(missing)"}`,
+    `thumbindexPicasaTimestampDecoded: ${thumbindexEntry?.picasaTimestampIso ? `${thumbindexEntry.picasaTimestampIso}${picasaZone ? ` ${picasaZone}` : ""} (${formatBigIntHex(picasaRaw, 16)})` : "(missing)"}`,
+    `thumbindexParentIndex: ${formatNumberWithHex(thumbindexEntry?.parentIdx, 8)}`,
     `crop64Decoded: ${formatRect64Decoded(crop64Value)}`,
     `facerectDecoded: ${formatRect64Decoded(facerectValue)}`,
     `facerectdataDecoded: ${interpretFacerectdata(facerectdataValue, filetypeValue, facequalityValue)}`,

@@ -373,7 +373,7 @@ The metadata overlay currently shows:
 * thumbindex metadata for that index
 * raw `imagedata_*` values for the same row
 * decoded helper values for `crop64` / `facerect`
-* raw decimal + hex FILETIME values and decoded timestamp strings for thumbindex timestamps
+* decoded thumbindex timestamps with the raw FILETIME hex value appended in parentheses
 
 This overlay is now callable from:
 
