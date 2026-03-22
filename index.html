@@ -855,7 +855,44 @@ function extractThumbCandidatesFromBuffer(buffer) {
   return out;
 }
 
-function parseThumbindexDb(buffer) {
+function readUint64LE(dv, off) {
+  const lo = BigInt(dv.getUint32(off, true));
+  const hi = BigInt(dv.getUint32(off + 4, true));
+  return (hi << 32n) | lo;
+}
+
+function fileTimeToIso(rawValue) {
+  try {
+    const raw = typeof rawValue === "bigint" ? rawValue : BigInt(rawValue || 0);
+    if (raw <= 0n) return "";
+    const unixMs = Number((raw - 116444736000000000n) / 10000n);
+    if (!Number.isFinite(unixMs) || unixMs <= 0) return "";
+    const dt = new Date(unixMs);
+    return Number.isFinite(dt.getTime()) ? dt.toISOString() : "";
+  } catch {
+    return "";
+  }
+}
+
+function summarizeThumbindexEntry(entry) {
+  if (!entry || typeof entry !== "object") return null;
+  return {
+    idx: Number(entry.row ?? entry.idx ?? -1),
+    name: normalizeThumbKey(entry.name || ""),
+    fullPath: normalizeThumbKey(entry.fullPath || ""),
+    folderPath: normalizeThumbKey(entry.folderPath || ""),
+    parentIdx: Number(entry.parentIdx ?? -1),
+    typeCode: Number(entry.typeCode ?? 0),
+    flags: Number(entry.flags ?? 0),
+    fileSize: Number(entry.fileSize ?? 0),
+    fsFileTime: String(entry.fsFileTime || ""),
+    fsTimestampIso: String(entry.fsTimestampIso || ""),
+    picasaFileTime: String(entry.picasaFileTime || ""),
+    picasaTimestampIso: String(entry.picasaTimestampIso || "")
+  };
+}
+
+function parseThumbindexDbEntries(buffer) {
   const out = [];
   if (!(buffer instanceof ArrayBuffer) || buffer.byteLength < 8) return out;
   const dv = new DataView(buffer);
@@ -905,45 +942,80 @@ function parseThumbindexDb(buffer) {
   };
 
   let off = 8;
-  const entries = [];
   for (let i = 0; i < entryCount && off < bytes.length; i++) {
     const parsed = readEntryString(off);
     if (!parsed) break;
     off = parsed.next;
-    if (off + 30 > bytes.length) break; // 26 bytes padding + 4 bytes index
+    if (off + 30 > bytes.length) break;
+    const fsFileTime = readUint64LE(dv, off);
+    const picasaFileTime = readUint64LE(dv, off + 8);
+    const fileSize = dv.getUint32(off + 16, true);
+    const typeCode = dv.getUint32(off + 20, true);
+    const flags = dv.getUint16(off + 24, true);
     off += 26;
     const parentIdx = dv.getUint32(off, true);
     off += 4;
-    entries.push({ row: i, name: parsed.value, parentIdx });
+    out.push({
+      row: i,
+      name: parsed.value,
+      parentIdx,
+      fsFileTime: fsFileTime.toString(),
+      fsTimestampIso: fileTimeToIso(fsFileTime),
+      picasaFileTime: picasaFileTime.toString(),
+      picasaTimestampIso: fileTimeToIso(picasaFileTime),
+      fileSize,
+      typeCode,
+      flags
+    });
   }
 
   const pathByRow = new Map();
+  const folderByRow = new Map();
   const resolving = new Set();
   const resolvePath = (row) => {
     if (pathByRow.has(row)) return pathByRow.get(row);
     if (resolving.has(row)) return "";
-    const e = entries[row];
-    if (!e || !e.name) return "";
+    const e = out[row];
+    if (!e) return "";
     resolving.add(row);
-    let full = e.name;
+    let full = e.name || "";
     if (e.parentIdx !== 0xFFFFFFFF) {
       const parent = resolvePath(Number(e.parentIdx));
       if (parent) {
-        const leaf = e.name.split("/").pop();
-        full = `${parent}/${leaf}`.replace(/\/+/g, "/");
+        if (full) {
+          const leaf = full.split("/").pop();
+          full = `${parent}/${leaf}`.replace(/\/+/g, "/");
+        } else {
+          full = parent;
+        }
       }
     }
+    full = normalizeThumbKey(full);
     resolving.delete(row);
-    pathByRow.set(row, normalizeThumbKey(full));
-    return pathByRow.get(row);
+    pathByRow.set(row, full);
+    return full;
   };
+  for (const entry of out) {
+    const fullPath = resolvePath(entry.row);
+    const folderPath = fullPath
+      ? (entry.typeCode === 1 || entry.typeCode === 5 ? fullPath : folderOfRelPath(fullPath))
+      : (entry.parentIdx !== 0xFFFFFFFF ? normalizeThumbKey(resolvePath(entry.parentIdx)) : "");
+    entry.fullPath = fullPath;
+    entry.folderPath = folderPath;
+  }
+  return out.map((entry) => summarizeThumbindexEntry(entry));
+}
+
+function parseThumbindexDb(buffer) {
+  const out = [];
+  const entries = parseThumbindexDbEntries(buffer);
   for (const e of entries) {
-    if (!e.name || e.parentIdx === 0xFFFFFFFF) continue;
-    const full = resolvePath(e.row);
+    if (!e?.name || e.parentIdx === 0xFFFFFFFF) continue;
+    const full = normalizeThumbKey(e.fullPath || e.name);
     if (!full) continue;
-    out.push({ idx: e.row, name: full, source: "thumbindex.db" });
+    out.push({ idx: e.idx, name: full, source: "thumbindex.db" });
     const base = full.split("/").pop();
-    if (base && base !== full) out.push({ idx: e.row, name: base, source: "thumbindex.db" });
+    if (base && base !== full) out.push({ idx: e.idx, name: base, source: "thumbindex.db" });
   }
   return out;
 }
@@ -1495,6 +1567,7 @@ async function saveIndexedThumbIndexFiles(source, indexFiles = []) {
     const thumbindex = (indexFiles || []).find((it) => String(it?.fileName || "").toLowerCase() === "thumbindex.db" && it?.buffer);
     if (thumbindex) {
       const extractedMappings = parseThumbindexDb(thumbindex.buffer);
+      const extractedEntries = parseThumbindexDbEntries(thumbindex.buffer);
       store.put({
         id: `${librarySource}:idx:0`,
         libraryId,
@@ -1503,6 +1576,7 @@ async function saveIndexedThumbIndexFiles(source, indexFiles = []) {
         row: 0,
         fileName: "thumbindex.db",
         extractedMappings,
+        extractedEntries,
         importedAt: Date.now()
       });
     }
@@ -1540,6 +1614,31 @@ async function loadIndexedThumbIndexMappings(source) {
       return out;
     }
     return out;
+  } finally {
+    db.close();
+  }
+}
+
+async function loadIndexedThumbIndexEntryDetails(source, idxWanted) {
+  if (!THUMB_DB_SOURCES.includes(source) || !Number.isFinite(idxWanted) || idxWanted < 0) return null;
+  const db = await openLibraryDB();
+  const libraryId = String(state.libraryId || "default");
+  const librarySource = `${libraryId}:${source}`;
+  try {
+    const tx = db.transaction([STORES.thumbnailIndexes], "readonly");
+    const store = tx.objectStore(STORES.thumbnailIndexes);
+    const rows = await new Promise((resolve, reject) => {
+      const req = store.index("librarySource").getAll(librarySource);
+      req.onsuccess = () => resolve(req.result || []);
+      req.onerror = () => reject(req.error || new Error("Failed to read thumbnail index detail rows"));
+    });
+    rows.sort((a,b)=>(Number(a.row)||0)-(Number(b.row)||0));
+    for (const row of rows) {
+      const entries = Array.isArray(row.extractedEntries) ? row.extractedEntries : [];
+      const match = entries.find((entry) => Number(entry?.idx) === Number(idxWanted));
+      if (match) return match;
+    }
+    return null;
   } finally {
     db.close();
   }
@@ -4315,10 +4414,20 @@ async function buildImagedataDumpForImage(imageItem) {
       body: `Mapped PMP row idx ${rowIndex} (${source || "unknown source"}) is outside the available imagedata column range (${maxEntries} rows).`
     };
   }
+  const thumbindexEntry = source ? await loadIndexedThumbIndexEntryDetails(source, rowIndex) : null;
   const lines = [
     `rowIndex: ${rowIndex}`,
     `image: ${String(imageItem?.relPath || imageItem?.name || "")}`,
     `mappedFromThumbnailSource: ${source || "(unknown)"}`,
+    `thumbindexIndex: ${rowIndex}`,
+    `thumbindexFolder: ${thumbindexEntry?.folderPath || "(missing)"}`,
+    `thumbindexPath: ${thumbindexEntry?.fullPath || "(missing)"}`,
+    `thumbindexTypeCode: ${Number.isFinite(Number(thumbindexEntry?.typeCode)) ? Number(thumbindexEntry.typeCode) : "(missing)"}`,
+    `thumbindexFlags: ${Number.isFinite(Number(thumbindexEntry?.flags)) ? Number(thumbindexEntry.flags) : "(missing)"}`,
+    `thumbindexFileSize: ${Number.isFinite(Number(thumbindexEntry?.fileSize)) ? Number(thumbindexEntry.fileSize) : "(missing)"}`,
+    `thumbindexFsTimestamp: ${thumbindexEntry?.fsTimestampIso || thumbindexEntry?.fsFileTime || "(missing)"}`,
+    `thumbindexPicasaTimestamp: ${thumbindexEntry?.picasaTimestampIso || thumbindexEntry?.picasaFileTime || "(missing)"}`,
+    `thumbindexParentIndex: ${Number.isFinite(Number(thumbindexEntry?.parentIdx)) ? Number(thumbindexEntry.parentIdx) : "(missing)"}`,
     ""
   ];
   const sorted = columns.slice().sort((a, b) => String(a.column || "").localeCompare(String(b.column || ""), undefined, { sensitivity: "base" }));
