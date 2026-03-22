@@ -1198,8 +1198,21 @@ async function renderAllThumbsGallery() {
     const cap = document.createElement("div");
     cap.className = "caption mono";
     cap.textContent = `${selectedSource}[${row.idx}]`;
+    const actionRow = document.createElement("div");
+    actionRow.className = "tileMetaRow";
+    const metaBtn = document.createElement("button");
+    metaBtn.className = "miniBtn";
+    metaBtn.textContent = "Meta";
+    metaBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      const imageIdx = findImageIndexForThumb(selectedSource, Number(row.idx));
+      const imageItem = imageIdx >= 0 ? state.currentImages[imageIdx] : null;
+      void showImagedataOverlayForTarget(imageItem, selectedSource, Number(row.idx));
+    };
+    actionRow.appendChild(metaBtn);
     tile.appendChild(img);
     tile.appendChild(cap);
+    tile.appendChild(actionRow);
     tile.onclick = () => {
       const imageIdx = findImageIndexForThumb(selectedSource, Number(row.idx));
       if (imageIdx >= 0) openSlideshow(imageIdx);
@@ -4856,7 +4869,7 @@ async function renderTiles(images) {
       row.className = "tileMetaRow";
       const editBtn = document.createElement("button");
       editBtn.className = "miniBtn";
-      editBtn.textContent = "Edit tags";
+      editBtn.textContent = "Edit";
       editBtn.onclick = async (ev) => {
         ev.stopPropagation();
         try {
@@ -4866,6 +4879,14 @@ async function renderTiles(images) {
         }
       };
       row.appendChild(editBtn);
+      const metaBtn = document.createElement("button");
+      metaBtn.className = "miniBtn";
+      metaBtn.textContent = "Meta";
+      metaBtn.onclick = (ev) => {
+        ev.stopPropagation();
+        void showImagedataOverlayForTarget(it);
+      };
+      row.appendChild(metaBtn);
       const imgWrap = document.createElement("div");
       imgWrap.className = "tileImageWrap";
       imgWrap.appendChild(img);
@@ -4928,20 +4949,31 @@ function closeSlideImagedataOverlay() {
   el.slideImagedataOverlay.classList.remove("show");
   el.slideImagedataOverlay.setAttribute("aria-hidden", "true");
 }
-async function showSlideImagedataOverlay() {
-  const item = state.currentImages[state.slideshow.index];
-  if (!item) return;
-  el.slideImagedataTitle.textContent = String(item.relPath || item.name || "");
+async function showImagedataOverlayForTarget(imageItem = null, sourceOverride = "", rowIdxOverride = null) {
+  const target = imageItem || {
+    relPath: "",
+    name: "",
+    pmpRowIdx: Number.isFinite(rowIdxOverride) ? Number(rowIdxOverride) : -1,
+    pmpRowSource: sourceOverride || ""
+  };
+  if (Number.isFinite(rowIdxOverride) && Number(rowIdxOverride) >= 0) target.pmpRowIdx = Number(rowIdxOverride);
+  if (sourceOverride) target.pmpRowSource = sourceOverride;
+  el.slideImagedataTitle.textContent = String(target.relPath || target.name || ((sourceOverride && Number.isFinite(rowIdxOverride)) ? `${sourceOverride}[${rowIdxOverride}]` : ""));
   el.slideImagedataBody.textContent = "Loading imagedata PMP row…";
   el.slideImagedataOverlay.classList.add("show");
   el.slideImagedataOverlay.setAttribute("aria-hidden", "false");
   try {
-    const dump = await buildImagedataDumpForImage(item);
+    const dump = await buildImagedataDumpForImage(target);
     el.slideImagedataTitle.textContent = dump.title;
     el.slideImagedataBody.textContent = dump.body;
   } catch (e) {
     el.slideImagedataBody.textContent = `Failed to load imagedata PMP row: ${String(e?.message || e)}`;
   }
+}
+async function showSlideImagedataOverlay() {
+  const item = state.currentImages[state.slideshow.index];
+  if (!item) return;
+  await showImagedataOverlayForTarget(item);
 }
 function goToAlbumByToken(token) {
   const idx = state.albums.findIndex((a) => String(a.token || "") === String(token || ""));
