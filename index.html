@@ -221,6 +221,10 @@
           <button id="btnTintMode">Tint</button>
           <button id="btnSatMode">Saturation</button>
           <button id="btnAnselMode">Ansel</button>
+          <button id="btnRadblurMode">Radial Blur</button>
+          <button id="btnGlow2Mode">Glow2</button>
+          <button id="btnRadsatMode">Radial Sat</button>
+          <button id="btnDirTintMode">Dir Tint</button>
           <button id="btnApplySepiaFilter">Sepia</button>
           <button id="btnApplyBwFilter">B/W</button>
           <button id="btnApplyWarmFilter">Warm</button>
@@ -266,6 +270,10 @@
         </div>
         <div id="tintControls" class="hidden">
           <label>Preserve Color <span id="faceTintPreserveValue" class="mono">0.000000</span><input id="faceTintPreserveInput" type="number" step="0.000001" value="0"></label>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <label style="flex:1 1 120px;">Tint picker<input id="faceTintColorPicker" type="color" value="#ffffff"></label>
+            <label style="flex:2 1 180px;">Alpha <span id="faceTintAlphaValue" class="mono">255</span><input id="faceTintAlphaInput" type="range" min="0" max="255" step="1" value="255"></label>
+          </div>
           <label>Tint Color (ARGB hex)<input id="faceTintColorInput" type="text" value="ffffffff" maxlength="8"></label>
           <button id="btnApplyTintFilter">Apply tint filter</button>
         </div>
@@ -274,8 +282,43 @@
           <button id="btnApplySatFilter">Apply saturation filter</button>
         </div>
         <div id="anselControls" class="hidden">
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <label style="flex:1 1 120px;">Ansel picker<input id="faceAnselColorPicker" type="color" value="#ffffff"></label>
+            <label style="flex:2 1 180px;">Alpha <span id="faceAnselAlphaValue" class="mono">255</span><input id="faceAnselAlphaInput" type="range" min="0" max="255" step="1" value="255"></label>
+          </div>
           <label>Ansel Color (ARGB hex)<input id="faceAnselColorInput" type="text" value="ffffffff" maxlength="8"></label>
           <button id="btnApplyAnselFilter">Apply ansel filter</button>
+        </div>
+        <div id="radblurControls" class="hidden">
+          <label>Center X <span id="faceRadblurXValue" class="mono">0.500000</span><input id="faceRadblurXInput" type="range" min="0" max="1" step="0.001" value="0.5"></label>
+          <label>Center Y <span id="faceRadblurYValue" class="mono">0.500000</span><input id="faceRadblurYInput" type="range" min="0" max="1" step="0.001" value="0.5"></label>
+          <label>Size <span id="faceRadblurSizeValue" class="mono">0.250000</span><input id="faceRadblurSizeInput" type="range" min="0" max="1" step="0.001" value="0.25"></label>
+          <label>Amount <span id="faceRadblurAmountValue" class="mono">0.150000</span><input id="faceRadblurAmountInput" type="range" min="0" max="1" step="0.001" value="0.15"></label>
+          <button id="btnApplyRadblurFilter">Apply radial blur filter</button>
+        </div>
+        <div id="glow2Controls" class="hidden">
+          <label>Intensity <span id="faceGlow2IntensityValue" class="mono">0.650000</span><input id="faceGlow2IntensityInput" type="range" min="0" max="1" step="0.001" value="0.65"></label>
+          <label>Radius <span id="faceGlow2RadiusValue" class="mono">3.000000</span><input id="faceGlow2RadiusInput" type="range" min="0" max="20" step="0.1" value="3"></label>
+          <button id="btnApplyGlow2Filter">Apply glow2 filter</button>
+        </div>
+        <div id="radsatControls" class="hidden">
+          <label>Center X <span id="faceRadsatXValue" class="mono">0.500000</span><input id="faceRadsatXInput" type="range" min="0" max="1" step="0.001" value="0.5"></label>
+          <label>Center Y <span id="faceRadsatYValue" class="mono">0.500000</span><input id="faceRadsatYInput" type="range" min="0" max="1" step="0.001" value="0.5"></label>
+          <label>Radius <span id="faceRadsatRadiusValue" class="mono">0.333333</span><input id="faceRadsatRadiusInput" type="range" min="0" max="1" step="0.001" value="0.333333"></label>
+          <label>Sharpness <span id="faceRadsatSharpnessValue" class="mono">0.309942</span><input id="faceRadsatSharpnessInput" type="range" min="0" max="1" step="0.001" value="0.309942"></label>
+          <button id="btnApplyRadsatFilter">Apply radial saturation filter</button>
+        </div>
+        <div id="dirTintControls" class="hidden">
+          <label>Center X <span id="faceDirTintXValue" class="mono">0.306743</span><input id="faceDirTintXInput" type="range" min="0" max="1" step="0.001" value="0.306743"></label>
+          <label>Center Y <span id="faceDirTintYValue" class="mono">0.401515</span><input id="faceDirTintYInput" type="range" min="0" max="1" step="0.001" value="0.401515"></label>
+          <label>Gradient <span id="faceDirTintGradientValue" class="mono">0.250000</span><input id="faceDirTintGradientInput" type="range" min="0" max="1" step="0.001" value="0.25"></label>
+          <label>Shadow <span id="faceDirTintShadowValue" class="mono">0.250000</span><input id="faceDirTintShadowInput" type="range" min="0" max="1" step="0.001" value="0.25"></label>
+          <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+            <label style="flex:1 1 120px;">Gradient picker<input id="faceDirTintColorPicker" type="color" value="#5bfff3"></label>
+            <label style="flex:2 1 180px;">Alpha <span id="faceDirTintAlphaValue" class="mono">255</span><input id="faceDirTintAlphaInput" type="range" min="0" max="255" step="1" value="255"></label>
+          </div>
+          <label>Gradient Color (ARGB hex)<input id="faceDirTintColorInput" type="text" value="ff5bfff3" maxlength="8"></label>
+          <button id="btnApplyDirTintFilter">Apply directed tint filter</button>
         </div>
         <label class="hidden" id="faceFaceSelectWrap">Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
         <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
@@ -2440,6 +2483,213 @@ function parseAnselFilter(filterString = "") {
   return { color: normalizeFilterHexColor(m[1], "ffffffff") };
 }
 
+function parseRadblurFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^radblur=1,([^,]+),([^,]+),([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  return {
+    x: Math.max(0, Math.min(1, Number(m[1]) || 0)),
+    y: Math.max(0, Math.min(1, Number(m[2]) || 0)),
+    size: Math.max(0, Math.min(1, Number(m[3]) || 0)),
+    amount: Math.max(0, Math.min(1, Number(m[4]) || 0))
+  };
+}
+
+function parseGlow2Filter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^glow2=1,([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  return {
+    intensity: Math.max(0, Math.min(1, Number(m[1]) || 0)),
+    radius: Math.max(0, Number(m[2]) || 0)
+  };
+}
+
+function parseRadsatFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^radsat=1,([^,]+),([^,]+),([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  return {
+    x: Math.max(0, Math.min(1, Number(m[1]) || 0)),
+    y: Math.max(0, Math.min(1, Number(m[2]) || 0)),
+    radius: Math.max(0, Math.min(1, Number(m[3]) || 0)),
+    sharpness: Math.max(0, Math.min(1, Number(m[4]) || 0))
+  };
+}
+
+function parseDirTintFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^dir_tint=1,([^,]+),([^,]+),([^,]+),([^,]+),([0-9a-f#]+)$/i);
+  if (!m) return null;
+  return {
+    x: Math.max(0, Math.min(1, Number(m[1]) || 0)),
+    y: Math.max(0, Math.min(1, Number(m[2]) || 0)),
+    gradient: Math.max(0, Math.min(1, Number(m[3]) || 0)),
+    shadow: Math.max(0, Math.min(1, Number(m[4]) || 0)),
+    color: normalizeFilterHexColor(m[5], "ff5bfff3")
+  };
+}
+
+function cloneCanvas(sourceCanvas) {
+  const out = document.createElement("canvas");
+  out.width = sourceCanvas.width;
+  out.height = sourceCanvas.height;
+  out.getContext("2d").drawImage(sourceCanvas, 0, 0);
+  return out;
+}
+
+function clamp01(v) {
+  return Math.max(0, Math.min(1, v));
+}
+
+function syncArgbPickerControls(textInput, colorInput, alphaInput, alphaValueEl, fallback = "ffffffff") {
+  const argb = normalizeFilterHexColor(textInput.value, fallback);
+  textInput.value = argb;
+  colorInput.value = `#${argb.slice(2)}`;
+  alphaInput.value = String(parseInt(argb.slice(0, 2), 16) || 0);
+  if (alphaValueEl) alphaValueEl.textContent = String(parseInt(argb.slice(0, 2), 16) || 0);
+  return argb;
+}
+
+function updateArgbTextFromPicker(textInput, colorInput, alphaInput, alphaValueEl) {
+  const rgb = String(colorInput.value || "#ffffff").replace(/^#/, "").padStart(6, "0");
+  const alpha = Math.max(0, Math.min(255, Number(alphaInput.value || 255) || 0));
+  if (alphaValueEl) alphaValueEl.textContent = String(alpha);
+  const argb = `${alpha.toString(16).padStart(2, "0")}${rgb}`.toLowerCase();
+  textInput.value = argb;
+  return argb;
+}
+
+function sampleImageBilinear(data, width, height, fx, fy) {
+  const x = Math.max(0, Math.min(width - 1, fx));
+  const y = Math.max(0, Math.min(height - 1, fy));
+  const x0 = Math.floor(x), y0 = Math.floor(y);
+  const x1 = Math.min(width - 1, x0 + 1), y1 = Math.min(height - 1, y0 + 1);
+  const tx = x - x0, ty = y - y0;
+  const idx = (xx, yy) => (yy * width + xx) * 4;
+  const i00 = idx(x0, y0), i10 = idx(x1, y0), i01 = idx(x0, y1), i11 = idx(x1, y1);
+  const out = [0, 0, 0, 0];
+  for (let c = 0; c < 4; c++) {
+    const a = data[i00 + c] * (1 - tx) + data[i10 + c] * tx;
+    const b = data[i01 + c] * (1 - tx) + data[i11 + c] * tx;
+    out[c] = a * (1 - ty) + b * ty;
+  }
+  return out;
+}
+
+function applyRadialBlurOnCanvas(canvas, params = {}) {
+  const ctx = canvas.getContext("2d");
+  const src = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const dst = ctx.createImageData(canvas.width, canvas.height);
+  const cx = clamp01(Number(params.x) || 0.5) * (canvas.width - 1);
+  const cy = clamp01(Number(params.y) || 0.5) * (canvas.height - 1);
+  const radius = Math.max(1, clamp01(Number(params.size) || 0) * Math.max(canvas.width, canvas.height));
+  const amount = clamp01(Number(params.amount) || 0);
+  const samples = Math.max(2, Math.round(2 + amount * 10));
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      const dx = cx - x, dy = cy - y;
+      const dist = Math.hypot(dx, dy);
+      const mixAmt = amount * clamp01(1 - dist / radius);
+      const outIdx = (y * canvas.width + x) * 4;
+      if (mixAmt <= 0.0001) {
+        dst.data.set(src.data.slice(outIdx, outIdx + 4), outIdx);
+        continue;
+      }
+      const acc = [0, 0, 0, 0];
+      for (let i = 0; i < samples; i++) {
+        const t = i / (samples - 1);
+        const sx = x + dx * t * mixAmt;
+        const sy = y + dy * t * mixAmt;
+        const sample = sampleImageBilinear(src.data, canvas.width, canvas.height, sx, sy);
+        for (let c = 0; c < 4; c++) acc[c] += sample[c];
+      }
+      for (let c = 0; c < 4; c++) {
+        const blurred = acc[c] / samples;
+        dst.data[outIdx + c] = Math.round(src.data[outIdx + c] * (1 - mixAmt) + blurred * mixAmt);
+      }
+    }
+  }
+  ctx.putImageData(dst, 0, 0);
+  return canvas;
+}
+
+function applyGlow2OnCanvas(canvas, params = {}) {
+  const radius = Math.max(0, Number(params.radius) || 0);
+  const intensity = clamp01(Number(params.intensity) || 0);
+  if (radius <= 0 || intensity <= 0) return canvas;
+  const srcCanvas = cloneCanvas(canvas);
+  const tmp = document.createElement("canvas");
+  tmp.width = canvas.width;
+  tmp.height = canvas.height;
+  const tctx = tmp.getContext("2d");
+  tctx.filter = `blur(${radius}px)`;
+  tctx.drawImage(srcCanvas, 0, 0);
+  const ctx = canvas.getContext("2d");
+  const base = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const glow = tctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (let i = 0; i < base.data.length; i += 4) {
+    for (let c = 0; c < 3; c++) {
+      const b = base.data[i + c] / 255;
+      const g = (glow.data[i + c] / 255) * intensity;
+      const screen = 1 - (1 - b) * (1 - g);
+      base.data[i + c] = Math.round(clamp01(screen) * 255);
+    }
+  }
+  ctx.putImageData(base, 0, 0);
+  return canvas;
+}
+
+function applyRadialSaturationOnCanvas(canvas, params = {}) {
+  const ctx = canvas.getContext("2d");
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const cx = clamp01(Number(params.x) || 0.5) * (canvas.width - 1);
+  const cy = clamp01(Number(params.y) || 0.5) * (canvas.height - 1);
+  const radius = Math.max(1, clamp01(Number(params.radius) || 0) * Math.max(canvas.width, canvas.height));
+  const sharpness = clamp01(Number(params.sharpness) || 0);
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      const idx = (y * canvas.width + x) * 4;
+      const dist = Math.hypot(x - cx, y - cy);
+      const t = clamp01(1 - dist / radius);
+      const effect = Math.pow(t, 1 + sharpness * 4);
+      const r = img.data[idx] / 255, g = img.data[idx + 1] / 255, b = img.data[idx + 2] / 255;
+      const yv = 0.2126 * r + 0.7152 * g + 0.0722 * b;
+      const gain = 1 + effect * 2.5;
+      img.data[idx] = Math.round(clamp01(yv + (r - yv) * gain) * 255);
+      img.data[idx + 1] = Math.round(clamp01(yv + (g - yv) * gain) * 255);
+      img.data[idx + 2] = Math.round(clamp01(yv + (b - yv) * gain) * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+function applyDirectionalTintOnCanvas(canvas, params = {}) {
+  const ctx = canvas.getContext("2d");
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  const tint = hexColorToRgba01(params?.color || "ff5bfff3");
+  const cx = clamp01(Number(params.x) || 0.5);
+  const cy = clamp01(Number(params.y) || 0.5);
+  const gradient = clamp01(Number(params.gradient) || 0);
+  const shadow = clamp01(Number(params.shadow) || 0);
+  let vx = 0.5 - cx, vy = 0.5 - cy;
+  const vl = Math.hypot(vx, vy) || 1;
+  vx /= vl; vy /= vl;
+  for (let y = 0; y < canvas.height; y++) {
+    for (let x = 0; x < canvas.width; x++) {
+      const idx = (y * canvas.width + x) * 4;
+      const nx = x / Math.max(1, canvas.width - 1);
+      const ny = y / Math.max(1, canvas.height - 1);
+      const proj = ((nx - cx) * vx + (ny - cy) * vy) * 1.5;
+      const light = clamp01(0.5 + proj);
+      const dark = clamp01(0.5 - proj);
+      const r = img.data[idx] / 255, g = img.data[idx + 1] / 255, b = img.data[idx + 2] / 255;
+      img.data[idx] = Math.round(clamp01(r * (1 - shadow * dark) + tint.r * gradient * light * 0.35) * 255);
+      img.data[idx + 1] = Math.round(clamp01(g * (1 - shadow * dark) + tint.g * gradient * light * 0.35) * 255);
+      img.data[idx + 2] = Math.round(clamp01(b * (1 - shadow * dark) + tint.b * gradient * light * 0.35) * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
 function applyAdvancedColorFilterOnCanvas(canvas, mode = "", params = {}) {
   if (!canvas) return canvas;
   const m = String(mode || "").toLowerCase();
@@ -2838,6 +3088,26 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "ansel", m))) applyAdvancedColorFilterOnCanvas(canvas, "ansel", m);
       continue;
     }
+    m = parseGlow2Filter(f);
+    if (m) {
+      applyGlow2OnCanvas(canvas, m);
+      continue;
+    }
+    m = parseRadblurFilter(f);
+    if (m) {
+      applyRadialBlurOnCanvas(canvas, m);
+      continue;
+    }
+    m = parseRadsatFilter(f);
+    if (m) {
+      applyRadialSaturationOnCanvas(canvas, m);
+      continue;
+    }
+    m = parseDirTintFilter(f);
+    if (m) {
+      applyDirectionalTintOnCanvas(canvas, m);
+      continue;
+    }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
     if (m) {
       const rad = tiltValueToRad(Number(m[1]));
@@ -3039,6 +3309,10 @@ const el = {
   tintControls: document.getElementById("tintControls"),
   satControls: document.getElementById("satControls"),
   anselControls: document.getElementById("anselControls"),
+  radblurControls: document.getElementById("radblurControls"),
+  glow2Controls: document.getElementById("glow2Controls"),
+  radsatControls: document.getElementById("radsatControls"),
+  dirTintControls: document.getElementById("dirTintControls"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
   faceFillLightSlider: document.getElementById("faceFillLightSlider"),
@@ -3055,10 +3329,48 @@ const el = {
   facePreviewUseWebgl: document.getElementById("facePreviewUseWebgl"),
   faceTintPreserveInput: document.getElementById("faceTintPreserveInput"),
   faceTintPreserveValue: document.getElementById("faceTintPreserveValue"),
+  faceTintColorPicker: document.getElementById("faceTintColorPicker"),
+  faceTintAlphaInput: document.getElementById("faceTintAlphaInput"),
+  faceTintAlphaValue: document.getElementById("faceTintAlphaValue"),
   faceTintColorInput: document.getElementById("faceTintColorInput"),
   faceSatSlider: document.getElementById("faceSatSlider"),
   faceSatValue: document.getElementById("faceSatValue"),
+  faceAnselColorPicker: document.getElementById("faceAnselColorPicker"),
+  faceAnselAlphaInput: document.getElementById("faceAnselAlphaInput"),
+  faceAnselAlphaValue: document.getElementById("faceAnselAlphaValue"),
   faceAnselColorInput: document.getElementById("faceAnselColorInput"),
+  faceRadblurXInput: document.getElementById("faceRadblurXInput"),
+  faceRadblurXValue: document.getElementById("faceRadblurXValue"),
+  faceRadblurYInput: document.getElementById("faceRadblurYInput"),
+  faceRadblurYValue: document.getElementById("faceRadblurYValue"),
+  faceRadblurSizeInput: document.getElementById("faceRadblurSizeInput"),
+  faceRadblurSizeValue: document.getElementById("faceRadblurSizeValue"),
+  faceRadblurAmountInput: document.getElementById("faceRadblurAmountInput"),
+  faceRadblurAmountValue: document.getElementById("faceRadblurAmountValue"),
+  faceGlow2IntensityInput: document.getElementById("faceGlow2IntensityInput"),
+  faceGlow2IntensityValue: document.getElementById("faceGlow2IntensityValue"),
+  faceGlow2RadiusInput: document.getElementById("faceGlow2RadiusInput"),
+  faceGlow2RadiusValue: document.getElementById("faceGlow2RadiusValue"),
+  faceRadsatXInput: document.getElementById("faceRadsatXInput"),
+  faceRadsatXValue: document.getElementById("faceRadsatXValue"),
+  faceRadsatYInput: document.getElementById("faceRadsatYInput"),
+  faceRadsatYValue: document.getElementById("faceRadsatYValue"),
+  faceRadsatRadiusInput: document.getElementById("faceRadsatRadiusInput"),
+  faceRadsatRadiusValue: document.getElementById("faceRadsatRadiusValue"),
+  faceRadsatSharpnessInput: document.getElementById("faceRadsatSharpnessInput"),
+  faceRadsatSharpnessValue: document.getElementById("faceRadsatSharpnessValue"),
+  faceDirTintXInput: document.getElementById("faceDirTintXInput"),
+  faceDirTintXValue: document.getElementById("faceDirTintXValue"),
+  faceDirTintYInput: document.getElementById("faceDirTintYInput"),
+  faceDirTintYValue: document.getElementById("faceDirTintYValue"),
+  faceDirTintGradientInput: document.getElementById("faceDirTintGradientInput"),
+  faceDirTintGradientValue: document.getElementById("faceDirTintGradientValue"),
+  faceDirTintShadowInput: document.getElementById("faceDirTintShadowInput"),
+  faceDirTintShadowValue: document.getElementById("faceDirTintShadowValue"),
+  faceDirTintColorPicker: document.getElementById("faceDirTintColorPicker"),
+  faceDirTintAlphaInput: document.getElementById("faceDirTintAlphaInput"),
+  faceDirTintAlphaValue: document.getElementById("faceDirTintAlphaValue"),
+  faceDirTintColorInput: document.getElementById("faceDirTintColorInput"),
   faceFinetuneSwatch: document.getElementById("faceFinetuneSwatch"),
   btnFaceFinetunePickNeutral: document.getElementById("btnFaceFinetunePickNeutral"),
   btnFaceFinetuneClearNeutral: document.getElementById("btnFaceFinetuneClearNeutral"),
@@ -3110,6 +3422,10 @@ const el = {
   btnTintMode: document.getElementById("btnTintMode"),
   btnSatMode: document.getElementById("btnSatMode"),
   btnAnselMode: document.getElementById("btnAnselMode"),
+  btnRadblurMode: document.getElementById("btnRadblurMode"),
+  btnGlow2Mode: document.getElementById("btnGlow2Mode"),
+  btnRadsatMode: document.getElementById("btnRadsatMode"),
+  btnDirTintMode: document.getElementById("btnDirTintMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
   btnApplyWarmFilter: document.getElementById("btnApplyWarmFilter"),
@@ -3125,6 +3441,10 @@ const el = {
   btnApplyTintFilter: document.getElementById("btnApplyTintFilter"),
   btnApplySatFilter: document.getElementById("btnApplySatFilter"),
   btnApplyAnselFilter: document.getElementById("btnApplyAnselFilter"),
+  btnApplyRadblurFilter: document.getElementById("btnApplyRadblurFilter"),
+  btnApplyGlow2Filter: document.getElementById("btnApplyGlow2Filter"),
+  btnApplyRadsatFilter: document.getElementById("btnApplyRadsatFilter"),
+  btnApplyDirTintFilter: document.getElementById("btnApplyDirTintFilter"),
   btnUndoFilter: document.getElementById("btnUndoFilter"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
@@ -3287,6 +3607,34 @@ function lastAnselFromFilters(filters) {
     if (p) return p;
   }
   return { color: "ffffffff" };
+}
+function lastRadblurFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseRadblurFilter(filters[i]);
+    if (p) return p;
+  }
+  return { x: 0.5, y: 0.5, size: 0.25, amount: 0.15 };
+}
+function lastGlow2FromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseGlow2Filter(filters[i]);
+    if (p) return p;
+  }
+  return { intensity: 0.65, radius: 3 };
+}
+function lastRadsatFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseRadsatFilter(filters[i]);
+    if (p) return p;
+  }
+  return { x: 0.5, y: 0.5, radius: 0.333333, sharpness: 0.309942 };
+}
+function lastDirTintFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseDirTintFilter(filters[i]);
+    if (p) return p;
+  }
+  return { x: 0.306743, y: 0.401515, gradient: 0.25, shadow: 0.25, color: "ff5bfff3" };
 }
 function cssColorToU32(color, fallback = 4294967295) {
   const s = String(color || "").trim();
@@ -3978,6 +4326,10 @@ function openFaceEditor(imageItem) {
   el.tintControls.classList.add("hidden");
   el.satControls.classList.add("hidden");
   el.anselControls.classList.add("hidden");
+  el.radblurControls.classList.add("hidden");
+  el.glow2Controls.classList.add("hidden");
+  el.radsatControls.classList.add("hidden");
+  el.dirTintControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
@@ -3985,6 +4337,10 @@ function openFaceEditor(imageItem) {
   el.btnTintMode.textContent = "Tint";
   el.btnSatMode.textContent = "Saturation";
   el.btnAnselMode.textContent = "Ansel";
+  el.btnRadblurMode.textContent = "Radial Blur";
+  el.btnGlow2Mode.textContent = "Glow2";
+  el.btnRadsatMode.textContent = "Radial Sat";
+  el.btnDirTintMode.textContent = "Dir Tint";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
   el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
@@ -4023,11 +4379,47 @@ function openFaceEditor(imageItem) {
   el.faceTintPreserveInput.value = Number(tint.preserveColor || 0).toFixed(6);
   el.faceTintPreserveValue.textContent = Number(tint.preserveColor || 0).toFixed(6);
   el.faceTintColorInput.value = tint.color || "ffffffff";
+  syncArgbPickerControls(el.faceTintColorInput, el.faceTintColorPicker, el.faceTintAlphaInput, el.faceTintAlphaValue, "ffffffff");
   const sat = lastSatFromFilters(faceEditor.filters);
   el.faceSatSlider.value = Number(sat.saturation || 0).toFixed(3);
   el.faceSatValue.textContent = Number(sat.saturation || 0).toFixed(6);
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
+  syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
+  const radblur = lastRadblurFromFilters(faceEditor.filters);
+  el.faceRadblurXInput.value = Number(radblur.x || 0.5).toFixed(3);
+  el.faceRadblurYInput.value = Number(radblur.y || 0.5).toFixed(3);
+  el.faceRadblurSizeInput.value = Number(radblur.size || 0.25).toFixed(3);
+  el.faceRadblurAmountInput.value = Number(radblur.amount || 0.15).toFixed(3);
+  el.faceRadblurXValue.textContent = Number(radblur.x || 0.5).toFixed(6);
+  el.faceRadblurYValue.textContent = Number(radblur.y || 0.5).toFixed(6);
+  el.faceRadblurSizeValue.textContent = Number(radblur.size || 0.25).toFixed(6);
+  el.faceRadblurAmountValue.textContent = Number(radblur.amount || 0.15).toFixed(6);
+  const glow2 = lastGlow2FromFilters(faceEditor.filters);
+  el.faceGlow2IntensityInput.value = Number(glow2.intensity || 0.65).toFixed(3);
+  el.faceGlow2RadiusInput.value = Number(glow2.radius || 3).toFixed(1);
+  el.faceGlow2IntensityValue.textContent = Number(glow2.intensity || 0.65).toFixed(6);
+  el.faceGlow2RadiusValue.textContent = Number(glow2.radius || 3).toFixed(6);
+  const radsat = lastRadsatFromFilters(faceEditor.filters);
+  el.faceRadsatXInput.value = Number(radsat.x || 0.5).toFixed(3);
+  el.faceRadsatYInput.value = Number(radsat.y || 0.5).toFixed(3);
+  el.faceRadsatRadiusInput.value = Number(radsat.radius || 0.333333).toFixed(3);
+  el.faceRadsatSharpnessInput.value = Number(radsat.sharpness || 0.309942).toFixed(3);
+  el.faceRadsatXValue.textContent = Number(radsat.x || 0.5).toFixed(6);
+  el.faceRadsatYValue.textContent = Number(radsat.y || 0.5).toFixed(6);
+  el.faceRadsatRadiusValue.textContent = Number(radsat.radius || 0.333333).toFixed(6);
+  el.faceRadsatSharpnessValue.textContent = Number(radsat.sharpness || 0.309942).toFixed(6);
+  const dirTint = lastDirTintFromFilters(faceEditor.filters);
+  el.faceDirTintXInput.value = Number(dirTint.x || 0.306743).toFixed(3);
+  el.faceDirTintYInput.value = Number(dirTint.y || 0.401515).toFixed(3);
+  el.faceDirTintGradientInput.value = Number(dirTint.gradient || 0.25).toFixed(3);
+  el.faceDirTintShadowInput.value = Number(dirTint.shadow || 0.25).toFixed(3);
+  el.faceDirTintXValue.textContent = Number(dirTint.x || 0.306743).toFixed(6);
+  el.faceDirTintYValue.textContent = Number(dirTint.y || 0.401515).toFixed(6);
+  el.faceDirTintGradientValue.textContent = Number(dirTint.gradient || 0.25).toFixed(6);
+  el.faceDirTintShadowValue.textContent = Number(dirTint.shadow || 0.25).toFixed(6);
+  el.faceDirTintColorInput.value = dirTint.color || "ff5bfff3";
+  syncArgbPickerControls(el.faceDirTintColorInput, el.faceDirTintColorPicker, el.faceDirTintAlphaInput, el.faceDirTintAlphaValue, "ff5bfff3");
   el.faceCanvasImg.style.transform = "";
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
@@ -4081,12 +4473,20 @@ function closeFaceEditor() {
   el.tintControls.classList.add("hidden");
   el.satControls.classList.add("hidden");
   el.anselControls.classList.add("hidden");
+  el.radblurControls.classList.add("hidden");
+  el.glow2Controls.classList.add("hidden");
+  el.radsatControls.classList.add("hidden");
+  el.dirTintControls.classList.add("hidden");
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
   el.btnFinetune2Mode.textContent = "Fine Tune 2";
   el.btnTintMode.textContent = "Tint";
   el.btnSatMode.textContent = "Saturation";
   el.btnAnselMode.textContent = "Ansel";
+  el.btnRadblurMode.textContent = "Radial Blur";
+  el.btnGlow2Mode.textContent = "Glow2";
+  el.btnRadsatMode.textContent = "Radial Sat";
+  el.btnDirTintMode.textContent = "Dir Tint";
   faceEditor.textDragging = false;
   faceEditor.textDragMode = "move";
   faceEditor.activeTextIdx = -1;
@@ -5493,9 +5893,20 @@ el.faceFillLightSlider.oninput = () => {
   refreshEditorPreview(draftFilters);
 };
 el.faceTintPreserveInput.oninput = () => { refreshTintDraft(); };
+el.faceTintColorPicker.oninput = () => { updateArgbTextFromPicker(el.faceTintColorInput, el.faceTintColorPicker, el.faceTintAlphaInput, el.faceTintAlphaValue); refreshTintDraft(); };
+el.faceTintAlphaInput.oninput = () => { updateArgbTextFromPicker(el.faceTintColorInput, el.faceTintColorPicker, el.faceTintAlphaInput, el.faceTintAlphaValue); refreshTintDraft(); };
 el.faceTintColorInput.onchange = () => { refreshTintDraft(); };
 el.faceSatSlider.oninput = () => { refreshSatDraft(); };
+el.faceAnselColorPicker.oninput = () => { updateArgbTextFromPicker(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue); refreshAnselDraft(); };
+el.faceAnselAlphaInput.oninput = () => { updateArgbTextFromPicker(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue); refreshAnselDraft(); };
 el.faceAnselColorInput.onchange = () => { refreshAnselDraft(); };
+["faceRadblurXInput","faceRadblurYInput","faceRadblurSizeInput","faceRadblurAmountInput"].forEach((id) => { el[id].oninput = () => { refreshRadblurDraft(); }; });
+["faceGlow2IntensityInput","faceGlow2RadiusInput"].forEach((id) => { el[id].oninput = () => { refreshGlow2Draft(); }; });
+["faceRadsatXInput","faceRadsatYInput","faceRadsatRadiusInput","faceRadsatSharpnessInput"].forEach((id) => { el[id].oninput = () => { refreshRadsatDraft(); }; });
+["faceDirTintXInput","faceDirTintYInput","faceDirTintGradientInput","faceDirTintShadowInput"].forEach((id) => { el[id].oninput = () => { refreshDirTintDraft(); }; });
+el.faceDirTintColorPicker.oninput = () => { updateArgbTextFromPicker(el.faceDirTintColorInput, el.faceDirTintColorPicker, el.faceDirTintAlphaInput, el.faceDirTintAlphaValue); refreshDirTintDraft(); };
+el.faceDirTintAlphaInput.oninput = () => { updateArgbTextFromPicker(el.faceDirTintColorInput, el.faceDirTintColorPicker, el.faceDirTintAlphaInput, el.faceDirTintAlphaValue); refreshDirTintDraft(); };
+el.faceDirTintColorInput.onchange = () => { refreshDirTintDraft(); };
 el.btnApplyFillLightFilter.onclick = () => {
   const fl = Math.max(0, Math.min(1, Number(el.faceFillLightSlider.value || "0")));
   faceEditor.filters.push(`filllight=1,${fl.toFixed(6)}`);
@@ -5518,6 +5929,7 @@ const refreshTintDraft = () => {
   const color = normalizeFilterHexColor(el.faceTintColorInput.value, "ffffffff");
   el.faceTintPreserveValue.textContent = preserve.toFixed(6);
   el.faceTintColorInput.value = color;
+  syncArgbPickerControls(el.faceTintColorInput, el.faceTintColorPicker, el.faceTintAlphaInput, el.faceTintAlphaValue, "ffffffff");
   const draft = `tint=1,${preserve.toFixed(6)},${color}`;
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
@@ -5532,7 +5944,59 @@ const refreshSatDraft = () => {
 const refreshAnselDraft = () => {
   const color = normalizeFilterHexColor(el.faceAnselColorInput.value, "ffffffff");
   el.faceAnselColorInput.value = color;
+  syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
   const draft = `ansel=1,${color}`;
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+};
+const refreshRadblurDraft = () => {
+  const x = clamp01(Number(el.faceRadblurXInput.value || 0.5));
+  const y = clamp01(Number(el.faceRadblurYInput.value || 0.5));
+  const size = clamp01(Number(el.faceRadblurSizeInput.value || 0.25));
+  const amount = clamp01(Number(el.faceRadblurAmountInput.value || 0.15));
+  el.faceRadblurXValue.textContent = x.toFixed(6);
+  el.faceRadblurYValue.textContent = y.toFixed(6);
+  el.faceRadblurSizeValue.textContent = size.toFixed(6);
+  el.faceRadblurAmountValue.textContent = amount.toFixed(6);
+  const draft = `radblur=1,${x.toFixed(6)},${y.toFixed(6)},${size.toFixed(6)},${amount.toFixed(6)}`;
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+};
+const refreshGlow2Draft = () => {
+  const intensity = clamp01(Number(el.faceGlow2IntensityInput.value || 0.65));
+  const radius = Math.max(0, Number(el.faceGlow2RadiusInput.value || 3));
+  el.faceGlow2IntensityValue.textContent = intensity.toFixed(6);
+  el.faceGlow2RadiusValue.textContent = radius.toFixed(6);
+  const draft = `glow2=1,${intensity.toFixed(6)},${radius.toFixed(6)}`;
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+};
+const refreshRadsatDraft = () => {
+  const x = clamp01(Number(el.faceRadsatXInput.value || 0.5));
+  const y = clamp01(Number(el.faceRadsatYInput.value || 0.5));
+  const radius = clamp01(Number(el.faceRadsatRadiusInput.value || 0.333333));
+  const sharpness = clamp01(Number(el.faceRadsatSharpnessInput.value || 0.309942));
+  el.faceRadsatXValue.textContent = x.toFixed(6);
+  el.faceRadsatYValue.textContent = y.toFixed(6);
+  el.faceRadsatRadiusValue.textContent = radius.toFixed(6);
+  el.faceRadsatSharpnessValue.textContent = sharpness.toFixed(6);
+  const draft = `radsat=1,${x.toFixed(6)},${y.toFixed(6)},${radius.toFixed(6)},${sharpness.toFixed(6)}`;
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+};
+const refreshDirTintDraft = () => {
+  const x = clamp01(Number(el.faceDirTintXInput.value || 0.306743));
+  const y = clamp01(Number(el.faceDirTintYInput.value || 0.401515));
+  const gradient = clamp01(Number(el.faceDirTintGradientInput.value || 0.25));
+  const shadow = clamp01(Number(el.faceDirTintShadowInput.value || 0.25));
+  const color = normalizeFilterHexColor(el.faceDirTintColorInput.value, "ff5bfff3");
+  el.faceDirTintXValue.textContent = x.toFixed(6);
+  el.faceDirTintYValue.textContent = y.toFixed(6);
+  el.faceDirTintGradientValue.textContent = gradient.toFixed(6);
+  el.faceDirTintShadowValue.textContent = shadow.toFixed(6);
+  el.faceDirTintColorInput.value = color;
+  syncArgbPickerControls(el.faceDirTintColorInput, el.faceDirTintColorPicker, el.faceDirTintAlphaInput, el.faceDirTintAlphaValue, "ff5bfff3");
+  const draft = `dir_tint=1,${x.toFixed(6)},${y.toFixed(6)},${gradient.toFixed(6)},${shadow.toFixed(6)},${color}`;
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 };
@@ -5555,6 +6019,26 @@ el.btnApplyAnselFilter.onclick = () => {
   applyNoParamFilter(refreshAnselDraft());
   el.anselControls.classList.add("hidden");
   el.btnAnselMode.textContent = "Ansel";
+};
+el.btnApplyRadblurFilter.onclick = () => {
+  applyNoParamFilter(refreshRadblurDraft());
+  el.radblurControls.classList.add("hidden");
+  el.btnRadblurMode.textContent = "Radial Blur";
+};
+el.btnApplyGlow2Filter.onclick = () => {
+  applyNoParamFilter(refreshGlow2Draft());
+  el.glow2Controls.classList.add("hidden");
+  el.btnGlow2Mode.textContent = "Glow2";
+};
+el.btnApplyRadsatFilter.onclick = () => {
+  applyNoParamFilter(refreshRadsatDraft());
+  el.radsatControls.classList.add("hidden");
+  el.btnRadsatMode.textContent = "Radial Sat";
+};
+el.btnApplyDirTintFilter.onclick = () => {
+  applyNoParamFilter(refreshDirTintDraft());
+  el.dirTintControls.classList.add("hidden");
+  el.btnDirTintMode.textContent = "Dir Tint";
 };
 
 const refreshFinetune2Draft = () => {
