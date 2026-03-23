@@ -970,13 +970,13 @@ function interpretFacerectdata(value, filetype, facequality) {
   const txt = String(value ?? "").trim();
   if (!txt) return "(empty)";
   if (txt === "1") {
-    return Number(filetype) === 2 ? "marker that face-related side-data exists on the main image row" : "generic face-data presence marker";
+    return "marker that face-related side-data exists on the main media row";
   }
   const match = txt.match(/^conf\(([-+0-9.]+)\),pan\(([-+0-9.]+)\),leye\(([-+0-9.]+),([-+0-9.]+)\),reye\(([-+0-9.]+),([-+0-9.]+)\),mouth\(([-+0-9.]+),([-+0-9.]+)\)$/i);
   if (match) {
     const [, conf, pan, lx, ly, rx, ry, mx, my] = match;
     const q = Number(facequality);
-    return `detailed per-face analysis payload (confidence=${conf}, pan=${pan}, leftEye=(${lx}, ${ly}), rightEye=(${rx}, ${ry}), mouth=(${mx}, ${my})${Number.isFinite(q) ? `, facequality=${q}` : ""})`;
+    return `detailed per-face analysis payload on a face row (confidence=${conf}, pan=${pan}, leftEye=(${lx}, ${ly}), rightEye=(${rx}, ${ry}), mouth=(${mx}, ${my})${Number.isFinite(q) ? `, facequality=${q}` : ""})`;
   }
   return "unclassified facerectdata payload";
 }
@@ -986,18 +986,54 @@ function interpretThumbindexTypeCode(typeCode) {
   if (!Number.isFinite(n)) return "(unknown object class)";
   if (n === 5) return "root node";
   if (n === 1) return "directory node";
-  if (n === 2) return "image/file node";
+  if (n === 2) return "JPG/JPEG media row";
+  if (n === 4) return "mixed special media bucket";
+  if (n === 6) return "BMP media row";
+  if (n === 8) return "AVI media row";
+  if (n === 10) return "MPG media row";
+  if (n === 13) return "TIF media row";
+  if (n === 19) return "PAL media row";
+  if (n === 31) return "special JPG media bucket";
   if (n === 1001) return "face node";
-  return "other Picasa object node";
+  return "other observed media/object row";
 }
 
 function interpretThumbindexParentLink(typeCode, parentIdx) {
   const idx = Number(parentIdx);
   const n = Number(typeCode);
   if (!Number.isFinite(idx) || idx < 0) return "(no parent link)";
-  if (n === 1001) return "graph edge to the parent image row";
+  if (n === 1001) return "graph edge to the parent media row";
   if (n === 1 || n === 5) return "directory/root graph edge";
   return "structural graph edge to containing folder or parent object";
+}
+
+function describeTypeFieldAgreement(typeCode, filetype) {
+  const t = Number(typeCode);
+  const f = Number(filetype);
+  if (!Number.isFinite(t) && !Number.isFinite(f)) return "(type values missing)";
+  if (Number.isFinite(t) && Number.isFinite(f)) {
+    return t === f
+      ? `thumbindexTypeCode and PMP filetype match (${t})`
+      : `thumbindexTypeCode (${t}) and PMP filetype (${f}) differ`;
+  }
+  return "only one of thumbindexTypeCode / PMP filetype is populated";
+}
+
+function describeFaceNodeRow(entry, filetype) {
+  const typeCode = Number(entry?.typeCode);
+  if (typeCode !== 1001 || Number(filetype) !== 1001) return "(not a face row pattern)";
+  const flags = Number(entry?.flags);
+  const fileSize = Number(entry?.fileSize);
+  const fsTime = String(entry?.fsFileTime || "");
+  const picasaTime = String(entry?.picasaFileTime || "");
+  const name = String(entry?.name || "");
+  const facts = [];
+  if (!name) facts.push("empty name");
+  if (fileSize === 1) facts.push("file size 1");
+  if (flags === 0x0100) facts.push("flags 0x0100");
+  if (fsTime === "0") facts.push("fs FILETIME 0");
+  if (picasaTime === "0") facts.push("Picasa FILETIME 0");
+  return facts.length ? `synthetic face-row constants observed: ${facts.join(", ")}` : "synthetic face row";
 }
 
 function summarizeThumbindexEntry(entry) {
@@ -4613,6 +4649,8 @@ async function buildImagedataDumpForImage(imageItem) {
     `thumbindexParentIndex: ${formatNumberWithHex(thumbindexEntry?.parentIdx, 8)}`,
     `thumbindexParentMeaning: ${interpretThumbindexParentLink(thumbindexEntry?.typeCode, thumbindexEntry?.parentIdx)}`,
     `rowJoinMeaning: rowIndex is the primary key that joins thumbindex and imagedata`,
+    `typeFieldAgreement: ${describeTypeFieldAgreement(thumbindexEntry?.typeCode, filetypeValue)}`,
+    `faceNodePattern: ${describeFaceNodeRow(thumbindexEntry, filetypeValue)}`,
     `crop64Decoded: ${formatRect64Decoded(crop64Value)}`,
     `facerectDecoded: ${formatRect64Decoded(facerectValue)}`,
     `facerectdataDecoded: ${interpretFacerectdata(facerectdataValue, filetypeValue, facequalityValue)}`,

@@ -35,7 +35,7 @@ Current confirmed model:
 * `thumbindex.db` is the structural index / graph layer
 * PMP `imagedata_*` columns are the semantic metadata layer attached to those same row indices
 * `parentIdx` is a general graph edge, not only a folder hierarchy pointer
-* `typeCode = 1001` rows are face nodes attached to image rows
+* `typeCode = 1001` rows are face nodes attached to media rows (JPEG, PNG, BMP, AVI, etc.)
 
 ---
 
@@ -91,7 +91,7 @@ Interpretation:
 * face geometry is stored as a `rect64`
 * second value appears to be a face/contact identifier
 * PMP stores face geometry / analysis data in `imagedata` columns rather than in the thumbindex 26-byte block
-* face/contact linkage appears to involve separate face-node rows (`thumbindexTypeCode = 1001`) rather than only the main image row
+* face/contact linkage appears to involve separate face-node rows (`thumbindexTypeCode = 1001`) rather than only the main media row
 
 ### 2.4 Text overlays
 
@@ -165,7 +165,7 @@ Known or strongly supported by samples:
 | `redo` | `redo=` | direct string mirror |
 | `crop64` | `crop=rect64(...)` / `filters=crop64=1,...;` | same geometry, different representation |
 | `facerect` | `faces=rect64(...),<faceId>` | geometry is stored as rect64-like packed data; observed on both main image rows and face-related virtual rows |
-| `facerectdata` | no direct `.picasa` equivalent yet | `"1"` appears to be a presence marker on main image rows; detailed face-analysis payloads appear on `filetype = 1001` virtual rows |
+| `facerectdata` | no direct `.picasa` equivalent yet | on main media rows it is usually just a marker that face side-data exists; on `filetype = 1001` rows it carries the detailed face-analysis payload |
 
 ### 3.4 Open PMP questions
 
@@ -277,9 +277,11 @@ Confirmed semantic split:
 
 * thumbindex 26-byte block = structural/object metadata only
 * PMP `imagedata_*` = semantic metadata (faces, edits, tags, geodata, captions, etc.)
-* `facerectdata = "1"` on `filetype = 2` rows means the main image row knows that face-related side-data exists
-* `facerectdata = "conf(...),pan(...),leye(...),reye(...),mouth(...)"` on `filetype = 1001` rows is a detailed per-face analysis payload
+* `facerectdata` behaves differently on main media rows and face rows
+* on main media rows it is usually just a marker that face side-data exists
+* on `filetype = 1001` rows it is a detailed per-face analysis payload
 * `facequality`, `personalbumid`, `facerect`, and `facerectdata` together identify the face-node semantics
+* in this sample, every media row that has child `1001` face rows also has non-empty face-related marker data on the parent row
 
 ### 6.2 Entry layout (confirmed)
 
@@ -301,45 +303,57 @@ Important parser note:
 
 Current decoded structure:
 
-* bytes `0..7`   → 64-bit Windows `FILETIME` (filesystem timestamp; likely modified time)
-* bytes `8..15`  → 64-bit Windows `FILETIME` (very likely last Picasa activity time: indexing, face detection, edits, tagging)
+* bytes `0..7`   → 64-bit Windows `FILETIME` (appears to track date-taken / image-metadata time)
+* bytes `8..15`  → 64-bit Windows `FILETIME` (appears to track the file's last-modified data)
 * bytes `16..19` → 32-bit file size in bytes
-* bytes `20..23` → 32-bit Picasa object-class code
-* bytes `24..25` → 16-bit flags/status tied to object role/state
+* bytes `20..23` → 32-bit row/media class code
+* bytes `24..25` → 16-bit flags field
+
+Cleaned CSV observations for the flags field:
+
+* `0x0100` is used for most file and face rows
+* `0x0102` occurs almost exclusively on directories
+* `0x0101` appears rarely on a small subset of AVI rows
 
 Important conclusion:
 
-* the 26-byte block does **not** contain face geometry or other rich content metadata
-* geometry, identity, edits, tags, captions, and geodata live in PMP columns
+* the 26-byte block appears to contain compact per-node record metadata (timestamps, file size, type, flags)
+* richer semantics such as face analysis, edits, tags, captions, and geodata live in PMP columns
 
 ### 6.4 Observed type codes
 
-Observed values:
+In the cleaned joined CSV, `thumbindexTypeCode` and PMP `filetype` match exactly for all populated rows.
+
+Observed values in this sample:
 
 * `1` → directory
-* `5` → root
-* `2` → normal image/file node
+* `2` → JPG/JPEG
+* `4` → small mixed special bucket (`.avi`, `.mod`, some `.jpg`)
+* `5` → root (`c:/`)
+* `6` → BMP
+* `8` → AVI
+* `10` → MPG
+* `13` → TIF
+* `19` → PAL
+* `31` → JPG special bucket
 * `1001` → face node
 
-Interpretation:
-
-* `thumbindexTypeCode` describes the Picasa object class
-* `filetype` in PMP describes the actual media/content type
-* so type codes are about how Picasa treats the row in its graph, not about the on-disk file format
+So in this sample, type codes behave primarily like row/media class labels, with `1001` reserved for synthetic per-face rows.
 
 ### 6.5 Virtual entries
 
 Important finding:
 
-* virtual entries often have **no filename**
-* `parentIdx` links them back to their parent image row
-* multiple virtual entries can exist per real image
+* `typeCode = 1001` rows have an empty name
+* `parentIdx` links them back to their parent media row
+* multiple face rows can exist per real media row
 * rows with `typeCode = 1001` consistently carry face metadata such as `facerect`, `facequality`, `personalbumid`, and `facerectdata`
 
 Confirmed interpretation:
 
 * each `typeCode = 1001` row is one detected face record
-* the parent image row carries image-level state; the child face rows carry per-face state
+* the parent media row carries image-level state; the child face rows carry per-face state
+* all `typeCode = 1001` rows in this sample have empty names, file size `1`, flags `0x0100`, both thumbindex FILETIME values equal to zero, and their rich face semantics come from PMP columns
 * face geometry is stored in PMP columns (`facerect` / `facerectdata`), not inside the thumbindex 26-byte block
 
 Detailed sample:
@@ -434,7 +448,7 @@ If continuing reverse engineering, prioritize in this order:
 1. `facerect`
 2. `facerectdata`
 3. `personalbumid` / contact linkage for `typeCode = 1001` rows
-4. flags decoding by object role (`directory`, `file`, `face`)
+4. flags decoding beyond the currently dominant `0x0100`, `0x0102`, and rare `0x0101`
 5. remaining PMP-only scalar/structured fields
 
 This should clarify where Picasa stores per-face metadata beyond the visible face rectangle.
