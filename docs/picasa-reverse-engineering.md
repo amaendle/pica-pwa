@@ -2,7 +2,7 @@
 
 This document summarizes what has been reverse engineered so far in this prototype about:
 
-* `.picasa.ini` / `.picasa.info`
+* `.picasa.ini` (in this app `.picasa.info`)
 * PMP column files (`albumdata_*`, `catdata_*`, `imagedata_*`)
 * thumbnail databases (`bigthumbs`, `thumbs2`, `thumbs`, `previews`)
 * `thumbindex.db`
@@ -16,7 +16,7 @@ It is intended to be a working engineering note, not a final specification.
 
 Three representations carry overlapping Picasa metadata:
 
-1. **`.picasa.ini` / `.picasa.info`**
+1. **`.picasa.ini` (in this app `.picasa.info`)**
    * human-readable INI-like metadata stored beside images/folders
    * used for crop, faces, text overlays, filters, albums, star, keywords, etc.
 
@@ -39,7 +39,7 @@ Current confirmed model:
 
 ---
 
-## 2. `.picasa.ini` / `.picasa.info`
+## 2. `.picasa.ini` (in this app `.picasa.info`)
 
 ### 2.1 File format
 
@@ -90,8 +90,8 @@ Interpretation:
 
 * face geometry is stored as a `rect64`
 * second value appears to be a face/contact identifier
-* PMP stores face geometry / analysis data in `imagedata` columns rather than in the thumbindex 26-byte block
-* face/contact linkage appears to involve separate face-node rows (`thumbindexTypeCode = 1001`) rather than only the main media row
+* PMP stores face geometry / analysis data in `imagedata` columns
+* face/contact linkage involves separate face-node rows (`thumbindexTypeCode = 1001`) linked through `parentIdx` to the main media row
 
 ### 2.4 Text overlays
 
@@ -184,103 +184,105 @@ Fields still needing more confirmation:
 ## 3.5 Filter spec table
 
 The table below consolidates observed parameter positions and value envelopes for filter tokens seen in legacy Picasa metadata samples.
+For readability, the `Filter` cell is only shown on the first parameter row of each filter.
 
 | Filter | Position Parameter | Meaning | Min observed | Default observed | Max observed | Range |
 | --- | --- | --- | --- | --- | --- | --- |
 | Boost | 1 | intensity | 0 | 50 | 100 | 0–100 |
 | Soften | 1 | softness | 0 | 50 | 100 | 0–100 |
-| Soften | 2 | fade | 0 | 50 | 100 | 0–100 |
+|  | 2 | fade | 0 | 50 | 100 | 0–100 |
 | Vignette | 1 | strength | 0 | 35 | 50 | 0–100 |
-| Vignette | 2 | radius | 1.0 | 1.4 | 2.0 | ~1–5 |
-| Vignette | 3 | fade | 0 | 0 | 100 | 0–100 |
-| Vignette | 4 | color | — | — | — | ARGB |
+|  | 2 | radius | 1.0 | 1.4 | 2.0 | ~1–5 |
+|  | 3 | fade | 0 | 0 | 100 | 0–100 |
+|  | 4 | color | — | — | — | ARGB |
 | Pixelate | 1 | pixel size | 2 | 20 | 150 | 2–150+ |
-| Pixelate | 2 | block size | 0 | 9 | 9 | 0–~10 |
-| Pixelate | 3 | blend/fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | block size | 0 | 9 | 9 | 0–~10 |
+|  | 3 | blend/fade | 0 | 0 | 100 | 0–100 |
 | FocalZoom | 1 | center X | 0 | 0.5 | ~1.004 | ~0–1 |
-| FocalZoom | 2 | center Y | 0 | 0.5 | ~1.004 | ~0–1 |
-| FocalZoom | 3 | zoom | 1 | 50 | 100 | 0–100 |
-| FocalZoom | 4 | focal size | 0 | 50 | 100 | 0–100 |
-| FocalZoom | 5 | edge hardness | 0 | 50 | 100 | 0–100 |
-| FocalZoom | 6 | fade | 0 | 0 | 0 | 0–100* |
+|  | 2 | center Y | 0 | 0.5 | ~1.004 | ~0–1 |
+|  | 3 | zoom | 1 | 50 | 100 | 0–100 |
+|  | 4 | focal size | 0 | 50 | 100 | 0–100 |
+|  | 5 | edge hardness | 0 | 50 | 100 | 0–100 |
+|  | 6 | fade | 0 | 0 | 0 | 0–100* |
 | PencilSketch | 1 | radius | 1.3 | 2 | 5 | ~1–10 |
-| PencilSketch | 2 | strength | 0 | 100 | 200 | 0–200+ |
-| PencilSketch | 3 | fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | strength | 0 | 100 | 200 | 0–200+ |
+|  | 3 | fade | 0 | 0 | 100 | 0–100 |
 | Neon | 1 | fade/intensity | 0 | 0 | 100 | 0–100 |
-| Neon | 2 | color | — | — | — | ARGB |
+|  | 2 | color | — | — | — | ARGB |
 | Comicize | 1 | color brush | 0 | 20 | 100 | 0–100 |
-| Comicize | 2 | dot density | 0 | 50 | 100 | 0–100 |
-| Comicize | 3 | dot fade | 0 | 50 | 100 | 0–100 |
+|  | 2 | dot density | 0 | 50 | 100 | 0–100 |
+|  | 3 | dot fade | 0 | 50 | 100 | 0–100 |
 | Border | 1 | outer thickness | 0 | 20 | 100 | 0–100 |
-| Border | 2 | inner thickness | 0 | 5 | 100 | 0–100 |
-| Border | 3 | corner radius | 0 | 0 | 100 | 0–100 |
-| Border | 4 | outer color | — | — | — | ARGB |
-| Border | 5 | inner color | — | — | — | ARGB |
-| Border | 6 | caption height/fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | inner thickness | 0 | 5 | 100 | 0–100 |
+|  | 3 | corner radius | 0 | 0 | 100 | 0–100 |
+|  | 4 | outer color | — | — | — | ARGB |
+|  | 5 | inner color | — | — | — | ARGB |
+|  | 6 | caption height/fade | 0 | 0 | 100 | 0–100 |
 | DropShadow | 1 | distance | 0 | 4 | 30 | 0–100 |
-| DropShadow | 2 | angle | 0 | 90 | 360 | 0–360 |
-| DropShadow | 3 | size | 0 | 10 | 100 | 0–100 |
-| DropShadow | 6 | fade | 0 | 30 | 100 | 0–100 |
+|  | 2 | angle | 0 | 90 | 360 | 0–360 |
+|  | 3 | size | 0 | 10 | 100 | 0–100 |
+|  | 6 | fade | 0 | 30 | 100 | 0–100 |
 | MuseumMatte | 1 | outer thickness | 0 | 25 | 100 | 0–100 |
-| MuseumMatte | 2 | inner thickness | 0 | 40 | 100 | 0–100 |
+|  | 2 | inner thickness | 0 | 40 | 100 | 0–100 |
 | Polaroid | 1 | rotation | -10 | 5 | 10 | ~-10–10 |
-| Polaroid | 2 | color | — | — | — | ARGB |
+|  | 2 | color | — | — | — | ARGB |
 | IR | 1 | fade | 0 | 0 | 100 | 0–100 |
 | Lomo | 1 | edge blur | 0 | 50 | 100 | 0–100 |
-| Lomo | 2 | fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | fade | 0 | 0 | 100 | 0–100 |
 | Holga | 1 | edge blur | 0 | 70 | 100 | 0–100 |
-| Holga | 2 | grain | 0 | 30 | 100 | 0–100 |
-| Holga | 3 | fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | grain | 0 | 30 | 100 | 0–100 |
+|  | 3 | fade | 0 | 0 | 100 | 0–100 |
 | HDR | 1 | strength | ~1.3 | 20 | 80 | 0–100 |
-| HDR | 2 | radius | 1 | 3 | 7 | 0–10 |
-| HDR | 3 | fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | radius | 1 | 3 | 7 | 0–10 |
+|  | 3 | fade | 0 | 0 | 100 | 0–100 |
 | Orton | 1 | bloom | 0 | 25 | 50 | 0–100 |
-| Orton | 2 | brightness | 0 | 50 | 100 | 0–100 |
-| Orton | 3 | fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | brightness | 0 | 50 | 100 | 0–100 |
+|  | 3 | fade | 0 | 0 | 100 | 0–100 |
 | Sixties | 1 | fade | 0 | 20 | 100 | 0–100 |
-| Sixties | 3 | rounded toggle | 0 | 1 | 1 | 0/1 |
+|  | 3 | rounded toggle | 0 | 1 | 1 | 0/1 |
 | HeatMap | 1 | hue | -180 | 0 | 180 | -180–180 |
-| HeatMap | 2 | fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | fade | 0 | 0 | 100 | 0–100 |
 | CrossProcess | 1 | fade | 0 | 0 | 100 | 0–100 |
 | QuantizePalette | 1 | colors | 2 | 8 | 30 | 2–256 |
-| QuantizePalette | 2 | detail | 0 | 80 | 100 | 0–100 |
-| QuantizePalette | 3 | fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | detail | 0 | 80 | 100 | 0–100 |
+|  | 3 | fade | 0 | 0 | 100 | 0–100 |
 | TwoTone | 1 | brightness | -95 | 0 | 95 | ~-100–100 |
-| TwoTone | 2 | contrast | 0 | 20 | 100 | 0–100 |
-| TwoTone | 3 | fade | 0 | 0 | 100 | 0–100 |
+|  | 2 | contrast | 0 | 20 | 100 | 0–100 |
+|  | 3 | fade | 0 | 0 | 100 | 0–100 |
 | unsharp2 | 1 | sharpen amount | 0 | 0.6 | 3 | 0–3+ |
 | sat | 1 | saturation | -1 | 0.16 | 1 | -1–1 |
 | radblur | 1 | center X | 0 | 0.5 | ~1 | ~0–1 |
-| radblur | 2 | center Y | 0 | 0.5 | ~1 | ~0–1 |
-| radblur | 3 | radius | -1 | 0 | 1 | -1–1 |
-| radblur | 4 | blur | -1 | 0 | 0 | -1–1 |
+|  | 2 | center Y | 0 | 0.5 | ~1 | ~0–1 |
+|  | 3 | radius | -1 | 0 | 1 | -1–1 |
+|  | 4 | blur | -1 | 0 | 0 | -1–1 |
 | glow2 | 1 | intensity | 0 | 0.65 | 1 | 0–1 |
-| glow2 | 2 | radius | 1 | 3 | 250 | 1–250 |
+|  | 2 | radius | 1 | 3 | 250 | 1–250 |
 | ansel | 1 | tint color | — | — | — | ARGB |
 | radsat | 1 | center X | 0 | 0.5 | ~1 | ~0–1 |
-| radsat | 2 | center Y | 0 | 0.5 | ~1 | ~0–1 |
-| radsat | 3 | radius | -1 | 0 | 1 | -1–1 |
-| radsat | 4 | sharpness | 0 | 0 | 1 | 0–1 |
+|  | 2 | center Y | 0 | 0.5 | ~1 | ~0–1 |
+|  | 3 | radius | -1 | 0 | 1 | -1–1 |
+|  | 4 | sharpness | 0 | 0 | 1 | 0–1 |
 | dir_tint | 1 | center X | 0 | 0.5 | 1 | 0–1 |
-| dir_tint | 2 | center Y | 0 | 0.5 | 1 | 0–1 |
-| dir_tint | 3 | feather | 0 | 0.25 | 1 | 0–1 |
-| dir_tint | 4 | shade | 0 | 0.25 | 1 | 0–1 |
-| dir_tint | 5 | color | — | — | — | ARGB |
-| dir_tint | 6 | mode | 0 | 1 | 3 | 0–3 |
+|  | 2 | center Y | 0 | 0.5 | 1 | 0–1 |
+|  | 3 | feather | 0 | 0.25 | 1 | 0–1 |
+|  | 4 | shade | 0 | 0.25 | 1 | 0–1 |
+|  | 5 | color | — | — | — | ARGB |
+|  | 6 | mode | 0 | 1 | 3 | 0–3 |
 | PicnikGrain | 1 | grain amount | 0 | 10 | 50 | 0–50+ |
-| PicnikGrain | 2 | lighten toggle | 0 | 0 | 1 | 0/1 |
+|  | 2 | lighten toggle | 0 | 0 | 1 | 0/1 |
 | PicnikTint | 1 | fade | 0 | 0 | 100 | 0–100 |
-| PicnikTint | 2 | color | — | — | — | ARGB |
+|  | 2 | color | — | — | — | ARGB |
 | Cinemascope | 1 | letterbox toggle | 0 | 1 | 1 | 0/1 |
+| crop64 (`filters=crop64=1,<rect64>;`) | 1 | rect64 packed crop rectangle | — | — | — | rect64 payload |
 | tint | 1 | preserveColor | 0 | 0 | 1 | 0–1 |
-| tint | 2 | tint color | — | ffffffff | — | ARGB |
+|  | 2 | tint color | — | ffffffff | — | ARGB |
 | filllight | 1 | strength | 0 | 0 | 1 | 0–1 |
 | finetune2 | 1 | fill | 0 | 0 | 1 | 0–1 |
-| finetune2 | 2 | highlights | 0 | 0 | 1 | 0–1 |
-| finetune2 | 3 | shadows | 0 | 0 | 1 | 0–1 |
-| finetune2 | 4 | saturation | 0 | 1 | 2 | 0–2 |
-| finetune2 | 5 | warmth | -1 | 0 | 1 | -1–1 |
-| finetune2 | 6 | tint | -1 | 0 | 1 | -1–1 |
+|  | 2 | highlights | 0 | 0 | 1 | 0–1 |
+|  | 3 | shadows | 0 | 0 | 1 | 0–1 |
+|  | 4 | saturation | 0 | 1 | 2 | 0–2 |
+|  | 5 | warmth | -1 | 0 | 1 | -1–1 |
+|  | 6 | tint | -1 | 0 | 1 | -1–1 |
 | sepia | 1 | enabled flag | 1 | 1 | 1 | literal 1 |
 | bw | 1 | enabled flag | 1 | 1 | 1 | literal 1 |
 | warm | 1 | enabled flag | 1 | 1 | 1 | literal 1 |
@@ -351,13 +353,12 @@ Observed larger thumbnail dimension by source:
 Observed paired index files:
 
 * `<source>_0_index.db`
-* `<source>_index.db`
 
 Current prototype can extract blobs from:
 
 * paired indexed DB formats
 * embedded-image fallbacks
-* some CFB stream containers
+* some Compound File Binary (CFB) stream containers (OLE structured-storage style containers with named streams)
 
 These extracted thumbnails are cached in IndexedDB and then exposed via lazy-bound blob URLs at runtime.
 
@@ -427,7 +428,7 @@ Important conclusion:
 
 ### 6.4 Observed type codes
 
-In the cleaned joined CSV, `thumbindexTypeCode` and PMP `filetype` match exactly for all populated rows.
+In our analysis, `thumbindexTypeCode` and PMP `filetype` match exactly for all populated rows.
 
 Observed values in this sample:
 
@@ -449,17 +450,16 @@ So in this sample, type codes behave primarily like row/media class labels, with
 
 Important finding:
 
-* `typeCode = 1001` rows have an empty name
 * `parentIdx` links them back to their parent media row
 * multiple face rows can exist per real media row
+* in this sample, `typeCode = 1001` rows have empty names, file size `1`, flags `0x0100`, and both thumbindex FILETIME values equal to zero
 * rows with `typeCode = 1001` consistently carry face metadata such as `facerect`, `facequality`, `personalbumid`, and `facerectdata`
 
 Confirmed interpretation:
 
 * each `typeCode = 1001` row is one detected face record
 * the parent media row carries image-level state; the child face rows carry per-face state
-* all `typeCode = 1001` rows in this sample have empty names, file size `1`, flags `0x0100`, both thumbindex FILETIME values equal to zero, and their rich face semantics come from PMP columns
-* face geometry is stored in PMP columns (`facerect` / `facerectdata`), not inside the thumbindex 26-byte block
+* face geometry is stored in PMP columns (`facerect` / `facerectdata`)
 
 Detailed sample:
 
@@ -550,10 +550,11 @@ Open investigations:
 
 If continuing reverse engineering, prioritize in this order:
 
-1. `facerect`
-2. `facerectdata`
-3. `personalbumid` / contact linkage for `typeCode = 1001` rows
-4. flags decoding beyond the currently dominant `0x0100`, `0x0102`, and rare `0x0101`
-5. remaining PMP-only scalar/structured fields
+1. keep `.picasa.ini` parsing aligned with this app's `.picasa.info` usage and validate one-to-one field mirrors (`filters`, `text`, `redo`, `textactive`, `backuphash`)
+2. for faces, treat `typeCode = 1001` rows as first-class face nodes and follow `parentIdx` back to the owning media row
+3. normalize `crop64` and `facerect` decoding into shared helpers so the same rect64 logic is used in importer, overlay, and export paths
+4. keep `thumbindex.db` focused on structure (path graph, parent links, type/flags/timestamps) and keep semantic decoding in PMP columns
+5. continue decoding lower-confidence PMP fields (`avgcolor`, `originfast`, `originslow`, `lat`, `long`, `tagdate`) with paired sample validation
+6. document every new field mapping in this file together with an example source token/value and the decoded representation used in code
 
-This should clarify where Picasa stores per-face metadata beyond the visible face rectangle.
+This keeps structural indexing, semantic metadata, and UI/export behavior aligned as the prototype grows.
