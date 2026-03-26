@@ -181,6 +181,111 @@ Fields still needing more confirmation:
 
 ---
 
+## 3.5 Filter spec table
+
+The table below consolidates observed parameter positions and value envelopes for filter tokens seen in legacy Picasa metadata samples.
+
+| Filter | Position Parameter | Meaning | Min observed | Default observed | Max observed | Range |
+| --- | --- | --- | --- | --- | --- | --- |
+| Boost | 1 | intensity | 0 | 50 | 100 | 0–100 |
+| Soften | 1 | softness | 0 | 50 | 100 | 0–100 |
+| Soften | 2 | fade | 0 | 50 | 100 | 0–100 |
+| Vignette | 1 | strength | 0 | 35 | 50 | 0–100 |
+| Vignette | 2 | radius | 1.0 | 1.4 | 2.0 | ~1–5 |
+| Vignette | 3 | fade | 0 | 0 | 100 | 0–100 |
+| Vignette | 4 | color | — | — | — | ARGB |
+| Pixelate | 1 | pixel size | 2 | 20 | 150 | 2–150+ |
+| Pixelate | 2 | block size | 0 | 9 | 9 | 0–~10 |
+| Pixelate | 3 | blend/fade | 0 | 0 | 100 | 0–100 |
+| FocalZoom | 1 | center X | 0 | 0.5 | ~1.004 | ~0–1 |
+| FocalZoom | 2 | center Y | 0 | 0.5 | ~1.004 | ~0–1 |
+| FocalZoom | 3 | zoom | 1 | 50 | 100 | 0–100 |
+| FocalZoom | 4 | focal size | 0 | 50 | 100 | 0–100 |
+| FocalZoom | 5 | edge hardness | 0 | 50 | 100 | 0–100 |
+| FocalZoom | 6 | fade | 0 | 0 | 0 | 0–100* |
+| PencilSketch | 1 | radius | 1.3 | 2 | 5 | ~1–10 |
+| PencilSketch | 2 | strength | 0 | 100 | 200 | 0–200+ |
+| PencilSketch | 3 | fade | 0 | 0 | 100 | 0–100 |
+| Neon | 1 | fade/intensity | 0 | 0 | 100 | 0–100 |
+| Neon | 2 | color | — | — | — | ARGB |
+| Comicize | 1 | color brush | 0 | 20 | 100 | 0–100 |
+| Comicize | 2 | dot density | 0 | 50 | 100 | 0–100 |
+| Comicize | 3 | dot fade | 0 | 50 | 100 | 0–100 |
+| Border | 1 | outer thickness | 0 | 20 | 100 | 0–100 |
+| Border | 2 | inner thickness | 0 | 5 | 100 | 0–100 |
+| Border | 3 | corner radius | 0 | 0 | 100 | 0–100 |
+| Border | 4 | outer color | — | — | — | ARGB |
+| Border | 5 | inner color | — | — | — | ARGB |
+| Border | 6 | caption height/fade | 0 | 0 | 100 | 0–100 |
+| DropShadow | 1 | distance | 0 | 4 | 30 | 0–100 |
+| DropShadow | 2 | angle | 0 | 90 | 360 | 0–360 |
+| DropShadow | 3 | size | 0 | 10 | 100 | 0–100 |
+| DropShadow | 6 | fade | 0 | 30 | 100 | 0–100 |
+| MuseumMatte | 1 | outer thickness | 0 | 25 | 100 | 0–100 |
+| MuseumMatte | 2 | inner thickness | 0 | 40 | 100 | 0–100 |
+| Polaroid | 1 | rotation | -10 | 5 | 10 | ~-10–10 |
+| Polaroid | 2 | color | — | — | — | ARGB |
+| IR | 1 | fade | 0 | 0 | 100 | 0–100 |
+| Lomo | 1 | edge blur | 0 | 50 | 100 | 0–100 |
+| Lomo | 2 | fade | 0 | 0 | 100 | 0–100 |
+| Holga | 1 | edge blur | 0 | 70 | 100 | 0–100 |
+| Holga | 2 | grain | 0 | 30 | 100 | 0–100 |
+| Holga | 3 | fade | 0 | 0 | 100 | 0–100 |
+| HDR | 1 | strength | ~1.3 | 20 | 80 | 0–100 |
+| HDR | 2 | radius | 1 | 3 | 7 | 0–10 |
+| HDR | 3 | fade | 0 | 0 | 100 | 0–100 |
+| Orton | 1 | bloom | 0 | 25 | 50 | 0–100 |
+| Orton | 2 | brightness | 0 | 50 | 100 | 0–100 |
+| Orton | 3 | fade | 0 | 0 | 100 | 0–100 |
+| Sixties | 1 | fade | 0 | 20 | 100 | 0–100 |
+| Sixties | 3 | rounded toggle | 0 | 1 | 1 | 0/1 |
+| HeatMap | 1 | hue | -180 | 0 | 180 | -180–180 |
+| HeatMap | 2 | fade | 0 | 0 | 100 | 0–100 |
+| CrossProcess | 1 | fade | 0 | 0 | 100 | 0–100 |
+| QuantizePalette | 1 | colors | 2 | 8 | 30 | 2–256 |
+| QuantizePalette | 2 | detail | 0 | 80 | 100 | 0–100 |
+| QuantizePalette | 3 | fade | 0 | 0 | 100 | 0–100 |
+| TwoTone | 1 | brightness | -95 | 0 | 95 | ~-100–100 |
+| TwoTone | 2 | contrast | 0 | 20 | 100 | 0–100 |
+| TwoTone | 3 | fade | 0 | 0 | 100 | 0–100 |
+| unsharp2 | 1 | sharpen amount | 0 | 0.6 | 3 | 0–3+ |
+| sat | 1 | saturation | -1 | 0.16 | 1 | -1–1 |
+| radblur | 1 | center X | 0 | 0.5 | ~1 | ~0–1 |
+| radblur | 2 | center Y | 0 | 0.5 | ~1 | ~0–1 |
+| radblur | 3 | radius | -1 | 0 | 1 | -1–1 |
+| radblur | 4 | blur | -1 | 0 | 0 | -1–1 |
+| glow2 | 1 | intensity | 0 | 0.65 | 1 | 0–1 |
+| glow2 | 2 | radius | 1 | 3 | 250 | 1–250 |
+| ansel | 1 | tint color | — | — | — | ARGB |
+| radsat | 1 | center X | 0 | 0.5 | ~1 | ~0–1 |
+| radsat | 2 | center Y | 0 | 0.5 | ~1 | ~0–1 |
+| radsat | 3 | radius | -1 | 0 | 1 | -1–1 |
+| radsat | 4 | sharpness | 0 | 0 | 1 | 0–1 |
+| dir_tint | 1 | center X | 0 | 0.5 | 1 | 0–1 |
+| dir_tint | 2 | center Y | 0 | 0.5 | 1 | 0–1 |
+| dir_tint | 3 | feather | 0 | 0.25 | 1 | 0–1 |
+| dir_tint | 4 | shade | 0 | 0.25 | 1 | 0–1 |
+| dir_tint | 5 | color | — | — | — | ARGB |
+| dir_tint | 6 | mode | 0 | 1 | 3 | 0–3 |
+| PicnikGrain | 1 | grain amount | 0 | 10 | 50 | 0–50+ |
+| PicnikGrain | 2 | lighten toggle | 0 | 0 | 1 | 0/1 |
+| PicnikTint | 1 | fade | 0 | 0 | 100 | 0–100 |
+| PicnikTint | 2 | color | — | — | — | ARGB |
+| Cinemascope | 1 | letterbox toggle | 0 | 1 | 1 | 0/1 |
+| tint | 1 | preserveColor | 0 | 0 | 1 | 0–1 |
+| tint | 2 | tint color | — | ffffffff | — | ARGB |
+| filllight | 1 | strength | 0 | 0 | 1 | 0–1 |
+| finetune2 | 1 | fill | 0 | 0 | 1 | 0–1 |
+| finetune2 | 2 | highlights | 0 | 0 | 1 | 0–1 |
+| finetune2 | 3 | shadows | 0 | 0 | 1 | 0–1 |
+| finetune2 | 4 | saturation | 0 | 1 | 2 | 0–2 |
+| finetune2 | 5 | warmth | -1 | 0 | 1 | -1–1 |
+| finetune2 | 6 | tint | -1 | 0 | 1 | -1–1 |
+| sepia | 1 | enabled flag | 1 | 1 | 1 | literal 1 |
+| bw | 1 | enabled flag | 1 | 1 | 1 | literal 1 |
+| warm | 1 | enabled flag | 1 | 1 | 1 | literal 1 |
+| grain2 | 1 | enabled flag | 1 | 1 | 1 | literal 1 |
+
 ## 4. Rect64 encoding
 
 ### 4.1 What `rect64` is
