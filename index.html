@@ -4,6 +4,8 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Pixasa Web Prototype (Frontend-only, PMP + Folder Picker)</title>
+  <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.css" />
+  <script src="https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -88,6 +90,10 @@
     .albumChipWrap { display:flex; flex-wrap:wrap; gap:6px; min-height:36px; padding:6px; border:1px solid #333; border-radius:8px; background:#111; }
     .albumChip { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid #444; border-radius:999px; background:#1f1f1f; font-size:12px; }
     .albumChip button { all:unset; cursor:pointer; color:#ff9a9a; font-size:12px; line-height:1; }
+    .geoMapPanel { border:1px solid #333; border-radius:8px; padding:8px; background:#111; display:grid; gap:8px; }
+    .geoMapBox { width:100%; height:220px; border:1px solid #333; border-radius:8px; overflow:hidden; }
+    .geoMapRow { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .geoMapRow button { font-size:11px; padding:4px 8px; }
     #faceFilterList { flex: 0 0 220px; min-height:220px; }
     .editorTextBox { position:absolute; min-width:24px; min-height:18px; display:flex; align-items:center; justify-content:center; user-select:none; cursor:move; }
     .editorTextBox.active { outline:1px dashed #f1c40f; }
@@ -240,6 +246,29 @@
         <label>Zoom <span id="faceZoomValue" class="mono">1.00×</span><input id="faceZoomSlider" type="range" min="1" max="8" step="0.05" value="1"></label>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
+        <div class="geoMapPanel">
+          <div><b>Geotag</b></div>
+          <div class="geoMapRow">
+            <input id="faceGeoLatInput" type="number" step="0.000001" placeholder="Latitude">
+            <input id="faceGeoLngInput" type="number" step="0.000001" placeholder="Longitude">
+          </div>
+          <div class="geoMapRow">
+            <button id="btnFaceGeoApplyCoords" type="button">Apply coords</button>
+            <button id="btnFaceGeoClear" type="button">Clear geotag</button>
+          </div>
+          <div class="geoMapRow">
+            <button id="btnFaceGeoBasemapMap" type="button">Map</button>
+            <button id="btnFaceGeoBasemapSat" type="button">Satellite</button>
+            <button id="btnFaceGeoProjectionFlat" type="button">Flat</button>
+            <button id="btnFaceGeoProjectionGlobe" type="button">Globe</button>
+          </div>
+          <div class="geoMapRow">
+            <input id="faceGeoPitchSlider" type="range" min="0" max="70" step="1" value="0">
+            <span id="faceGeoPitchValue" class="mono">0°</span>
+            <button id="btnFaceGeoPitchReset" type="button">Reset tilt</button>
+          </div>
+          <div id="faceGeoMap" class="geoMapBox"></div>
+        </div>
         <button id="btnFaceStarToggle" title="Toggle star">☆ Star</button>
         <div id="cropControls" class="hidden">
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -3358,6 +3387,18 @@ const el = {
   faceCropRow: document.getElementById("faceCropRow"),
   faceCropInput: document.getElementById("faceCropInput"),
   faceKeywordsInput: document.getElementById("faceKeywordsInput"),
+  faceGeoLatInput: document.getElementById("faceGeoLatInput"),
+  faceGeoLngInput: document.getElementById("faceGeoLngInput"),
+  btnFaceGeoApplyCoords: document.getElementById("btnFaceGeoApplyCoords"),
+  btnFaceGeoClear: document.getElementById("btnFaceGeoClear"),
+  btnFaceGeoBasemapMap: document.getElementById("btnFaceGeoBasemapMap"),
+  btnFaceGeoBasemapSat: document.getElementById("btnFaceGeoBasemapSat"),
+  btnFaceGeoProjectionFlat: document.getElementById("btnFaceGeoProjectionFlat"),
+  btnFaceGeoProjectionGlobe: document.getElementById("btnFaceGeoProjectionGlobe"),
+  faceGeoPitchSlider: document.getElementById("faceGeoPitchSlider"),
+  faceGeoPitchValue: document.getElementById("faceGeoPitchValue"),
+  btnFaceGeoPitchReset: document.getElementById("btnFaceGeoPitchReset"),
+  faceGeoMap: document.getElementById("faceGeoMap"),
   btnFaceStarToggle: document.getElementById("btnFaceStarToggle"),
   cropControls: document.getElementById("cropControls"),
   tiltControls: document.getElementById("tiltControls"),
@@ -3808,6 +3849,7 @@ function serializePicasaInfo(picasa) {
     if ((meta.filters || []).length) lines.push(`filters=${meta.filters.join(";")};`);
     if (meta.cropRect64) lines.push(`crop=rect64(${meta.cropRect64})`);
     if ((meta.keywords || []).length) lines.push(`keywords=${meta.keywords.join(",")}`);
+    if (meta.geotag && Number.isFinite(meta.geotag.lat) && Number.isFinite(meta.geotag.lng)) lines.push(`geotag=${Number(meta.geotag.lat).toFixed(6)},${Number(meta.geotag.lng).toFixed(6)}`);
     if ((meta.faces || []).length) {
       const parts = meta.faces.map((f) => `rect64(${f.rect64 || "0"}),${f.contactId || buildContactIdFromLabel(f.label || "unknown")}`);
       lines.push(`faces=${parts.join(";")}`);
@@ -3832,7 +3874,7 @@ function serializePicasaInfo(picasa) {
   }
   return lines.join("\n");
 }
-async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = [], textOverlays = null, albumNameByToken = null) {
+async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = [], textOverlays = null, albumNameByToken = null, geotag = null) {
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   if (!dirHandle) throw new Error("Missing directory handle for metadata save");
@@ -3848,7 +3890,7 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
   const normalizedTextOverlays = Array.isArray(textOverlays)
     ? textOverlays.filter((x) => x && String(x.caption || "").trim())
     : (oldMeta.textOverlays || []);
-  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: (Array.isArray(filters) ? filters.slice() : []) });
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: (Array.isArray(filters) ? filters.slice() : []), geotag: (geotag && Number.isFinite(geotag.lat) && Number.isFinite(geotag.lng)) ? { lat: geotag.lat, lng: geotag.lng } : null });
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
@@ -3893,6 +3935,7 @@ const faceEditor = {
   textOverlays: [],
   activeTextIdx: -1,
   star: false,
+  geotag: null,
   cropAspectRatio: null,
   albumNameToToken: new Map(),
   albumTokenToName: new Map(),
@@ -3917,7 +3960,9 @@ const faceEditor = {
   dragTarget: "",
   zoom: 1,
   tiltDraft: 0,
-  redeyeDetectionDebug: []
+  redeyeDetectionDebug: [],
+  geoMap: null,
+  geoMarker: null
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
@@ -4447,6 +4492,88 @@ function renderRedeyeDebugOverlay() {
     ctx.fillText(label, Math.max(1, eye.centerPx.x - lw / 2 + 4), ly - 2);
   }
 }
+const FACE_GEO_STORAGE_KEYS = {
+  basemap: "pica-face-geo-basemap-v1",
+  projection: "pica-face-geo-proj-v1",
+  pitch: "pica-face-geo-pitch-v1"
+};
+function geoStyleFor(kind) {
+  if (kind === "satellite") {
+    return {
+      version: 8,
+      sources: {
+        satellite: { type: "raster", tiles: ["https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"], tileSize: 256, attribution: "Esri World Imagery" },
+        labels: { type: "vector", url: "https://tiles.openfreemap.org/planet" }
+      },
+      glyphs: "https://tiles.openfreemap.org/fonts/{fontstack}/{range}.pbf",
+      layers: [
+        { id: "satellite", type: "raster", source: "satellite" },
+        { id: "place-labels", type: "symbol", source: "labels", "source-layer": "place", layout: { "text-field": ["coalesce", ["get", "name:latin"], ["get", "name"]], "text-font": ["Noto Sans Regular"], "text-size": ["interpolate", ["linear"], ["zoom"], 3, 11, 8, 14], "text-anchor": "center" }, paint: { "text-color": "#ffffff", "text-halo-color": "rgba(0,0,0,.75)", "text-halo-width": 1.5 } }
+      ]
+    };
+  }
+  return "https://tiles.openfreemap.org/styles/liberty";
+}
+function getFaceGeotagFromInputs() {
+  const lat = Number(el.faceGeoLatInput.value);
+  const lng = Number(el.faceGeoLngInput.value);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat: Math.max(-90, Math.min(90, lat)), lng: Math.max(-180, Math.min(180, lng)) };
+}
+function applyFaceGeotagToInputs(geo) {
+  el.faceGeoLatInput.value = geo && Number.isFinite(geo.lat) ? Number(geo.lat).toFixed(6) : "";
+  el.faceGeoLngInput.value = geo && Number.isFinite(geo.lng) ? Number(geo.lng).toFixed(6) : "";
+}
+function syncFaceGeoButtons() {
+  const basemap = localStorage.getItem(FACE_GEO_STORAGE_KEYS.basemap) || "map";
+  const projection = localStorage.getItem(FACE_GEO_STORAGE_KEYS.projection) || "mercator";
+  el.btnFaceGeoBasemapMap.classList.toggle("active", basemap === "map");
+  el.btnFaceGeoBasemapSat.classList.toggle("active", basemap === "satellite");
+  el.btnFaceGeoProjectionFlat.classList.toggle("active", projection !== "globe");
+  el.btnFaceGeoProjectionGlobe.classList.toggle("active", projection === "globe");
+}
+function ensureFaceGeoMap() {
+  if (!window.maplibregl) return;
+  if (faceEditor.geoMap) return;
+  const basemap = localStorage.getItem(FACE_GEO_STORAGE_KEYS.basemap) || "map";
+  const projection = localStorage.getItem(FACE_GEO_STORAGE_KEYS.projection) || "mercator";
+  const pitch = Number(localStorage.getItem(FACE_GEO_STORAGE_KEYS.pitch) || 0) || 0;
+  faceEditor.geoMap = new maplibregl.Map({ container: el.faceGeoMap, style: geoStyleFor(basemap), center: [13.405, 52.52], zoom: 10, pitch: Math.max(0, Math.min(70, pitch)), maxPitch: 70 });
+  faceEditor.geoMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+  faceEditor.geoMap.addControl(new maplibregl.GlobeControl(), "top-right");
+  faceEditor.geoMap.on("load", () => {
+    faceEditor.geoMap.setProjection({ type: projection === "globe" ? "globe" : "mercator" });
+    syncFaceGeoButtons();
+  });
+  faceEditor.geoMap.on("click", (e) => {
+    faceEditor.geotag = { lat: Number(e.lngLat.lat.toFixed(6)), lng: Number(e.lngLat.lng.toFixed(6)) };
+    applyFaceGeotagToInputs(faceEditor.geotag);
+    syncFaceGeoMarker();
+  });
+  faceEditor.geoMap.on("pitchend", () => {
+    const p = Math.round(faceEditor.geoMap.getPitch());
+    el.faceGeoPitchSlider.value = String(p);
+    el.faceGeoPitchValue.textContent = `${p}°`;
+    localStorage.setItem(FACE_GEO_STORAGE_KEYS.pitch, String(p));
+  });
+}
+function syncFaceGeoMarker() {
+  if (!faceEditor.geoMap) return;
+  const geo = faceEditor.geotag;
+  if (!geo) {
+    if (faceEditor.geoMarker) { faceEditor.geoMarker.remove(); faceEditor.geoMarker = null; }
+    return;
+  }
+  if (!faceEditor.geoMarker) {
+    faceEditor.geoMarker = new maplibregl.Marker({ draggable: true }).setLngLat([geo.lng, geo.lat]).addTo(faceEditor.geoMap);
+    faceEditor.geoMarker.on("dragend", () => {
+      const ll = faceEditor.geoMarker.getLngLat();
+      faceEditor.geotag = { lat: Number(ll.lat.toFixed(6)), lng: Number(ll.lng.toFixed(6)) };
+      applyFaceGeotagToInputs(faceEditor.geotag);
+    });
+  } else faceEditor.geoMarker.setLngLat([geo.lng, geo.lat]);
+  faceEditor.geoMap.easeTo({ center: [geo.lng, geo.lat], zoom: Math.max(faceEditor.geoMap.getZoom(), 12), duration: 300 });
+}
 let faceApiLoadPromise = null;
 let faceApiModelsPromise = null;
 
@@ -4659,6 +4786,8 @@ function openFaceEditor(imageItem) {
   faceEditor.awaitingNewRedeyeDraw = false;
   faceEditor.pendingNewRedeyeIdx = -1;
   faceEditor.redeyeDetectionDebug = [];
+  faceEditor.geotag = imageItem.geotag && Number.isFinite(imageItem.geotag.lat) && Number.isFinite(imageItem.geotag.lng) ? { lat: imageItem.geotag.lat, lng: imageItem.geotag.lng } : null;
+  applyFaceGeotagToInputs(faceEditor.geotag);
   if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
   faceEditor.zoom = 1;
   faceEditor.tiltDraft = 0;
@@ -4699,6 +4828,17 @@ function openFaceEditor(imageItem) {
   refreshEditorPreview();
   el.faceEditorOverlay.classList.add('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'false');
+  ensureFaceGeoMap();
+  if (faceEditor.geoMap) {
+    setTimeout(() => {
+      faceEditor.geoMap.resize();
+      syncFaceGeoMarker();
+      const p = Math.round(faceEditor.geoMap.getPitch());
+      el.faceGeoPitchSlider.value = String(p);
+      el.faceGeoPitchValue.textContent = `${p}°`;
+      syncFaceGeoButtons();
+    }, 0);
+  }
   el.faceEditorStatus.textContent = 'Drag rectangles. Add new faces with button.';
 }
 function closeFaceEditor() {
@@ -4747,6 +4887,8 @@ function closeFaceEditor() {
   faceEditor.awaitingNewRedeyeDraw = false;
   faceEditor.pendingNewRedeyeIdx = -1;
   faceEditor.redeyeDetectionDebug = [];
+  faceEditor.geotag = null;
+  applyFaceGeotagToInputs(null);
   faceEditor.selectedAlbumTokens = new Set();
   if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
   if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
@@ -4975,7 +5117,7 @@ function parsePicasaIni(content) {
       if (token) albumNamesByToken.set(token, name || token);
       continue;
     }
-    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
+    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [], geotag: null };
     for (const line of lines) {
       const idx = line.indexOf("=");
       if (idx <= 0) continue;
@@ -5001,6 +5143,9 @@ function parsePicasaIni(content) {
         meta.cropRect64 = m ? m[1].trim() : String(val || "").trim();
       } else if (key === "keywords" || key === "iptc") {
         meta.keywords = String(val || "").split(",").map((x)=>x.trim()).filter(Boolean);
+      } else if (key === "geotag" || key === "location") {
+        const parts = String(val || "").split(",").map((x) => Number(x.trim()));
+        if (Number.isFinite(parts[0]) && Number.isFinite(parts[1])) meta.geotag = { lat: Math.max(-90, Math.min(90, parts[0])), lng: Math.max(-180, Math.min(180, parts[1])) };
       }
     }
     if (!meta.cropRect64) {
@@ -5144,7 +5289,7 @@ async function listImagesForAlbumRefs(imageRefs = []) {
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind !== "file" || !isImageName(name) || !namesSet.has(String(name).toLowerCase())) continue;
       const file = await handle.getFile();
-      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
+      const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [], geotag: null };
       const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
       const iptcKeywords = iniKeywords.length ? [] : await extractIptcKeywordsFromFile(file);
       const mergedKeywords = Array.from(new Set([...iniKeywords, ...iptcKeywords]));
@@ -5157,7 +5302,7 @@ async function listImagesForAlbumRefs(imageRefs = []) {
         textOverlay: meta.textOverlay || null,
         textOverlays: meta.textOverlays || (meta.textOverlay ? [meta.textOverlay] : []),
         albumTokens: Array.from(picasa.membersByToken.keys()).filter((tok) => (picasa.membersByToken.get(tok) || new Set()).has(name)),
-        albumNames: [], keywords: mergedKeywords, star: !!meta.star, filters: meta.filters || []
+        albumNames: [], keywords: mergedKeywords, star: !!meta.star, filters: meta.filters || [], geotag: meta.geotag || null
       });
     }
   }
@@ -5655,7 +5800,8 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
         albumNames,
         keywords: mergedKeywords,
         star: !!meta.star,
-        filters: meta.filters || []
+        filters: meta.filters || [],
+        geotag: meta.geotag || null
       });
     }
   }
@@ -6434,6 +6580,53 @@ el.btnApplyDirTintFilter.onclick = () => {
   el.dirTintControls.classList.add("hidden");
   el.btnDirTintMode.textContent = "Dir Tint";
 };
+el.btnFaceGeoApplyCoords.onclick = () => {
+  faceEditor.geotag = getFaceGeotagFromInputs();
+  syncFaceGeoMarker();
+};
+el.btnFaceGeoClear.onclick = () => {
+  faceEditor.geotag = null;
+  applyFaceGeotagToInputs(null);
+  syncFaceGeoMarker();
+};
+el.btnFaceGeoBasemapMap.onclick = () => {
+  localStorage.setItem(FACE_GEO_STORAGE_KEYS.basemap, "map");
+  if (faceEditor.geoMap) {
+    faceEditor.geoMap.setStyle(geoStyleFor("map"));
+    faceEditor.geoMap.once("style.load", () => syncFaceGeoButtons());
+  }
+  syncFaceGeoButtons();
+};
+el.btnFaceGeoBasemapSat.onclick = () => {
+  localStorage.setItem(FACE_GEO_STORAGE_KEYS.basemap, "satellite");
+  if (faceEditor.geoMap) {
+    faceEditor.geoMap.setStyle(geoStyleFor("satellite"));
+    faceEditor.geoMap.once("style.load", () => syncFaceGeoButtons());
+  }
+  syncFaceGeoButtons();
+};
+el.btnFaceGeoProjectionFlat.onclick = () => {
+  localStorage.setItem(FACE_GEO_STORAGE_KEYS.projection, "mercator");
+  if (faceEditor.geoMap) faceEditor.geoMap.setProjection({ type: "mercator" });
+  syncFaceGeoButtons();
+};
+el.btnFaceGeoProjectionGlobe.onclick = () => {
+  localStorage.setItem(FACE_GEO_STORAGE_KEYS.projection, "globe");
+  if (faceEditor.geoMap) faceEditor.geoMap.setProjection({ type: "globe" });
+  syncFaceGeoButtons();
+};
+el.faceGeoPitchSlider.oninput = () => {
+  const pitch = Math.max(0, Math.min(70, Number(el.faceGeoPitchSlider.value) || 0));
+  el.faceGeoPitchValue.textContent = `${Math.round(pitch)}°`;
+  localStorage.setItem(FACE_GEO_STORAGE_KEYS.pitch, String(Math.round(pitch)));
+  if (faceEditor.geoMap) faceEditor.geoMap.setPitch(pitch);
+};
+el.btnFaceGeoPitchReset.onclick = () => {
+  el.faceGeoPitchSlider.value = "0";
+  el.faceGeoPitchValue.textContent = "0°";
+  localStorage.setItem(FACE_GEO_STORAGE_KEYS.pitch, "0");
+  if (faceEditor.geoMap) faceEditor.geoMap.easeTo({ pitch: 0, duration: 250 });
+};
 el.btnApplyRedeyeFilter.onclick = () => {
   const draft = refreshRedeyeDraft();
   if (!draft) return;
@@ -7040,11 +7233,13 @@ el.btnFaceSave.onclick = async () => {
     const caption = el.faceCaptionInput.value.trim();
     const albumTokens = Array.from(faceEditor.selectedAlbumTokens);
     const keywords = el.faceKeywordsInput.value.split(',').map((x)=>x.trim()).filter(Boolean);
+    faceEditor.geotag = getFaceGeotagFromInputs();
     updateTextOverlayFromInputs();
     const faceEntries = faceEditor.faces.slice();
     const textOverlays = faceEditor.textOverlays.filter((t) => t && String(t.caption || "").trim());
     const albumNameByToken = Object.fromEntries(Array.from(faceEditor.albumTokenToName.entries()));
-    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays, albumNameByToken);
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays, albumNameByToken, faceEditor.geotag);
+    faceEditor.imageItem.geotag = faceEditor.geotag ? { ...faceEditor.geotag } : null;
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
     setStatus('Saved caption/faces/crop/albums/tags to .picasa.info', 'ok');
