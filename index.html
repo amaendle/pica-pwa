@@ -236,6 +236,7 @@
           <button id="btnFacesMode">Faces</button>
         </div>
         <label style="display:flex; align-items:center; gap:8px;"><input id="facePreviewUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for preview</label>
+        <label>Zoom <span id="faceZoomValue" class="mono">1.00×</span><input id="faceZoomSlider" type="range" min="1" max="8" step="0.05" value="1"></label>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
         <button id="btnFaceStarToggle" title="Toggle star">☆ Star</button>
@@ -3382,6 +3383,8 @@ const el = {
   faceFinetuneTempValue: document.getElementById("faceFinetuneTempValue"),
   faceFinetuneNeutralInput: document.getElementById("faceFinetuneNeutralInput"),
   facePreviewUseWebgl: document.getElementById("facePreviewUseWebgl"),
+  faceZoomSlider: document.getElementById("faceZoomSlider"),
+  faceZoomValue: document.getElementById("faceZoomValue"),
   faceTintPreserveInput: document.getElementById("faceTintPreserveInput"),
   faceTintPreserveValue: document.getElementById("faceTintPreserveValue"),
   faceTintColorPicker: document.getElementById("faceTintColorPicker"),
@@ -3748,7 +3751,17 @@ function renderFilterList() {
 function resetTiltDraftUI() {
   el.faceTiltSlider.value = "0.00";
   el.faceTiltValue.textContent = "0.00";
-  el.faceCanvasImg.style.transform = "";
+  faceEditor.tiltDraft = 0;
+  updateFaceCanvasTransform();
+}
+
+function updateFaceCanvasTransform() {
+  const zoom = Math.max(1, Math.min(8, Number(faceEditor.zoom) || 1));
+  const tilt = Math.max(-1, Math.min(1, Number(faceEditor.tiltDraft) || 0));
+  const rotateDeg = tiltValueToDeg(tilt);
+  el.faceCanvasImg.style.transformOrigin = "center center";
+  el.faceCanvasImg.style.transform = `scale(${zoom.toFixed(3)}) rotate(${rotateDeg.toFixed(2)}deg)`;
+  if (el.faceZoomValue) el.faceZoomValue.textContent = `${zoom.toFixed(2)}×`;
 }
 
 
@@ -3898,7 +3911,9 @@ const faceEditor = {
   activeRedeyeIdx: -1,
   awaitingNewRedeyeDraw: false,
   pendingNewRedeyeIdx: -1,
-  dragTarget: ""
+  dragTarget: "",
+  zoom: 1,
+  tiltDraft: 0
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
@@ -4123,7 +4138,7 @@ async function refreshEditorPreview(previewFilters = null) {
     size: previewOptions.size || 0
   });
   if (!isDraft && faceEditor.previewKey === key && faceEditor.previewUrl) {
-    el.faceCanvasImg.style.transform = "";
+    updateFaceCanvasTransform();
     el.faceCanvasImg.src = faceEditor.previewUrl;
     return;
   }
@@ -4146,18 +4161,18 @@ async function refreshEditorPreview(previewFilters = null) {
       faceEditor.previewDraftUrl = "";
       faceEditor.previewUrl = url;
       faceEditor.previewKey = key;
-      el.faceCanvasImg.style.transform = "";
+      updateFaceCanvasTransform();
       el.faceCanvasImg.src = url;
       return;
     }
     if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
     faceEditor.previewDraftUrl = url;
-    el.faceCanvasImg.style.transform = "";
+    updateFaceCanvasTransform();
     el.faceCanvasImg.src = url;
   } catch {
     if (requestId !== faceEditor.previewRequestId) return;
     if (!faceEditor.imageItem.url) faceEditor.imageItem.url = URL.createObjectURL(faceEditor.imageItem.file);
-    el.faceCanvasImg.style.transform = "";
+    updateFaceCanvasTransform();
     el.faceCanvasImg.src = faceEditor.imageItem.url;
   }
 }
@@ -4213,6 +4228,10 @@ function renderFaceRects() {
       rm.className = "redeyeRemoveBtn";
       rm.textContent = "×";
       rm.title = "Remove red-eye area";
+      rm.onpointerdown = (ev) => {
+        ev.preventDefault();
+        ev.stopPropagation();
+      };
       rm.onclick = (ev) => {
         ev.stopPropagation();
         faceEditor.redeyeAreas.splice(idx, 1);
@@ -4543,7 +4562,10 @@ function openFaceEditor(imageItem) {
   faceEditor.awaitingNewRedeyeDraw = false;
   faceEditor.pendingNewRedeyeIdx = -1;
   if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
-  el.faceCanvasImg.style.transform = "";
+  faceEditor.zoom = 1;
+  faceEditor.tiltDraft = 0;
+  if (el.faceZoomSlider) el.faceZoomSlider.value = "1";
+  updateFaceCanvasTransform();
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
   faceEditor.pickingFinetuneNeutral = false;
@@ -4584,7 +4606,7 @@ function openFaceEditor(imageItem) {
 function closeFaceEditor() {
   el.faceEditorOverlay.classList.remove('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'true');
-  el.faceCanvasImg.style.transform = "";
+  updateFaceCanvasTransform();
   el.facePreviewUseWebgl.checked = !!state.preview.useWebglPreview;
   faceEditor.draggingIdx = -1;
   faceEditor.dragMode = "move";
@@ -6493,9 +6515,15 @@ el.faceTiltSlider.oninput = () => {
   const t = Number(el.faceTiltSlider.value || "0");
   el.faceTiltValue.textContent = Number.isFinite(t) ? t.toFixed(2) : "0.00";
   if (!Number.isFinite(t)) return;
-  el.faceCanvasImg.style.transform = `rotate(${tiltValueToDeg(t).toFixed(2)}deg)`;
+  faceEditor.tiltDraft = t;
+  updateFaceCanvasTransform();
   const draftFilters = (faceEditor.filters || []).concat([`tilt=1,${t.toFixed(6)},0.000000`]);
   refreshEditorPreview(draftFilters);
+};
+el.faceZoomSlider.oninput = () => {
+  faceEditor.zoom = Math.max(1, Math.min(8, Number(el.faceZoomSlider.value || "1") || 1));
+  updateFaceCanvasTransform();
+  renderFaceRects();
 };
 el.faceFaceSelect.onmousedown = (ev) => {
   const opt = ev.target.closest("option");
