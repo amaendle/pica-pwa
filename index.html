@@ -6172,12 +6172,16 @@ const refreshRedeyeDraft = () => {
 };
 const autoFindRedeyeAreas = () => {
   const img = el.faceCanvasImg;
-  const w = Math.max(1, img.naturalWidth || Math.round(img.clientWidth) || 1);
-  const h = Math.max(1, img.naturalHeight || Math.round(img.clientHeight) || 1);
+  const displayedW = Math.max(1, Math.round(img.clientWidth || 0));
+  const displayedH = Math.max(1, Math.round(img.clientHeight || 0));
+  const w = displayedW || Math.max(1, img.naturalWidth || 1);
+  const h = displayedH || Math.max(1, img.naturalHeight || 1);
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
   const ctx = c.getContext("2d", { willReadFrequently: true });
+  // Analyze in the same coordinate space used by interactive overlays (display space),
+  // so normalized boxes align even when the image is letterboxed/smaller than the editor area.
   ctx.drawImage(img, 0, 0, w, h);
   const data = ctx.getImageData(0, 0, w, h).data;
 
