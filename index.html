@@ -69,6 +69,9 @@
     .faceCanvasImg { max-width:100%; max-height:100%; user-select:none; }
     .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; touch-action:none; }
     .faceRectHandle { position:absolute; width:18px; height:18px; right:-10px; bottom:-10px; background:#fff; border:1px solid #111; border-radius:50%; cursor:nwse-resize; touch-action:none; }
+    .redeyeRect { position:absolute; border:2px solid #ff4d4f; background:rgba(255,77,79,.14); cursor:move; touch-action:none; }
+    .redeyeRect.active { border-color:#ffd166; background:rgba(255,209,102,.2); }
+    .redeyeRemoveBtn { position:absolute; top:-10px; right:-10px; width:20px; height:20px; border-radius:50%; border:1px solid #111; background:#ff4d4f; color:#fff; cursor:pointer; line-height:18px; font-size:12px; }
     .cropRect { position:absolute; border:2px solid #8ce99a; background:rgba(140,233,154,.16); cursor:move; touch-action:none; }
     .slideFaceLayer { position:absolute; inset:0; pointer-events:none; }
     .slideFaceRect { position:absolute; border:2px solid #ffd166; background:rgba(255,209,102,.18); }
@@ -225,6 +228,7 @@
           <button id="btnGlow2Mode">Glow2</button>
           <button id="btnRadsatMode">Radial Sat</button>
           <button id="btnDirTintMode">Dir Tint</button>
+          <button id="btnRedeyeMode">Red-eye</button>
           <button id="btnApplySepiaFilter">Sepia</button>
           <button id="btnApplyBwFilter">B/W</button>
           <button id="btnApplyWarmFilter">Warm</button>
@@ -319,6 +323,15 @@
           </div>
           <label>Gradient Color (ARGB hex)<input id="faceDirTintColorInput" type="text" value="ff5bfff3" maxlength="8"></label>
           <button id="btnApplyDirTintFilter">Apply directed tint filter</button>
+        </div>
+        <div id="redeyeControls" class="hidden">
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnAddRedeyeArea">Add pupil area</button>
+            <button id="btnClearRedeyeAreas">Clear areas</button>
+            <button id="btnApplyRedeyeFilter">Apply red-eye filter</button>
+          </div>
+          <div class="status">Draw small rectangles over pupils, then apply.</div>
+          <div class="mono">Areas: <span id="faceRedeyeCount">0</span></div>
         </div>
         <label class="hidden" id="faceFaceSelectWrap">Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
         <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
@@ -2526,6 +2539,14 @@ function parseDirTintFilter(filterString = "") {
   };
 }
 
+function parseRedeyeFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^redeye2=1,(.+)$/i);
+  if (!m) return null;
+  const parts = String(m[1] || "").split(";").map((s) => s.trim()).filter(Boolean);
+  const areas = parts.map((rect64) => rect64ToBox(rect64)).filter((b) => b && Number.isFinite(b.x) && Number.isFinite(b.y) && Number.isFinite(b.w) && Number.isFinite(b.h));
+  return areas.length ? { areas } : null;
+}
+
 function cloneCanvas(sourceCanvas) {
   const out = document.createElement("canvas");
   out.width = sourceCanvas.width;
@@ -2684,6 +2705,34 @@ function applyDirectionalTintOnCanvas(canvas, params = {}) {
       img.data[idx] = Math.round(clamp01(r * (1 - shadow * dark) + tint.r * gradient * light * 0.35) * 255);
       img.data[idx + 1] = Math.round(clamp01(g * (1 - shadow * dark) + tint.g * gradient * light * 0.35) * 255);
       img.data[idx + 2] = Math.round(clamp01(b * (1 - shadow * dark) + tint.b * gradient * light * 0.35) * 255);
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  return canvas;
+}
+
+function applyRedeyeAreasOnCanvas(canvas, params = {}) {
+  const areas = Array.isArray(params?.areas) ? params.areas : [];
+  if (!areas.length) return canvas;
+  const ctx = canvas.getContext("2d");
+  const img = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  for (const area of areas) {
+    const x0 = Math.max(0, Math.floor((Number(area.x) || 0) * canvas.width));
+    const y0 = Math.max(0, Math.floor((Number(area.y) || 0) * canvas.height));
+    const x1 = Math.min(canvas.width, Math.ceil((Number(area.x) + Number(area.w)) * canvas.width));
+    const y1 = Math.min(canvas.height, Math.ceil((Number(area.y) + Number(area.h)) * canvas.height));
+    for (let y = y0; y < y1; y++) {
+      for (let x = x0; x < x1; x++) {
+        const idx = (y * canvas.width + x) * 4;
+        const r = img.data[idx], g = img.data[idx + 1], b = img.data[idx + 2];
+        if (r < 40) continue;
+        const avgGb = (g + b) / 2;
+        if (r <= avgGb * 1.35) continue;
+        const corrected = Math.round(avgGb);
+        img.data[idx] = corrected;
+        img.data[idx + 1] = Math.min(255, Math.round(g * 1.05));
+        img.data[idx + 2] = Math.min(255, Math.round(b * 1.05));
+      }
     }
   }
   ctx.putImageData(img, 0, 0);
@@ -3108,6 +3157,11 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       applyDirectionalTintOnCanvas(canvas, m);
       continue;
     }
+    m = parseRedeyeFilter(f);
+    if (m) {
+      applyRedeyeAreasOnCanvas(canvas, m);
+      continue;
+    }
     m = String(f).match(/^tilt=1,([+-]?[0-9]*\.?[0-9]+),/i);
     if (m) {
       const rad = tiltValueToRad(Number(m[1]));
@@ -3313,6 +3367,7 @@ const el = {
   glow2Controls: document.getElementById("glow2Controls"),
   radsatControls: document.getElementById("radsatControls"),
   dirTintControls: document.getElementById("dirTintControls"),
+  redeyeControls: document.getElementById("redeyeControls"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
   faceFillLightSlider: document.getElementById("faceFillLightSlider"),
@@ -3371,6 +3426,7 @@ const el = {
   faceDirTintAlphaInput: document.getElementById("faceDirTintAlphaInput"),
   faceDirTintAlphaValue: document.getElementById("faceDirTintAlphaValue"),
   faceDirTintColorInput: document.getElementById("faceDirTintColorInput"),
+  faceRedeyeCount: document.getElementById("faceRedeyeCount"),
   faceFinetuneSwatch: document.getElementById("faceFinetuneSwatch"),
   btnFaceFinetunePickNeutral: document.getElementById("btnFaceFinetunePickNeutral"),
   btnFaceFinetuneClearNeutral: document.getElementById("btnFaceFinetuneClearNeutral"),
@@ -3426,6 +3482,7 @@ const el = {
   btnGlow2Mode: document.getElementById("btnGlow2Mode"),
   btnRadsatMode: document.getElementById("btnRadsatMode"),
   btnDirTintMode: document.getElementById("btnDirTintMode"),
+  btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
   btnApplyWarmFilter: document.getElementById("btnApplyWarmFilter"),
@@ -3445,6 +3502,9 @@ const el = {
   btnApplyGlow2Filter: document.getElementById("btnApplyGlow2Filter"),
   btnApplyRadsatFilter: document.getElementById("btnApplyRadsatFilter"),
   btnApplyDirTintFilter: document.getElementById("btnApplyDirTintFilter"),
+  btnAddRedeyeArea: document.getElementById("btnAddRedeyeArea"),
+  btnClearRedeyeAreas: document.getElementById("btnClearRedeyeAreas"),
+  btnApplyRedeyeFilter: document.getElementById("btnApplyRedeyeFilter"),
   btnUndoFilter: document.getElementById("btnUndoFilter"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
@@ -3636,6 +3696,13 @@ function lastDirTintFromFilters(filters) {
   }
   return { x: 0.306743, y: 0.401515, gradient: 0.25, shadow: 0.25, color: "ff5bfff3" };
 }
+function lastRedeyeFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseRedeyeFilter(filters[i]);
+    if (p?.areas?.length) return p.areas.map((a) => ({ x: a.x, y: a.y, w: a.w, h: a.h }));
+  }
+  return [];
+}
 function cssColorToU32(color, fallback = 4294967295) {
   const s = String(color || "").trim();
   const hex = s.match(/^#([0-9a-f]{6})$/i);
@@ -3826,7 +3893,12 @@ const faceEditor = {
   pendingDetectedFaceIdx: -1,
   faceRenameMode: false,
   pendingNewFaceIdx: -1,
-  awaitingNewFaceDraw: false
+  awaitingNewFaceDraw: false,
+  redeyeAreas: [],
+  activeRedeyeIdx: -1,
+  awaitingNewRedeyeDraw: false,
+  pendingNewRedeyeIdx: -1,
+  dragTarget: ""
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
@@ -4022,7 +4094,9 @@ function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
   if (kind === "crop") {
     faceEditor.cropDragging = true;
     faceEditor.cropMode = mode;
+    faceEditor.dragTarget = "crop";
   } else {
+    faceEditor.dragTarget = kind || "face";
     faceEditor.draggingIdx = idx;
     faceEditor.dragMode = mode;
     faceEditor.cropDragging = false;
@@ -4089,7 +4163,7 @@ async function refreshEditorPreview(previewFilters = null) {
 }
 
 function renderFaceRects() {
-  el.faceCanvasWrap.querySelectorAll('.faceRect, .cropRect, .editorTextBox, .ghostFaceRect').forEach((n) => n.remove());
+  el.faceCanvasWrap.querySelectorAll('.faceRect, .redeyeRect, .cropRect, .editorTextBox, .ghostFaceRect').forEach((n) => n.remove());
   const r = el.faceCanvasImg.getBoundingClientRect();
   const p = el.faceCanvasWrap.getBoundingClientRect();
   faceEditor.displayW = r.width; faceEditor.displayH = r.height;
@@ -4108,6 +4182,48 @@ function renderFaceRects() {
     c.appendChild(ch);
     el.faceCanvasWrap.appendChild(c);
     el.faceCropInput.value = faceEditor.cropRect64;
+  }
+
+  if (Array.isArray(faceEditor.redeyeAreas) && faceEditor.redeyeAreas.length) {
+    faceEditor.redeyeAreas.forEach((area, idx) => {
+      const b = rect64ToBox(area.rect64);
+      const div = document.createElement('div');
+      div.className = `redeyeRect${idx === faceEditor.activeRedeyeIdx ? " active" : ""}`;
+      div.style.left = `${offsetX + b.x * r.width}px`;
+      div.style.top = `${offsetY + b.y * r.height}px`;
+      div.style.width = `${Math.max(8, b.w * r.width)}px`;
+      div.style.height = `${Math.max(8, b.h * r.height)}px`;
+      div.title = "Red-eye area";
+      div.onpointerdown = (ev) => {
+        faceEditor.activeRedeyeIdx = idx;
+        faceEditor.activeFaceIdx = -1;
+        beginEditorDrag(ev, "redeye", idx, "move");
+        renderFaceRects();
+      };
+      const h = document.createElement('div');
+      h.className = 'faceRectHandle';
+      h.onpointerdown = (ev) => {
+        ev.stopPropagation();
+        faceEditor.activeRedeyeIdx = idx;
+        beginEditorDrag(ev, "redeye", idx, "resize");
+        renderFaceRects();
+      };
+      const rm = document.createElement('button');
+      rm.type = "button";
+      rm.className = "redeyeRemoveBtn";
+      rm.textContent = "×";
+      rm.title = "Remove red-eye area";
+      rm.onclick = (ev) => {
+        ev.stopPropagation();
+        faceEditor.redeyeAreas.splice(idx, 1);
+        faceEditor.activeRedeyeIdx = -1;
+        if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
+        refreshRedeyeDraft();
+      };
+      div.appendChild(h);
+      div.appendChild(rm);
+      el.faceCanvasWrap.appendChild(div);
+    });
   }
 
 
@@ -4330,6 +4446,7 @@ function openFaceEditor(imageItem) {
   el.glow2Controls.classList.add("hidden");
   el.radsatControls.classList.add("hidden");
   el.dirTintControls.classList.add("hidden");
+  el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
@@ -4341,6 +4458,7 @@ function openFaceEditor(imageItem) {
   el.btnGlow2Mode.textContent = "Glow2";
   el.btnRadsatMode.textContent = "Radial Sat";
   el.btnDirTintMode.textContent = "Dir Tint";
+  el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
   el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
@@ -4420,6 +4538,11 @@ function openFaceEditor(imageItem) {
   el.faceDirTintShadowValue.textContent = Number(dirTint.shadow || 0.25).toFixed(6);
   el.faceDirTintColorInput.value = dirTint.color || "ff5bfff3";
   syncArgbPickerControls(el.faceDirTintColorInput, el.faceDirTintColorPicker, el.faceDirTintAlphaInput, el.faceDirTintAlphaValue, "ff5bfff3");
+  faceEditor.redeyeAreas = lastRedeyeFromFilters(faceEditor.filters).map((b) => ({ rect64: boxToRect64(b) }));
+  faceEditor.activeRedeyeIdx = -1;
+  faceEditor.awaitingNewRedeyeDraw = false;
+  faceEditor.pendingNewRedeyeIdx = -1;
+  if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
   el.faceCanvasImg.style.transform = "";
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
@@ -4499,6 +4622,10 @@ function closeFaceEditor() {
   faceEditor.pendingNewFaceIdx = -1;
   faceEditor.faceRenameMode = false;
   faceEditor.awaitingNewFaceDraw = false;
+  faceEditor.redeyeAreas = [];
+  faceEditor.activeRedeyeIdx = -1;
+  faceEditor.awaitingNewRedeyeDraw = false;
+  faceEditor.pendingNewRedeyeIdx = -1;
   faceEditor.selectedAlbumTokens = new Set();
   if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
   if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
@@ -6000,6 +6127,19 @@ const refreshDirTintDraft = () => {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 };
+const refreshRedeyeDraft = () => {
+  const areas = (faceEditor.redeyeAreas || [])
+    .map((a) => boxToRect64(rect64ToBox(a.rect64)))
+    .filter(Boolean);
+  if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(areas.length);
+  if (!areas.length) {
+    refreshEditorPreview();
+    return "";
+  }
+  const draft = `redeye2=1,${areas.join(";")}`;
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+};
 
 el.btnApplySepiaFilter.onclick = () => applyNoParamFilter("sepia=1");
 el.btnApplyBwFilter.onclick = () => applyNoParamFilter("bw=1");
@@ -6039,6 +6179,14 @@ el.btnApplyDirTintFilter.onclick = () => {
   applyNoParamFilter(refreshDirTintDraft());
   el.dirTintControls.classList.add("hidden");
   el.btnDirTintMode.textContent = "Dir Tint";
+};
+el.btnApplyRedeyeFilter.onclick = () => {
+  const draft = refreshRedeyeDraft();
+  if (!draft) return;
+  applyNoParamFilter(draft);
+  el.redeyeControls.classList.add("hidden");
+  el.btnRedeyeMode.textContent = "Red-eye";
+  faceEditor.awaitingNewRedeyeDraw = false;
 };
 
 const refreshFinetune2Draft = () => {
@@ -6272,8 +6420,29 @@ el.btnAnselMode.onclick = () => {
   el.btnAnselMode.textContent = show ? "Hide Ansel" : "Ansel";
   if (show) refreshAnselDraft();
 };
+el.btnRedeyeMode.onclick = () => {
+  const show = el.redeyeControls.classList.contains("hidden");
+  el.redeyeControls.classList.toggle("hidden", !show);
+  el.btnRedeyeMode.textContent = show ? "Hide Red-eye" : "Red-eye";
+  if (show) refreshRedeyeDraft();
+  if (!show) faceEditor.awaitingNewRedeyeDraw = false;
+};
 el.btnFacesMode.onclick = () => {
   setFacesMode(!faceEditor.facesModeActive);
+};
+el.btnAddRedeyeArea.onclick = () => {
+  faceEditor.awaitingNewRedeyeDraw = true;
+  faceEditor.pendingNewRedeyeIdx = -1;
+  faceEditor.activeRedeyeIdx = -1;
+  faceEditor.awaitingNewFaceDraw = false;
+  el.faceEditorStatus.textContent = "Click and drag on image to draw a red-eye area.";
+};
+el.btnClearRedeyeAreas.onclick = () => {
+  faceEditor.redeyeAreas = [];
+  faceEditor.activeRedeyeIdx = -1;
+  faceEditor.awaitingNewRedeyeDraw = false;
+  refreshRedeyeDraft();
+  renderFaceRects();
 };
 el.btnRenameFace.onclick = () => {
   if (faceEditor.activeFaceIdx < 0 || !faceEditor.faces[faceEditor.activeFaceIdx]) return;
@@ -6444,9 +6613,28 @@ el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
     faceEditor.pendingNewFaceIdx = faceEditor.faces.length - 1;
     faceEditor.activeFaceIdx = faceEditor.pendingNewFaceIdx;
     faceEditor.awaitingNewFaceDraw = false;
+    faceEditor.dragTarget = "face";
     faceEditor.draggingIdx = faceEditor.pendingNewFaceIdx;
     faceEditor.dragMode = "resize";
     syncFaceSelectFromState();
+    renderFaceRects();
+    return;
+  }
+  if (faceEditor.awaitingNewRedeyeDraw && (ev.target === el.faceCanvasImg || ev.target === el.faceCanvasWrap)) {
+    const r = el.faceCanvasImg.getBoundingClientRect();
+    const p = el.faceCanvasWrap.getBoundingClientRect();
+    const xPx = ev.clientX - p.left - (r.left - p.left);
+    const yPx = ev.clientY - p.top - (r.top - p.top);
+    const x = Math.max(0, Math.min(0.99, xPx / Math.max(1, r.width)));
+    const y = Math.max(0, Math.min(0.99, yPx / Math.max(1, r.height)));
+    faceEditor.redeyeAreas.push({ rect64: boxToRect64({ x, y, w: 0.01, h: 0.01 }) });
+    faceEditor.pendingNewRedeyeIdx = faceEditor.redeyeAreas.length - 1;
+    faceEditor.activeRedeyeIdx = faceEditor.pendingNewRedeyeIdx;
+    faceEditor.awaitingNewRedeyeDraw = false;
+    faceEditor.dragTarget = "redeye";
+    faceEditor.draggingIdx = faceEditor.pendingNewRedeyeIdx;
+    faceEditor.dragMode = "resize";
+    if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
     renderFaceRects();
     return;
   }
@@ -6536,14 +6724,16 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
   }
 
   if (faceEditor.draggingIdx < 0) return;
-  const cur = faceEditor.faces[faceEditor.draggingIdx];
+  const areaList = faceEditor.dragTarget === "redeye" ? faceEditor.redeyeAreas : faceEditor.faces;
+  const cur = areaList[faceEditor.draggingIdx];
   if (!cur) return;
   const b = rect64ToBox(cur.rect64);
+  const minSize = faceEditor.dragTarget === "redeye" ? 0.008 : 0.03;
   if (faceEditor.dragMode === "resize") {
     const rightPx = ev.clientX - p.left - (r.left - p.left);
     const bottomPx = ev.clientY - p.top - (r.top - p.top);
-    const w = Math.max(0.03, Math.min(1 - b.x, rightPx / Math.max(1, r.width) - b.x));
-    const h = Math.max(0.03, Math.min(1 - b.y, bottomPx / Math.max(1, r.height) - b.y));
+    const w = Math.max(minSize, Math.min(1 - b.x, rightPx / Math.max(1, r.width) - b.x));
+    const h = Math.max(minSize, Math.min(1 - b.y, bottomPx / Math.max(1, r.height) - b.y));
     cur.rect64 = boxToRect64({ x: b.x, y: b.y, w, h });
   } else {
     const xPx = ev.clientX - p.left - (r.left - p.left) - faceEditor.dragOffsetX;
@@ -6552,11 +6742,14 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
     const y = Math.max(0, Math.min(r.height - b.h * r.height, yPx)) / Math.max(1, r.height);
     cur.rect64 = boxToRect64({ x, y, w: b.w, h: b.h });
   }
+  if (faceEditor.dragTarget === "redeye") refreshRedeyeDraft();
   renderFaceRects();
 });
 window.addEventListener('pointerup', () => {
   const finishedNew = faceEditor.pendingNewFaceIdx >= 0 ? faceEditor.pendingNewFaceIdx : -1;
+  const finishedNewRedeye = faceEditor.pendingNewRedeyeIdx >= 0 ? faceEditor.pendingNewRedeyeIdx : -1;
   faceEditor.draggingIdx = -1;
+  faceEditor.dragTarget = "";
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
   faceEditor.cropMode = "move";
@@ -6569,6 +6762,12 @@ window.addEventListener('pointerup', () => {
     el.faceLabelRow.classList.remove("hidden");
     el.faceFaceLabelInput.value = "";
     el.faceFaceLabelInput.focus();
+  }
+  if (finishedNewRedeye >= 0 && faceEditor.redeyeAreas[finishedNewRedeye]) {
+    faceEditor.activeRedeyeIdx = finishedNewRedeye;
+    faceEditor.pendingNewRedeyeIdx = -1;
+    refreshRedeyeDraft();
+    el.faceEditorStatus.textContent = "Red-eye area added.";
   }
 });
 el.btnFaceSave.onclick = async () => {
