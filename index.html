@@ -6196,22 +6196,16 @@ const autoFindRedeyeAreas = () => {
     const rx = Math.max(0, Math.floor(region.x * w));
     const ry = Math.max(0, Math.floor(region.y * h));
     const rw = Math.max(8, Math.floor(region.w * w));
-    const rh = Math.max(8, Math.floor(region.h * h * 0.7));
-    const eyeBandTop = ry + rh * 0.16;
-    const eyeBandBottom = ry + rh * 0.62;
+    const rh = Math.max(8, Math.floor(region.h * h));
     const mid = rx + rw / 2;
     const buckets = { left: [], right: [] };
     for (let yy = ry; yy < Math.min(h, ry + rh); yy++) {
-      if (yy < eyeBandTop || yy > eyeBandBottom) continue;
       for (let xx = rx; xx < Math.min(w, rx + rw); xx++) {
         const i = (yy * w + xx) * 4;
         const r = data[i], g = data[i + 1], b = data[i + 2];
         if (r < 55) continue;
-        const intensity = (r + g + b) / 3;
-        if (intensity < 18 || intensity > 205) continue;
-        if (g > 170 || b > 170) continue;
-        const score = (r - ((g + b) / 2)) / Math.max(1, intensity);
-        if (score < 0.22 || r < g * 1.32 || r < b * 1.32) continue;
+        const score = (r - ((g + b) / 2)) / Math.max(1, (r + g + b) / 3);
+        if (score < 0.18 || r < g * 1.28 || r < b * 1.28) continue;
         (xx < mid ? buckets.left : buckets.right).push({ x: xx, y: yy, s: score });
       }
     }
