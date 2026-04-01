@@ -72,7 +72,7 @@
     .redeyeRect { position:absolute; border:2px solid #ff4d4f; background:rgba(255,77,79,.14); cursor:move; touch-action:none; }
     .redeyeRect.active { border-color:#ffd166; background:rgba(255,209,102,.2); }
     .redeyeRemoveBtn { position:absolute; top:-10px; right:-10px; width:20px; height:20px; border-radius:50%; border:1px solid #111; background:#ff4d4f; color:#fff; cursor:pointer; line-height:18px; font-size:12px; }
-    .redeyeDebugRect { position:absolute; border:1px dashed #ffd166; background:rgba(255,209,102,.08); pointer-events:none; }
+    .redeyeOverlayCanvas { position:absolute; pointer-events:none; z-index:4; }
     .cropRect { position:absolute; border:2px solid #8ce99a; background:rgba(140,233,154,.16); cursor:move; touch-action:none; }
     .slideFaceLayer { position:absolute; inset:0; pointer-events:none; }
     .slideFaceRect { position:absolute; border:2px solid #ffd166; background:rgba(255,209,102,.18); }
@@ -333,8 +333,7 @@
             <button id="btnClearRedeyeAreas">Clear areas</button>
             <button id="btnApplyRedeyeFilter">Apply red-eye filter</button>
           </div>
-          <label style="display:flex; align-items:center; gap:8px;"><input id="faceRedeyePairMode" type="checkbox" checked style="width:auto;">If one eye is found, also add its pair</label>
-          <div class="status">Draw small rectangles over pupils, then apply.</div>
+          <div class="status">Auto-detect uses MediaPipe iris landmarks + pixel analysis. You can still add/adjust areas manually.</div>
           <div class="mono">Areas: <span id="faceRedeyeCount">0</span></div>
         </div>
         <label class="hidden" id="faceFaceSelectWrap">Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
@@ -3433,7 +3432,6 @@ const el = {
   faceDirTintAlphaValue: document.getElementById("faceDirTintAlphaValue"),
   faceDirTintColorInput: document.getElementById("faceDirTintColorInput"),
   faceRedeyeCount: document.getElementById("faceRedeyeCount"),
-  faceRedeyePairMode: document.getElementById("faceRedeyePairMode"),
   faceFinetuneSwatch: document.getElementById("faceFinetuneSwatch"),
   btnFaceFinetunePickNeutral: document.getElementById("btnFaceFinetunePickNeutral"),
   btnFaceFinetuneClearNeutral: document.getElementById("btnFaceFinetuneClearNeutral"),
@@ -3919,7 +3917,7 @@ const faceEditor = {
   dragTarget: "",
   zoom: 1,
   tiltDraft: 0,
-  redeyePairMode: true
+  redeyeDetectionDebug: []
 };
 function rect64ToBox(rect64) {
   const s = String(rect64 || "");
@@ -4185,10 +4183,10 @@ async function refreshEditorPreview(previewFilters = null) {
 
 function renderFaceRects() {
   el.faceCanvasWrap.querySelectorAll('.faceRect, .redeyeRect, .cropRect, .editorTextBox, .ghostFaceRect').forEach((n) => n.remove());
-  const r = el.faceCanvasImg.getBoundingClientRect();
-  const p = el.faceCanvasWrap.getBoundingClientRect();
+  const m = getFaceStageMetrics();
+  const r = m.imgRect;
   faceEditor.displayW = r.width; faceEditor.displayH = r.height;
-  const offsetX = r.left - p.left; const offsetY = r.top - p.top;
+  const offsetX = m.offsetX; const offsetY = m.offsetY;
   if (faceEditor.cropUiVisible && faceEditor.cropRect64) {
     const cb = rect64ToBox(faceEditor.cropRect64);
     const c = document.createElement('div');
@@ -4352,10 +4350,103 @@ function renderFaceRects() {
     }
     el.faceCanvasWrap.appendChild(box);
   });
+  renderRedeyeDebugOverlay();
 }
 
 const FACE_API_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
 const FACE_API_MODEL_URL = "https://justadudewhohacks.github.io/face-api.js/models";
+const MEDIAPIPE_TASKS_VISION_URL = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+const MEDIAPIPE_WASM_ROOT = "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm";
+const REDEYE_DEFAULTS = Object.freeze({
+  minBrightness: 42,
+  rednessThreshold: 0.20,
+  minRedPixels: 14,
+  minSuspiciousRatio: 0.045,
+  minConfidence: 0.16,
+  irisExpansion: 1.75,
+  redGreenFactor: 1.15,
+  redBlueFactor: 1.15
+});
+const LEFT_IRIS = [468, 469, 470, 471, 472];
+const RIGHT_IRIS = [473, 474, 475, 476, 477];
+const LEFT_EYE_CONTOUR = [33, 7, 163, 144, 145, 153, 154, 155, 133, 173, 157, 158, 159, 160, 161, 246];
+const RIGHT_EYE_CONTOUR = [362, 382, 381, 380, 374, 373, 390, 249, 263, 466, 388, 387, 386, 385, 384, 398];
+let mediapipeVisionModule = null;
+let mediapipeFaceLandmarker = null;
+let mediapipeLoadPromise = null;
+
+function getFaceStageMetrics() {
+  const imgRect = el.faceCanvasImg.getBoundingClientRect();
+  const wrapRect = el.faceCanvasWrap.getBoundingClientRect();
+  const width = Math.max(1, Math.round(imgRect.width || 0));
+  const height = Math.max(1, Math.round(imgRect.height || 0));
+  return {
+    imgRect,
+    wrapRect,
+    width,
+    height,
+    offsetX: imgRect.left - wrapRect.left,
+    offsetY: imgRect.top - wrapRect.top
+  };
+}
+
+function ensureRedeyeOverlayCanvas() {
+  if (!faceEditor.redeyeOverlayCanvas || !faceEditor.redeyeOverlayCanvas.isConnected) {
+    const c = document.createElement("canvas");
+    c.className = "redeyeOverlayCanvas";
+    faceEditor.redeyeOverlayCanvas = c;
+    el.faceCanvasWrap.appendChild(c);
+  }
+  return faceEditor.redeyeOverlayCanvas;
+}
+
+function renderRedeyeDebugOverlay() {
+  const overlay = ensureRedeyeOverlayCanvas();
+  const m = getFaceStageMetrics();
+  overlay.style.left = `${m.offsetX}px`;
+  overlay.style.top = `${m.offsetY}px`;
+  overlay.width = m.width;
+  overlay.height = m.height;
+  overlay.style.width = `${m.width}px`;
+  overlay.style.height = `${m.height}px`;
+  const ctx = overlay.getContext("2d");
+  ctx.clearRect(0, 0, m.width, m.height);
+  const debug = Array.isArray(faceEditor.redeyeDetectionDebug) ? faceEditor.redeyeDetectionDebug : [];
+  if (!debug.length) return;
+  ctx.lineWidth = 1.5;
+  ctx.font = "12px monospace";
+  for (const eye of debug) {
+    const clr = eye.isRedeye ? "#ff4d4f" : "#4cc9f0";
+    ctx.strokeStyle = clr;
+    ctx.beginPath();
+    ctx.arc(eye.centerPx.x, eye.centerPx.y, eye.searchRadiusPx, 0, Math.PI * 2);
+    ctx.stroke();
+    if (Array.isArray(eye.eyeContourPx) && eye.eyeContourPx.length) {
+      ctx.beginPath();
+      ctx.moveTo(eye.eyeContourPx[0].x, eye.eyeContourPx[0].y);
+      for (let i = 1; i < eye.eyeContourPx.length; i++) ctx.lineTo(eye.eyeContourPx[i].x, eye.eyeContourPx[i].y);
+      ctx.closePath();
+      ctx.stroke();
+    }
+    if (Array.isArray(eye.irisPx) && eye.irisPx.length) {
+      ctx.strokeStyle = "#ffd166";
+      ctx.beginPath();
+      ctx.moveTo(eye.irisPx[0].x, eye.irisPx[0].y);
+      for (let i = 1; i < eye.irisPx.length; i++) ctx.lineTo(eye.irisPx[i].x, eye.irisPx[i].y);
+      ctx.closePath();
+      ctx.stroke();
+    }
+    ctx.fillStyle = "rgba(255,77,79,0.33)";
+    for (const p of eye.suspiciousPixels || []) ctx.fillRect(p.x, p.y, 1, 1);
+    ctx.fillStyle = "rgba(0,0,0,.65)";
+    const label = `${eye.side} conf=${eye.confidence.toFixed(2)} ${eye.isRedeye ? "RED" : "OK"}`;
+    const lw = Math.ceil(ctx.measureText(label).width) + 8;
+    const ly = Math.max(12, eye.centerPx.y - eye.searchRadiusPx - 8);
+    ctx.fillRect(Math.max(0, eye.centerPx.x - lw / 2), ly - 12, lw, 14);
+    ctx.fillStyle = "#fff";
+    ctx.fillText(label, Math.max(1, eye.centerPx.x - lw / 2 + 4), ly - 2);
+  }
+}
 let faceApiLoadPromise = null;
 let faceApiModelsPromise = null;
 
@@ -4567,8 +4658,7 @@ function openFaceEditor(imageItem) {
   faceEditor.activeRedeyeIdx = -1;
   faceEditor.awaitingNewRedeyeDraw = false;
   faceEditor.pendingNewRedeyeIdx = -1;
-  faceEditor.redeyePairMode = true;
-  if (el.faceRedeyePairMode) el.faceRedeyePairMode.checked = true;
+  faceEditor.redeyeDetectionDebug = [];
   if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
   faceEditor.zoom = 1;
   faceEditor.tiltDraft = 0;
@@ -4656,7 +4746,7 @@ function closeFaceEditor() {
   faceEditor.activeRedeyeIdx = -1;
   faceEditor.awaitingNewRedeyeDraw = false;
   faceEditor.pendingNewRedeyeIdx = -1;
-  faceEditor.redeyePairMode = true;
+  faceEditor.redeyeDetectionDebug = [];
   faceEditor.selectedAlbumTokens = new Set();
   if (faceEditor.previewUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewUrl);
   if (faceEditor.previewDraftUrl?.startsWith("blob:")) URL.revokeObjectURL(faceEditor.previewDraftUrl);
@@ -6171,86 +6261,138 @@ const refreshRedeyeDraft = () => {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 };
-const autoFindRedeyeAreas = () => {
+const pointInPolygon = (x, y, poly) => {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i].x, yi = poly[i].y, xj = poly[j].x, yj = poly[j].y;
+    const intersect = ((yi > y) !== (yj > y)) && (x < ((xj - xi) * (y - yi)) / ((yj - yi) || 1e-6) + xi);
+    if (intersect) inside = !inside;
+  }
+  return inside;
+};
+const percentile = (arr, q) => {
+  if (!arr.length) return 0;
+  const s = arr.slice().sort((a, b) => a - b);
+  return s[Math.min(s.length - 1, Math.max(0, Math.floor((s.length - 1) * q)))];
+};
+async function getMediapipeFaceLandmarker() {
+  if (mediapipeFaceLandmarker) return mediapipeFaceLandmarker;
+  if (!mediapipeLoadPromise) {
+    mediapipeLoadPromise = (async () => {
+      mediapipeVisionModule = await import(MEDIAPIPE_TASKS_VISION_URL);
+      const resolver = await mediapipeVisionModule.FilesetResolver.forVisionTasks(MEDIAPIPE_WASM_ROOT);
+      const make = async (delegate) => mediapipeVisionModule.FaceLandmarker.createFromOptions(resolver, {
+        baseOptions: { modelAssetPath: "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task", delegate },
+        outputFaceBlendshapes: false,
+        outputFacialTransformationMatrixes: false,
+        numFaces: 6,
+        runningMode: "IMAGE"
+      });
+      try { mediapipeFaceLandmarker = await make("GPU"); }
+      catch { mediapipeFaceLandmarker = await make("CPU"); }
+      return mediapipeFaceLandmarker;
+    })();
+  }
+  return mediapipeLoadPromise;
+}
+function analyzeEyeRedeye(mesh, eyeCfg, ctx, w, h, params) {
+  const irisPx = eyeCfg.iris.map((idx) => mesh[idx]).filter(Boolean).map((p) => ({ x: p.x * w, y: p.y * h }));
+  const eyeContourPx = eyeCfg.contour.map((idx) => mesh[idx]).filter(Boolean).map((p) => ({ x: p.x * w, y: p.y * h }));
+  if (irisPx.length < 3 || eyeContourPx.length < 3) return null;
+  const centerPx = irisPx.reduce((a, p) => ({ x: a.x + p.x / irisPx.length, y: a.y + p.y / irisPx.length }), { x: 0, y: 0 });
+  const irisRadiusPx = irisPx.reduce((s, p) => s + Math.hypot(p.x - centerPx.x, p.y - centerPx.y), 0) / irisPx.length;
+  const searchRadiusPx = Math.max(2, irisRadiusPx * params.irisExpansion);
+  const sx = Math.max(0, Math.floor(centerPx.x - searchRadiusPx));
+  const sy = Math.max(0, Math.floor(centerPx.y - searchRadiusPx));
+  const ex = Math.min(w - 1, Math.ceil(centerPx.x + searchRadiusPx));
+  const ey = Math.min(h - 1, Math.ceil(centerPx.y + searchRadiusPx));
+  const imgData = ctx.getImageData(sx, sy, ex - sx + 1, ey - sy + 1).data;
+  const suspiciousPixels = [];
+  const candidateScores = [];
+  for (let y = sy; y <= ey; y++) {
+    for (let x = sx; x <= ex; x++) {
+      const dx = x - centerPx.x, dy = y - centerPx.y;
+      if ((dx * dx + dy * dy) > (searchRadiusPx * searchRadiusPx)) continue;
+      if (!pointInPolygon(x, y, eyeContourPx)) continue;
+      const i = ((y - sy) * (ex - sx + 1) + (x - sx)) * 4;
+      const a = imgData[i + 3], r = imgData[i], g = imgData[i + 1], b = imgData[i + 2];
+      if (a < 8) continue;
+      const brightness = (r + g + b) / 3;
+      if (brightness < params.minBrightness) continue;
+      const score = (r - ((g + b) * 0.5)) / Math.max(1, brightness);
+      candidateScores.push(score);
+      if (score >= params.rednessThreshold && r >= g * params.redGreenFactor && r >= b * params.redBlueFactor) suspiciousPixels.push({ x, y, score });
+    }
+  }
+  const suspiciousRatio = suspiciousPixels.length / Math.max(1, candidateScores.length);
+  const meanCandidateScore = candidateScores.reduce((s, n) => s + n, 0) / Math.max(1, candidateScores.length);
+  const peakScore95 = percentile(candidateScores, 0.95);
+  const confidence = Math.max(0, Math.min(1, suspiciousRatio * 0.55 + meanCandidateScore * 0.25 + peakScore95 * 0.2));
+  const isRedeye = suspiciousPixels.length >= params.minRedPixels && suspiciousRatio >= params.minSuspiciousRatio && confidence >= params.minConfidence;
+  const basePts = suspiciousPixels.length ? suspiciousPixels : [{ x: centerPx.x - irisRadiusPx, y: centerPx.y - irisRadiusPx }, { x: centerPx.x + irisRadiusPx, y: centerPx.y + irisRadiusPx }];
+  const minX = Math.min(...basePts.map((p) => p.x)), minY = Math.min(...basePts.map((p) => p.y));
+  const maxX = Math.max(...basePts.map((p) => p.x)), maxY = Math.max(...basePts.map((p) => p.y));
+  return {
+    side: eyeCfg.side,
+    centerPx,
+    irisPx,
+    eyeContourPx,
+    searchRadiusPx,
+    suspiciousPixels,
+    suspiciousRatio,
+    meanCandidateScore,
+    peakScore95,
+    confidence,
+    isRedeye,
+    box: {
+      x: Math.max(0, (minX - 2) / w),
+      y: Math.max(0, (minY - 2) / h),
+      w: Math.max(0.01, Math.min(1, (maxX - minX + 4) / w)),
+      h: Math.max(0.01, Math.min(1, (maxY - minY + 4) / h))
+    }
+  };
+}
+const autoFindRedeyeAreas = async () => {
   const img = el.faceCanvasImg;
-  const displayedW = Math.max(1, Math.round(img.clientWidth || 0));
-  const displayedH = Math.max(1, Math.round(img.clientHeight || 0));
-  const w = displayedW || Math.max(1, img.naturalWidth || 1);
-  const h = displayedH || Math.max(1, img.naturalHeight || 1);
+  const w = Math.max(1, Math.round(img.clientWidth || 0));
+  const h = Math.max(1, Math.round(img.clientHeight || 0));
   const c = document.createElement("canvas");
-  c.width = w;
-  c.height = h;
+  c.width = w; c.height = h;
   const ctx = c.getContext("2d", { willReadFrequently: true });
-  // Analyze in the same coordinate space used by interactive overlays (display space),
-  // so normalized boxes align even when the image is letterboxed/smaller than the editor area.
   ctx.drawImage(img, 0, 0, w, h);
-  const data = ctx.getImageData(0, 0, w, h).data;
-
-  const regions = [];
-  const seedRegions = (faceEditor.faces || []).map((f) => rect64ToBox(f.rect64));
-  if (seedRegions.length) regions.push(...seedRegions);
-  else if ((faceEditor.detectedFaces || []).length) regions.push(...faceEditor.detectedFaces.map((b) => ({ x: b.x, y: b.y, w: b.w, h: b.h })));
-  else regions.push({ x: 0.15, y: 0.08, w: 0.7, h: 0.45 });
-
-  const out = [];
-  for (const region of regions) {
-    const rx = Math.max(0, Math.floor(region.x * w));
-    const ry = Math.max(0, Math.floor(region.y * h));
-    const rw = Math.max(8, Math.floor(region.w * w));
-    const rh = Math.max(8, Math.floor(region.h * h));
-    const mid = rx + rw / 2;
-    const buckets = { left: [], right: [] };
-    for (let yy = ry; yy < Math.min(h, ry + rh); yy++) {
-      for (let xx = rx; xx < Math.min(w, rx + rw); xx++) {
-        const i = (yy * w + xx) * 4;
-        const r = data[i], g = data[i + 1], b = data[i + 2];
-        if (r < 55) continue;
-        const score = (r - ((g + b) / 2)) / Math.max(1, (r + g + b) / 3);
-        if (score < 0.18 || r < g * 1.28 || r < b * 1.28) continue;
-        (xx < mid ? buckets.left : buckets.right).push({ x: xx, y: yy, s: score });
+  try {
+    el.faceEditorStatus.textContent = "Loading MediaPipe FaceLandmarker…";
+    const fl = await getMediapipeFaceLandmarker();
+    el.faceEditorStatus.textContent = "Running iris-guided red-eye detection…";
+    const result = fl.detect(c);
+    const debug = [];
+    const out = [];
+    for (const mesh of (result?.faceLandmarks || [])) {
+      const left = analyzeEyeRedeye(mesh, { side: "left", iris: LEFT_IRIS, contour: LEFT_EYE_CONTOUR }, ctx, w, h, REDEYE_DEFAULTS);
+      const right = analyzeEyeRedeye(mesh, { side: "right", iris: RIGHT_IRIS, contour: RIGHT_EYE_CONTOUR }, ctx, w, h, REDEYE_DEFAULTS);
+      for (const eye of [left, right]) {
+        if (!eye) continue;
+        debug.push(eye);
+        if (eye.isRedeye) out.push(eye.box);
       }
     }
-    const mkArea = (pts) => {
-      if (pts.length < 6) return null;
-      let sx = 0, sy = 0, sw = 0;
-      for (const p of pts) { sx += p.x * p.s; sy += p.y * p.s; sw += p.s; }
-      if (sw <= 0) return null;
-      const cx = sx / sw, cy = sy / sw;
-      let varR = 0;
-      for (const p of pts) {
-        const dx = p.x - cx, dy = p.y - cy;
-        varR += (dx * dx + dy * dy) * p.s;
-      }
-      varR /= Math.max(sw, 1e-6);
-      const rr = Math.max(3, Math.min(Math.min(rw, rh) * 0.08, Math.sqrt(varR) * 1.9));
-      return {
-        x: Math.max(0, (cx - rr) / w),
-        y: Math.max(0, (cy - rr) / h),
-        w: Math.min(1, (rr * 2) / w),
-        h: Math.min(1, (rr * 2) / h)
-      };
-    };
-    const leftArea = mkArea(buckets.left);
-    const rightArea = mkArea(buckets.right);
-    if (leftArea) out.push(leftArea);
-    if (rightArea) out.push(rightArea);
-    if (faceEditor.redeyePairMode) {
-      if (leftArea && !rightArea) out.push({ ...leftArea, x: Math.max(0, Math.min(1 - leftArea.w, ((2 * region.x + region.w) - (leftArea.x + leftArea.w)))) });
-      if (rightArea && !leftArea) out.push({ ...rightArea, x: Math.max(0, Math.min(1 - rightArea.w, ((2 * region.x + region.w) - (rightArea.x + rightArea.w)))) });
+    const dedup = [];
+    for (const b of out) {
+      const key = `${Math.round(b.x * 1000)}:${Math.round(b.y * 1000)}:${Math.round(b.w * 1000)}:${Math.round(b.h * 1000)}`;
+      if (dedup.some((d) => d.key === key)) continue;
+      dedup.push({ key, box: b });
     }
+    faceEditor.redeyeAreas = dedup.slice(0, 16).map((it) => ({ rect64: boxToRect64(it.box) }));
+    faceEditor.redeyeDetectionDebug = debug;
+    faceEditor.activeRedeyeIdx = -1;
+    refreshRedeyeDraft();
+    renderFaceRects();
+    el.faceEditorStatus.textContent = faceEditor.redeyeAreas.length ? `Auto-found ${faceEditor.redeyeAreas.length} red-eye area(s) via iris landmarks.` : "No red-eye areas detected via iris landmarks.";
+  } catch (e) {
+    faceEditor.redeyeDetectionDebug = [];
+    renderFaceRects();
+    el.faceEditorStatus.textContent = `Red-eye detection failed: ${String(e?.message || e)}`;
   }
-
-  const dedup = [];
-  for (const b of out) {
-    const key = `${Math.round(b.x * 1000)}:${Math.round(b.y * 1000)}:${Math.round(b.w * 1000)}:${Math.round(b.h * 1000)}`;
-    if (dedup.some((d) => d.key === key)) continue;
-    dedup.push({ key, box: b });
-  }
-  faceEditor.redeyeAreas = dedup.slice(0, 12).map((it) => ({ rect64: boxToRect64(it.box) }));
-  faceEditor.activeRedeyeIdx = -1;
-  refreshRedeyeDraft();
-  renderFaceRects();
-  el.faceEditorStatus.textContent = faceEditor.redeyeAreas.length ? `Auto-found ${faceEditor.redeyeAreas.length} red-eye area(s).` : "No red-eye areas auto-detected.";
 };
 
 el.btnApplySepiaFilter.onclick = () => applyNoParamFilter("sepia=1");
@@ -6552,11 +6694,9 @@ el.btnAddRedeyeArea.onclick = () => {
 el.btnAutoFindRedeyeAreas.onclick = () => {
   autoFindRedeyeAreas();
 };
-el.faceRedeyePairMode.oninput = () => {
-  faceEditor.redeyePairMode = !!el.faceRedeyePairMode.checked;
-};
 el.btnClearRedeyeAreas.onclick = () => {
   faceEditor.redeyeAreas = [];
+  faceEditor.redeyeDetectionDebug = [];
   faceEditor.activeRedeyeIdx = -1;
   faceEditor.awaitingNewRedeyeDraw = false;
   refreshRedeyeDraft();
