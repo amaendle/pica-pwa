@@ -3328,8 +3328,18 @@ const state = {
   thumbUrlLruMax: 1200,
   rawThumbObserver: null,
   tileThumbObserver: null,
-  galleryMode: "images"
+  galleryMode: "images",
+  navRequestSeq: 0,
+  activeNavRequestId: 0
 };
+function beginNavRequest() {
+  const id = ++state.navRequestSeq;
+  state.activeNavRequestId = id;
+  return id;
+}
+function isNavRequestActive(id) {
+  return id === state.activeNavRequestId;
+}
 /** ===========================
  *  UI elements
  *  =========================== */
@@ -5642,6 +5652,7 @@ function escapeHtml(s) {
  *  Select item -> show tiles
  *  =========================== */
 async function selectAlbum(idx) {
+  const navRequestId = beginNavRequest();
   const album = state.albums[idx];
   if (!album) return;
   console.log("[selectAlbum]", { idx, source: album.source || "pmp", token: album.token, pathRel: album.pathRel, hasRefs: Array.isArray(album.imageRefs) ? album.imageRefs.length : null });
@@ -5656,15 +5667,19 @@ async function selectAlbum(idx) {
   if (album.source === "ini" || album.source === "system") {
     const refs = Array.isArray(album.imageRefs) ? album.imageRefs : [];
     let images = await listImagesForAlbumRefs(refs);
+    if (!isNavRequestActive(navRequestId)) return;
     if (!images.length && album.pathRel && state.dirIndex?.has(album.pathRel)) {
       const loaded = await listImagesInDirectory(state.dirIndex.get(album.pathRel), album.pathRel, { album });
+      if (!isNavRequestActive(navRequestId)) return;
       images = loaded.images;
     }
     setPicasaLog(`INI album token=${album.token} refs=${refs.length}`);
     el.resolvePill.textContent = `INI album (${refs.length} refs)`;
     await upsertIndexedImages(images);
-    await renderTiles(images);
-  ensureSpecialAlbums();
+    if (!isNavRequestActive(navRequestId)) return;
+    await renderTiles(images, navRequestId);
+    if (!isNavRequestActive(navRequestId)) return;
+    ensureSpecialAlbums();
     console.log("[selectAlbum] ini images loaded", { count: images.length, token: album.token, pathRel: album.pathRel });
     setStatus(images.length ? "Ready." : "No images found for this INI album.", images.length ? "ok" : "warn");
     return;
@@ -5674,10 +5689,12 @@ async function selectAlbum(idx) {
     setStatus("This album path could not be resolved under the selected library root. (Absolute path mismatch)", "err");
     return;
   }
-  await showImagesForResolvedPath(album.pathRel, `Resolved: ${album.pathRel}`, { album });
+  await showImagesForResolvedPath(album.pathRel, `Resolved: ${album.pathRel}`, { album }, navRequestId);
+  if (!isNavRequestActive(navRequestId)) return;
   console.log("[selectAlbum] pmp album loaded", { token: album.token, pathRel: album.pathRel });
 }
 async function selectFolder(idx) {
+  const navRequestId = beginNavRequest();
   const folder = state.folderNavItems[idx];
   if (!folder) return;
   state.currentViewMode = "folders";
@@ -5687,7 +5704,7 @@ async function selectFolder(idx) {
   } else {
     state.folderBrowserPath = folder.pathRel;
   }
-  await openFolderPath(state.folderBrowserPath);
+  await openFolderPath(state.folderBrowserPath, navRequestId);
 }
 function parentPath(relPath) {
   const segs = (relPath || "").split("/").filter(Boolean);
@@ -5715,7 +5732,8 @@ function listSubdirectories(relPath) {
   children.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
   return children;
 }
-async function openFolderPath(pathRel) {
+async function openFolderPath(pathRel, navRequestId = beginNavRequest()) {
+  if (!isNavRequestActive(navRequestId)) return;
   if (!state.dirIndex || !state.dirIndex.has(pathRel)) {
     setStatus("Folder path could not be resolved in the selected library.", "err");
     return;
@@ -5737,9 +5755,10 @@ async function openFolderPath(pathRel) {
   el.viewTitle.textContent = `Folder: ${folderLabel}`;
   el.albumMetaPill.textContent = "";
   refreshAlbumNameEditor();
-  await showImagesForResolvedPath(pathRel, `Folder: ${folderLabel}`);
+  await showImagesForResolvedPath(pathRel, `Folder: ${folderLabel}`, {}, navRequestId);
 }
-async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
+async function showImagesForResolvedPath(pathRel, pillText, options = {}, navRequestId = state.activeNavRequestId) {
+  if (!isNavRequestActive(navRequestId)) return;
   el.resolvePill.textContent = pillText;
   setStatus("Loading images…", "warn");
   const dirHandle = state.dirIndex.get(pathRel);
@@ -5748,9 +5767,12 @@ async function showImagesForResolvedPath(pathRel, pillText, options = {}) {
     return;
   }
   const { images, picasa } = await listImagesInDirectory(dirHandle, pathRel, options);
+  if (!isNavRequestActive(navRequestId)) return;
   await upsertIndexedImages(images);
+  if (!isNavRequestActive(navRequestId)) return;
   setPicasaLog(formatPicasaLog(pathRel, picasa, options.album?.token ? String(options.album.token) : ""));
-  await renderTiles(images);
+  await renderTiles(images, navRequestId);
+  if (!isNavRequestActive(navRequestId)) return;
   ensureSpecialAlbums();
   await saveLibrarySnapshot({
     id: state.libraryId,
@@ -5810,7 +5832,8 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
   return { images: out, picasa };
 }
 /** Render tiles with thumbnails */
-async function renderTiles(images) {
+async function renderTiles(images, navRequestId = state.activeNavRequestId) {
+  if (!isNavRequestActive(navRequestId)) return;
   state.galleryMode = "images";
   if (el.btnShowAllThumbs) el.btnShowAllThumbs.textContent = "Show all thumbnails";
   state.currentImages = images;
@@ -5834,11 +5857,14 @@ async function renderTiles(images) {
   const selectedSourceGlobal = String(state.prefs.thumbSource || "generated");
   if (THUMB_DB_SOURCES.includes(selectedSourceGlobal)) {
     await ensureThumbSourceLoaded(selectedSourceGlobal);
+    if (!isNavRequestActive(navRequestId)) return;
   }
   const batch = 24;
   for (let i=0; i<images.length; i+=batch) {
+    if (!isNavRequestActive(navRequestId)) return;
     const slice = images.slice(i, i+batch);
     const nodes = await Promise.all(slice.map(async (it, localIndex) => {
+      if (!isNavRequestActive(navRequestId)) return null;
       const tile = document.createElement("div");
       tile.className = "tile";
       if (!it.naturalW || !it.naturalH) {
@@ -5944,7 +5970,8 @@ async function renderTiles(images) {
       tile.onclick = () => openSlideshow(absoluteIndex);
       return tile;
     }));
-    for (const n of nodes) el.grid.appendChild(n);
+    if (!isNavRequestActive(navRequestId)) return;
+    for (const n of nodes) { if (n) el.grid.appendChild(n); }
     // Yield to UI
     await new Promise(r => setTimeout(r, 0));
   }
