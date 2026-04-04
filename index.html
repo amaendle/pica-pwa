@@ -4700,6 +4700,46 @@ function attachMapDebugListeners(map, label = "map") {
     console.log(`[${label}] center/zoom`, map.getCenter(), map.getZoom());
   };
 }
+class LayerVisibilityToggleControl {
+  constructor(getMode, setMode) {
+    this.getMode = getMode;
+    this.setMode = setMode;
+  }
+  onAdd(map) {
+    this.map = map;
+    this.container = document.createElement("div");
+    this.container.className = "maplibregl-ctrl maplibregl-ctrl-group";
+    this.button = document.createElement("button");
+    this.button.type = "button";
+    this.button.title = "Toggle basemap";
+    this.button.innerHTML = "🛰️";
+    this.button.onclick = () => {
+      const cur = this.getMode();
+      const next = cur === "map" ? "satellite" : "map";
+      this.setMode(next);
+    };
+    this.container.appendChild(this.button);
+    return this.container;
+  }
+  onRemove() {
+    this.container?.parentNode?.removeChild(this.container);
+    this.map = undefined;
+  }
+}
+function setFaceMapBasemap(kind = "map") {
+  const mode = kind === "satellite" ? "satellite" : "map";
+  localStorage.setItem(FACE_GEO_STORAGE_KEYS.basemap, mode);
+  if (faceEditor.geoMap) {
+    faceEditor.geoMap.setStyle(geoStyleFor(mode));
+    faceEditor.geoMap.once("style.load", () => {
+      faceEditor.geoMap.resize();
+      faceEditor.geoMap.triggerRepaint();
+      syncFaceGeoButtons();
+    });
+  } else {
+    syncFaceGeoButtons();
+  }
+}
 function ensureFaceGeoMap() {
   if (!window.maplibregl) return;
   if (faceEditor.geoMap) return;
@@ -4710,6 +4750,7 @@ function ensureFaceGeoMap() {
   attachMapDebugListeners(faceEditor.geoMap, "face-map");
   faceEditor.geoMap.doubleClickZoom.disable();
   faceEditor.geoMap.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
+  faceEditor.geoMap.addControl(new LayerVisibilityToggleControl(() => localStorage.getItem(FACE_GEO_STORAGE_KEYS.basemap) || "map", (mode) => setFaceMapBasemap(mode)), "top-right");
   faceEditor.geoMap.addControl(new maplibregl.GlobeControl(), "top-right");
   faceEditor.geoMap.on("load", () => {
     faceEditor.geoMap.setProjection({ type: projection === "globe" ? "globe" : "mercator" });
@@ -4745,14 +4786,29 @@ function syncFaceGeoMarker() {
 function ensureGalleryMap() {
   if (!window.maplibregl) return null;
   if (state.galleryMap) return state.galleryMap;
+  const galleryBasemap = localStorage.getItem("gallery-map-basemap") || "map";
   state.galleryMap = new maplibregl.Map({
     container: el.galleryMap,
-    style: "https://tiles.openfreemap.org/styles/liberty",
+    style: galleryBasemap === "satellite" ? geoStyleFor("satellite") : "https://tiles.openfreemap.org/styles/liberty",
     center: [-20, 28],
     zoom: 2.2
   });
   attachMapDebugListeners(state.galleryMap, "gallery-map");
   state.galleryMap.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
+  state.galleryMap.addControl(new LayerVisibilityToggleControl(
+    () => localStorage.getItem("gallery-map-basemap") || "map",
+    (mode) => {
+      const m = mode === "satellite" ? "satellite" : "map";
+      localStorage.setItem("gallery-map-basemap", m);
+      state.galleryMap.setStyle(m === "satellite" ? geoStyleFor("satellite") : "https://tiles.openfreemap.org/styles/liberty");
+      state.galleryMap.once("style.load", () => {
+        state.galleryMap.resize();
+        state.galleryMap.triggerRepaint();
+        renderGalleryMapForCurrentImages();
+      });
+    }
+  ), "top-right");
+  state.galleryMap.addControl(new maplibregl.GlobeControl(), "top-right");
   state.galleryMap.on("load", () => {
     state.galleryMap.resize();
     state.galleryMap.triggerRepaint();
@@ -5109,8 +5165,8 @@ function openFaceEditor(imageItem) {
   });
   if (!imageItem.url) imageItem.url = URL.createObjectURL(imageItem.file);
   el.faceCanvasImg.onload = () => {
-    faceEditor.naturalW = el.faceCanvasImg.naturalWidth || 1;
-    faceEditor.naturalH = el.faceCanvasImg.naturalHeight || 1;
+    if (!Number.isFinite(faceEditor.naturalW) || faceEditor.naturalW <= 1) faceEditor.naturalW = el.faceCanvasImg.naturalWidth || 1;
+    if (!Number.isFinite(faceEditor.naturalH) || faceEditor.naturalH <= 1) faceEditor.naturalH = el.faceCanvasImg.naturalHeight || 1;
     recomputeFaceZoomMin();
     faceEditor.zoom = faceEditor.zoomMin;
     faceEditor.panX = 0;
@@ -7062,28 +7118,10 @@ el.btnFaceGeoClear.onclick = () => {
   syncFaceGeoMarker();
 };
 el.btnFaceGeoBasemapMap.onclick = () => {
-  localStorage.setItem(FACE_GEO_STORAGE_KEYS.basemap, "map");
-  if (faceEditor.geoMap) {
-    faceEditor.geoMap.setStyle(geoStyleFor("map"));
-    faceEditor.geoMap.once("style.load", () => {
-      faceEditor.geoMap.resize();
-      faceEditor.geoMap.triggerRepaint();
-      syncFaceGeoButtons();
-    });
-  }
-  syncFaceGeoButtons();
+  setFaceMapBasemap("map");
 };
 el.btnFaceGeoBasemapSat.onclick = () => {
-  localStorage.setItem(FACE_GEO_STORAGE_KEYS.basemap, "satellite");
-  if (faceEditor.geoMap) {
-    faceEditor.geoMap.setStyle(geoStyleFor("satellite"));
-    faceEditor.geoMap.once("style.load", () => {
-      faceEditor.geoMap.resize();
-      faceEditor.geoMap.triggerRepaint();
-      syncFaceGeoButtons();
-    });
-  }
-  syncFaceGeoButtons();
+  setFaceMapBasemap("satellite");
 };
 el.btnApplyRedeyeFilter.onclick = () => {
   const draft = refreshRedeyeDraft();
