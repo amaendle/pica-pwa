@@ -67,10 +67,10 @@
     .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
     .faceEditorBox { background:#1a1a1a; border:1px solid #333; border-radius:10px; padding:10px; width:min(90vw,1000px); height:min(90vh,760px); max-height:calc(100vh - 36px); display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:10px; }
     #faceEditorOverlay .faceEditorBox { width:calc(100vw - 16px); height:calc(100vh - 16px); max-width:none; max-height:none; }
-    .faceCanvasPane { min-height:0; display:flex; flex-direction:column; gap:8px; }
-    .faceCanvasWrap { position:relative; min-height:0; background:#000; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; touch-action:none; }
+    .faceCanvasPane { min-height:0; display:flex; flex-direction:column; gap:8px; height:100%; }
+    .faceCanvasWrap { position:relative; min-height:0; flex:1 1 auto; background:#000; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; touch-action:none; }
     .faceCanvasImg { max-width:100%; max-height:100%; user-select:none; }
-    .faceViewTools { border:1px solid #333; border-radius:8px; padding:8px; background:#111; display:grid; gap:6px; }
+    .faceViewTools { border:1px solid #333; border-radius:8px; padding:8px; background:#111; display:grid; gap:6px; margin-top:auto; }
     .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; touch-action:none; }
     .faceRectHandle { position:absolute; width:18px; height:18px; right:-10px; bottom:-10px; background:#fff; border:1px solid #111; border-radius:50%; cursor:nwse-resize; touch-action:none; }
     .redeyeRect { position:absolute; border:2px solid #ff4d4f; background:rgba(255,77,79,.14); cursor:move; touch-action:none; }
@@ -270,13 +270,6 @@
           <div class="geoMapRow">
             <button id="btnFaceGeoBasemapMap" type="button">Map</button>
             <button id="btnFaceGeoBasemapSat" type="button">Satellite</button>
-            <button id="btnFaceGeoProjectionFlat" type="button">Flat</button>
-            <button id="btnFaceGeoProjectionGlobe" type="button">Globe</button>
-          </div>
-          <div class="geoMapRow">
-            <input id="faceGeoPitchSlider" type="range" min="0" max="70" step="1" value="0">
-            <span id="faceGeoPitchValue" class="mono">0°</span>
-            <button id="btnFaceGeoPitchReset" type="button">Reset tilt</button>
           </div>
           <div id="faceGeoMap" class="geoMapBox"></div>
         </div>
@@ -3484,11 +3477,6 @@ const el = {
   btnFaceGeoClear: document.getElementById("btnFaceGeoClear"),
   btnFaceGeoBasemapMap: document.getElementById("btnFaceGeoBasemapMap"),
   btnFaceGeoBasemapSat: document.getElementById("btnFaceGeoBasemapSat"),
-  btnFaceGeoProjectionFlat: document.getElementById("btnFaceGeoProjectionFlat"),
-  btnFaceGeoProjectionGlobe: document.getElementById("btnFaceGeoProjectionGlobe"),
-  faceGeoPitchSlider: document.getElementById("faceGeoPitchSlider"),
-  faceGeoPitchValue: document.getElementById("faceGeoPitchValue"),
-  btnFaceGeoPitchReset: document.getElementById("btnFaceGeoPitchReset"),
   faceGeoMap: document.getElementById("faceGeoMap"),
   btnFaceStarToggle: document.getElementById("btnFaceStarToggle"),
   cropControls: document.getElementById("cropControls"),
@@ -4669,11 +4657,8 @@ function applyFaceGeotagToInputs(geo) {
 }
 function syncFaceGeoButtons() {
   const basemap = localStorage.getItem(FACE_GEO_STORAGE_KEYS.basemap) || "map";
-  const projection = localStorage.getItem(FACE_GEO_STORAGE_KEYS.projection) || "mercator";
   el.btnFaceGeoBasemapMap.classList.toggle("active", basemap === "map");
   el.btnFaceGeoBasemapSat.classList.toggle("active", basemap === "satellite");
-  el.btnFaceGeoProjectionFlat.classList.toggle("active", projection !== "globe");
-  el.btnFaceGeoProjectionGlobe.classList.toggle("active", projection === "globe");
 }
 function attachMapDebugListeners(map, label = "map") {
   if (!map || map.__debugListenersAttached) return;
@@ -4724,7 +4709,7 @@ function ensureFaceGeoMap() {
   faceEditor.geoMap = new maplibregl.Map({ container: el.faceGeoMap, style: geoStyleFor(basemap), center: [-20, 28], zoom: 2.2, pitch: Math.max(0, Math.min(70, pitch)), maxPitch: 70 });
   attachMapDebugListeners(faceEditor.geoMap, "face-map");
   faceEditor.geoMap.doubleClickZoom.disable();
-  faceEditor.geoMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
+  faceEditor.geoMap.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
   faceEditor.geoMap.addControl(new maplibregl.GlobeControl(), "top-right");
   faceEditor.geoMap.on("load", () => {
     faceEditor.geoMap.setProjection({ type: projection === "globe" ? "globe" : "mercator" });
@@ -4737,10 +4722,7 @@ function ensureFaceGeoMap() {
     syncFaceGeoMarker();
   });
   faceEditor.geoMap.on("pitchend", () => {
-    const p = Math.round(faceEditor.geoMap.getPitch());
-    el.faceGeoPitchSlider.value = String(p);
-    el.faceGeoPitchValue.textContent = `${p}°`;
-    localStorage.setItem(FACE_GEO_STORAGE_KEYS.pitch, String(p));
+    localStorage.setItem(FACE_GEO_STORAGE_KEYS.pitch, String(Math.round(faceEditor.geoMap.getPitch())));
   });
 }
 function syncFaceGeoMarker() {
@@ -4770,7 +4752,7 @@ function ensureGalleryMap() {
     zoom: 2.2
   });
   attachMapDebugListeners(state.galleryMap, "gallery-map");
-  state.galleryMap.addControl(new maplibregl.NavigationControl(), "top-right");
+  state.galleryMap.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
   state.galleryMap.on("load", () => {
     state.galleryMap.resize();
     state.galleryMap.triggerRepaint();
@@ -4815,17 +4797,38 @@ function renderGalleryMapForCurrentImages() {
       thumb.src = blobUrl;
     }
     const hint = document.createElement("div");
-    hint.textContent = "Click to open";
+    hint.textContent = "Open image:";
     hint.style.fontSize = "11px";
     hint.style.marginTop = "6px";
     hint.style.color = "#666";
-    popupWrap.appendChild(title);
-    popupWrap.appendChild(thumb);
-    popupWrap.appendChild(hint);
-    popupWrap.onclick = () => {
+    const btnRow = document.createElement("div");
+    btnRow.style.display = "flex";
+    btnRow.style.gap = "6px";
+    btnRow.style.marginTop = "6px";
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.textContent = "View";
+    openBtn.className = "miniBtn";
+    openBtn.onclick = (ev) => {
+      ev.stopPropagation();
       openSlideshow(idx);
       popup.remove();
     };
+    const editBtn = document.createElement("button");
+    editBtn.type = "button";
+    editBtn.textContent = "Edit";
+    editBtn.className = "miniBtn";
+    editBtn.onclick = (ev) => {
+      ev.stopPropagation();
+      openFaceEditor(it);
+      popup.remove();
+    };
+    popupWrap.appendChild(title);
+    popupWrap.appendChild(thumb);
+    popupWrap.appendChild(hint);
+    btnRow.appendChild(openBtn);
+    btnRow.appendChild(editBtn);
+    popupWrap.appendChild(btnRow);
     const popup = new maplibregl.Popup({ offset: 24 }).setDOMContent(popupWrap);
     const marker = new maplibregl.Marker().setLngLat([geo.lng, geo.lat]).setPopup(popup).addTo(map);
     state.galleryMapMarkers.push(marker);
@@ -5071,6 +5074,8 @@ function openFaceEditor(imageItem) {
   faceEditor.pmpLookAt = null;
   applyFaceGeotagToInputs(faceEditor.geotag);
   if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
+  faceEditor.naturalW = Math.max(1, Number(imageItem.naturalW) || faceEditor.naturalW || 1);
+  faceEditor.naturalH = Math.max(1, Number(imageItem.naturalH) || faceEditor.naturalH || 1);
   faceEditor.zoom = 1;
   faceEditor.zoomMin = 1;
   faceEditor.panX = 0;
@@ -5119,6 +5124,9 @@ function openFaceEditor(imageItem) {
   refreshEditorPreview();
   el.faceEditorOverlay.classList.add('show');
   el.faceEditorOverlay.setAttribute('aria-hidden', 'false');
+  recomputeFaceZoomMin();
+  faceEditor.zoom = faceEditor.zoomMin;
+  updateFaceCanvasTransform();
   ensureFaceGeoMap();
   if (faceEditor.geoMap) {
     setTimeout(() => {
@@ -5132,9 +5140,6 @@ function openFaceEditor(imageItem) {
         });
       }
       syncFaceGeoMarker();
-      const p = Math.round(faceEditor.geoMap.getPitch());
-      el.faceGeoPitchSlider.value = String(p);
-      el.faceGeoPitchValue.textContent = `${p}°`;
       syncFaceGeoButtons();
     }, 0);
   }
@@ -7079,28 +7084,6 @@ el.btnFaceGeoBasemapSat.onclick = () => {
     });
   }
   syncFaceGeoButtons();
-};
-el.btnFaceGeoProjectionFlat.onclick = () => {
-  localStorage.setItem(FACE_GEO_STORAGE_KEYS.projection, "mercator");
-  if (faceEditor.geoMap) faceEditor.geoMap.setProjection({ type: "mercator" });
-  syncFaceGeoButtons();
-};
-el.btnFaceGeoProjectionGlobe.onclick = () => {
-  localStorage.setItem(FACE_GEO_STORAGE_KEYS.projection, "globe");
-  if (faceEditor.geoMap) faceEditor.geoMap.setProjection({ type: "globe" });
-  syncFaceGeoButtons();
-};
-el.faceGeoPitchSlider.oninput = () => {
-  const pitch = Math.max(0, Math.min(70, Number(el.faceGeoPitchSlider.value) || 0));
-  el.faceGeoPitchValue.textContent = `${Math.round(pitch)}°`;
-  localStorage.setItem(FACE_GEO_STORAGE_KEYS.pitch, String(Math.round(pitch)));
-  if (faceEditor.geoMap) faceEditor.geoMap.setPitch(pitch);
-};
-el.btnFaceGeoPitchReset.onclick = () => {
-  el.faceGeoPitchSlider.value = "0";
-  el.faceGeoPitchValue.textContent = "0°";
-  localStorage.setItem(FACE_GEO_STORAGE_KEYS.pitch, "0");
-  if (faceEditor.geoMap) faceEditor.geoMap.easeTo({ pitch: 0, duration: 250 });
 };
 el.btnApplyRedeyeFilter.onclick = () => {
   const draft = refreshRedeyeDraft();
