@@ -4683,11 +4683,47 @@ function renderGalleryMapForCurrentImages() {
   if (!map) return;
   clearGalleryMapMarkers();
   const pts = [];
-  for (const it of state.currentImages || []) {
+  for (let idx = 0; idx < (state.currentImages || []).length; idx++) {
+    const it = state.currentImages[idx];
     const geo = it?.geotag || it?.exifGps;
     if (!geo || !Number.isFinite(geo.lat) || !Number.isFinite(geo.lng)) continue;
     pts.push([geo.lng, geo.lat]);
-    const marker = new maplibregl.Marker().setLngLat([geo.lng, geo.lat]).setPopup(new maplibregl.Popup({ offset: 24 }).setText(it.relPath || it.name || "image")).addTo(map);
+    const popupWrap = document.createElement("div");
+    popupWrap.style.maxWidth = "220px";
+    popupWrap.style.cursor = "pointer";
+    const title = document.createElement("div");
+    title.textContent = it.relPath || it.name || "image";
+    title.style.fontSize = "12px";
+    title.style.marginBottom = "6px";
+    title.style.wordBreak = "break-word";
+    const thumb = document.createElement("img");
+    thumb.alt = it.name || "thumbnail";
+    thumb.style.width = "100%";
+    thumb.style.maxWidth = "200px";
+    thumb.style.maxHeight = "120px";
+    thumb.style.objectFit = "cover";
+    thumb.style.borderRadius = "6px";
+    thumb.style.border = "1px solid #555";
+    if (it.thumbUrl) {
+      thumb.src = it.thumbUrl;
+    } else {
+      const blobUrl = URL.createObjectURL(it.file);
+      thumb.src = blobUrl;
+    }
+    const hint = document.createElement("div");
+    hint.textContent = "Click to open";
+    hint.style.fontSize = "11px";
+    hint.style.marginTop = "6px";
+    hint.style.color = "#666";
+    popupWrap.appendChild(title);
+    popupWrap.appendChild(thumb);
+    popupWrap.appendChild(hint);
+    popupWrap.onclick = () => {
+      openSlideshow(idx);
+      popup.remove();
+    };
+    const popup = new maplibregl.Popup({ offset: 24 }).setDOMContent(popupWrap);
+    const marker = new maplibregl.Marker().setLngLat([geo.lng, geo.lat]).setPopup(popup).addTo(map);
     state.galleryMapMarkers.push(marker);
   }
   if (pts.length === 1) {
