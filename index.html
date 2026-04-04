@@ -165,6 +165,7 @@
         <span id="viewTitle">No selection</span>
         <input id="albumNameInput" class="hidden" type="text" style="max-width:220px;" placeholder="Album name">
         <button id="btnRenameAlbum" class="hidden">Rename album</button>
+        <button id="btnToggleGalleryMap">Map view</button>
         <span class="pill" id="countPill"></span>
         <span class="pill" id="resolvePill"></span>
         <span class="pill" id="albumMetaPill"></span>
@@ -172,6 +173,9 @@
         <span style="margin-left:auto" class="pill">Slideshow: <span class="kbd">←</span>/<span class="kbd">→</span> <span class="kbd">Space</span> <span class="kbd">Esc</span></span>
       </div>
       <div class="grid" id="grid"></div>
+      <div id="galleryMapWrap" class="hidden" style="flex:1 1 0%; min-height:0; padding:12px;">
+        <div id="galleryMap" style="width:100%; height:100%; min-height:280px; border:1px solid #2a2a2a; border-radius:12px;"></div>
+      </div>
       <div class="logPanel" id="picasaLogPanel" hidden>
         <div class="logTitle">.picasa.ini log</div>
         <pre class="logBody mono" id="picasaLog"></pre>
@@ -3393,6 +3397,9 @@ const state = {
   rawThumbObserver: null,
   tileThumbObserver: null,
   galleryMode: "images",
+  galleryDisplayMode: "tiles",
+  galleryMap: null,
+  galleryMapMarkers: [],
   navRequestSeq: 0,
   activeNavRequestId: 0
 };
@@ -3422,10 +3429,13 @@ const el = {
   viewTitle: document.getElementById("viewTitle"),
   albumNameInput: document.getElementById("albumNameInput"),
   btnRenameAlbum: document.getElementById("btnRenameAlbum"),
+  btnToggleGalleryMap: document.getElementById("btnToggleGalleryMap"),
   countPill: document.getElementById("countPill"),
   resolvePill: document.getElementById("resolvePill"),
   albumMetaPill: document.getElementById("albumMetaPill"),
   btnShowAllThumbs: document.getElementById("btnShowAllThumbs"),
+  galleryMapWrap: document.getElementById("galleryMapWrap"),
+  galleryMap: document.getElementById("galleryMap"),
   mainStatus: document.getElementById("mainStatus"),
   picasaLogPanel: document.getElementById("picasaLogPanel"),
   picasaLog: document.getElementById("picasaLog"),
@@ -4651,6 +4661,58 @@ function syncFaceGeoMarker() {
   } else faceEditor.geoMarker.setLngLat([geo.lng, geo.lat]);
   faceEditor.geoMap.easeTo({ center: [geo.lng, geo.lat], zoom: Math.max(faceEditor.geoMap.getZoom(), 8), duration: 300 });
 }
+function ensureGalleryMap() {
+  if (!window.maplibregl) return null;
+  if (state.galleryMap) return state.galleryMap;
+  state.galleryMap = new maplibregl.Map({
+    container: el.galleryMap,
+    style: "https://tiles.openfreemap.org/styles/liberty",
+    center: [-20, 28],
+    zoom: 2.2
+  });
+  state.galleryMap.addControl(new maplibregl.NavigationControl(), "top-right");
+  return state.galleryMap;
+}
+function clearGalleryMapMarkers() {
+  for (const m of state.galleryMapMarkers) m.remove();
+  state.galleryMapMarkers = [];
+}
+function renderGalleryMapForCurrentImages() {
+  if (state.galleryDisplayMode !== "map") return;
+  const map = ensureGalleryMap();
+  if (!map) return;
+  clearGalleryMapMarkers();
+  const pts = [];
+  for (const it of state.currentImages || []) {
+    const geo = it?.geotag || it?.exifGps;
+    if (!geo || !Number.isFinite(geo.lat) || !Number.isFinite(geo.lng)) continue;
+    pts.push([geo.lng, geo.lat]);
+    const marker = new maplibregl.Marker().setLngLat([geo.lng, geo.lat]).setPopup(new maplibregl.Popup({ offset: 24 }).setText(it.relPath || it.name || "image")).addTo(map);
+    state.galleryMapMarkers.push(marker);
+  }
+  if (pts.length === 1) {
+    map.easeTo({ center: pts[0], zoom: Math.max(map.getZoom(), 10), duration: 250 });
+  } else if (pts.length > 1) {
+    const bounds = pts.reduce((b, p) => b.extend(p), new maplibregl.LngLatBounds(pts[0], pts[0]));
+    map.fitBounds(bounds, { padding: 40, duration: 350, maxZoom: 13 });
+  } else {
+    map.easeTo({ center: [-20, 28], zoom: 2.2, duration: 250 });
+  }
+}
+function applyGalleryDisplayMode() {
+  const showMap = state.galleryDisplayMode === "map";
+  el.grid.classList.toggle("hidden", showMap);
+  el.galleryMapWrap.classList.toggle("hidden", !showMap);
+  el.btnToggleGalleryMap.textContent = showMap ? "Tile view" : "Map view";
+  el.btnToggleGalleryMap.classList.toggle("active", showMap);
+  if (showMap) {
+    ensureGalleryMap();
+    setTimeout(() => {
+      state.galleryMap?.resize();
+      renderGalleryMapForCurrentImages();
+    }, 0);
+  }
+}
 let faceApiLoadPromise = null;
 let faceApiModelsPromise = null;
 
@@ -4915,7 +4977,7 @@ function openFaceEditor(imageItem) {
       if (faceEditor.pmpLookAt) {
         faceEditor.geoMap.jumpTo({
           center: [faceEditor.pmpLookAt.longitude, faceEditor.pmpLookAt.latitude],
-          zoom: Math.max(2, Math.min(18, 11 - Math.log2(Math.max(1, faceEditor.pmpLookAt.range || 50)))),
+          zoom: geoviewRangeToZoom(faceEditor.pmpLookAt.range || 3000, faceEditor.pmpLookAt.latitude, el.faceGeoMap.clientWidth || 512),
           pitch: Math.max(0, Math.min(70, faceEditor.pmpLookAt.tilt || 0)),
           bearing: Number(faceEditor.pmpLookAt.heading || 0)
         });
@@ -4938,7 +5000,7 @@ function openFaceEditor(imageItem) {
     if (faceEditor.geoMap && pmpGeo.lookAt) {
       faceEditor.geoMap.easeTo({
         center: [pmpGeo.lookAt.longitude, pmpGeo.lookAt.latitude],
-        zoom: Math.max(2, Math.min(18, 11 - Math.log2(Math.max(1, pmpGeo.lookAt.range || 50)))),
+        zoom: geoviewRangeToZoom(pmpGeo.lookAt.range || 3000, pmpGeo.lookAt.latitude, el.faceGeoMap.clientWidth || 512),
         pitch: Math.max(0, Math.min(70, pmpGeo.lookAt.tilt || 0)),
         bearing: Number(pmpGeo.lookAt.heading || 0),
         duration: 350
@@ -5571,11 +5633,26 @@ function parseLookAtGeoviewXml(raw = "") {
   if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) return null;
   return { longitude, latitude, range: Number.isFinite(range) ? range : 0, tilt: Number.isFinite(tilt) ? tilt : 0, heading: Number.isFinite(heading) ? heading : 0 };
 }
+function geoviewRangeToZoom(rangeMeters = 3000, latitude = 0, viewportWidthPx = 512) {
+  const safeRange = Math.max(1, Number(rangeMeters) || 1);
+  const cosLat = Math.max(0.2, Math.abs(Math.cos((Number(latitude) || 0) * Math.PI / 180)));
+  const zoom = Math.log2((156543.03392 * cosLat * Math.max(256, viewportWidthPx)) / safeRange);
+  return Math.max(2, Math.min(20, zoom));
+}
 function avgColorDecimalToHex(v) {
   const n = Number(v);
   if (!Number.isFinite(n)) return null;
-  const rgb = (Math.max(0, Math.min(0xFFFFFF, Math.round(n))) >>> 0).toString(16).padStart(6, "0");
-  return `#${rgb}`;
+  const argb = (Math.max(0, Math.min(0xFFFFFFFF, Math.round(n))) >>> 0).toString(16).padStart(8, "0");
+  return `#${argb}`;
+}
+function argbHexToCssColor(argb = "") {
+  const hex = String(argb || "").replace(/^#/, "");
+  if (!/^[0-9a-f]{8}$/i.test(hex)) return "#ffffff";
+  const a = parseInt(hex.slice(0, 2), 16) / 255;
+  const r = parseInt(hex.slice(2, 4), 16);
+  const g = parseInt(hex.slice(4, 6), 16);
+  const b = parseInt(hex.slice(6, 8), 16);
+  return `rgba(${r}, ${g}, ${b}, ${a.toFixed(3)})`;
 }
 function escapeHtmlText(s) {
   return String(s || "").replace(/[&<>"']/g, (m) => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[m]));
@@ -5588,7 +5665,8 @@ function renderImagedataBodyHtml(bodyText = "") {
     const val = m[1].trim();
     const hex = avgColorDecimalToHex(val);
     if (!hex) return escapeHtmlText(line);
-    return `avgcolor: ${escapeHtmlText(val)} (<span style="background:${hex};color:${hex};padding:0 4px;border-radius:4px;border:1px solid #555;">${hex}</span> ${escapeHtmlText(hex)})`;
+    const css = argbHexToCssColor(hex);
+    return `avgcolor: ${escapeHtmlText(val)} (<span style="background:${css};color:${css};padding:0 4px;border-radius:4px;border:1px solid #555;">${hex}</span> ${escapeHtmlText(hex)})`;
   });
   return html.join("\n");
 }
@@ -5627,7 +5705,6 @@ async function buildImagedataDumpForImage(imageItem) {
   const facerectdataValue = valueByColumn.get("facerectdata");
   const crop64Value = valueByColumn.get("crop64");
   const avgcolorValue = valueByColumn.get("avgcolor");
-  const avgcolorHex = avgColorDecimalToHex(avgcolorValue);
   const pmpLatitude = Number(valueByColumn.get("latitude"));
   const pmpLongitude = Number(valueByColumn.get("longitude"));
   const pmpGeoviewRaw = valueByColumn.get("geoview");
@@ -5659,7 +5736,7 @@ async function buildImagedataDumpForImage(imageItem) {
     `crop64Decoded: ${formatRect64Decoded(crop64Value)}`,
     `facerectDecoded: ${formatRect64Decoded(facerectValue)}`,
     `facerectdataDecoded: ${interpretFacerectdata(facerectdataValue, filetypeValue, facequalityValue)}`,
-    `avgcolor: ${formatPmpDumpValue(avgcolorValue)}${avgcolorHex ? ` (hex ${avgcolorHex})` : ""}`,
+    `avgcolor: ${formatPmpDumpValue(avgcolorValue)}`,
     `iniGeotag: ${iniGeo && Number.isFinite(iniGeo.lat) && Number.isFinite(iniGeo.lng) ? `${iniGeo.lat}, ${iniGeo.lng}` : "(missing)"}`,
     `exifGps: ${exifGps && Number.isFinite(exifGps.lat) && Number.isFinite(exifGps.lng) ? `${exifGps.lat}, ${exifGps.lng}` : "(missing)"}`,
     `pmpLatitudeLongitude: ${Number.isFinite(pmpLatitude) && Number.isFinite(pmpLongitude) ? `${pmpLatitude}, ${pmpLongitude}` : "(missing)"}`,
@@ -6047,6 +6124,11 @@ async function renderTiles(images, navRequestId = state.activeNavRequestId) {
   if (el.btnShowAllThumbs) el.btnShowAllThumbs.textContent = "Show all thumbnails";
   state.currentImages = images;
   el.countPill.textContent = `${images.length} images`;
+  if (state.galleryDisplayMode === "map") {
+    applyGalleryDisplayMode();
+    renderGalleryMapForCurrentImages();
+    return;
+  }
   el.grid.classList.remove("rawThumbGrid");
   el.grid.innerHTML = "";
   teardownRawThumbObserver();
@@ -6987,6 +7069,12 @@ el.btnShowAllThumbs.onclick = () => {
   }
   void renderAllThumbsGallery();
 };
+el.btnToggleGalleryMap.onclick = () => {
+  state.galleryDisplayMode = state.galleryDisplayMode === "map" ? "tiles" : "map";
+  applyGalleryDisplayMode();
+  if (state.galleryDisplayMode === "map") renderGalleryMapForCurrentImages();
+  else if (state.currentImages.length) void renderTiles(state.currentImages);
+};
 
 el.btnViewFolders.onclick = () => {
   if (!state.libraryRoot || !state.dirIndex) {
@@ -7657,6 +7745,7 @@ async function hydrateFromIndexedDb() {
   setStatus("Loaded album/folder navigation from IndexedDB snapshot. Open both Library and PMP folders to browse images with live handles.", "ok");
   return true;
 }
+applyGalleryDisplayMode();
 // Initial hint
 (async () => {
   try {
