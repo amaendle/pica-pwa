@@ -4617,6 +4617,46 @@ function syncFaceGeoButtons() {
   el.btnFaceGeoProjectionFlat.classList.toggle("active", projection !== "globe");
   el.btnFaceGeoProjectionGlobe.classList.toggle("active", projection === "globe");
 }
+function attachMapDebugListeners(map, label = "map") {
+  if (!map || map.__debugListenersAttached) return;
+  map.__debugListenersAttached = true;
+  map.on("load", () => console.log(`[${label}] load`));
+  map.on("idle", () => console.log(`[${label}] idle`));
+  map.on("styledata", () => console.log(`[${label}] styledata`));
+  map.on("sourcedata", (e) => {
+    console.log(`[${label}] sourcedata`, {
+      sourceId: e.sourceId,
+      isSourceLoaded: e.isSourceLoaded,
+      dataType: e.dataType
+    });
+  });
+  map.on("error", (e) => console.error(`[${label}] error`, e));
+  map.on("webglcontextlost", (e) => console.error(`[${label}] WEBGL CONTEXT LOST`, e));
+  map.on("webglcontextrestored", (e) => {
+    console.warn(`[${label}] WEBGL CONTEXT RESTORED`, e);
+    map.resize();
+    map.triggerRepaint();
+  });
+  map.on("resize", () => {
+    const c = map.getContainer();
+    console.log(`[${label}] resize`, { width: c.clientWidth, height: c.clientHeight });
+  });
+  try {
+    const ro = new ResizeObserver(() => {
+      map.resize();
+      map.triggerRepaint();
+    });
+    ro.observe(map.getContainer());
+    map.__resizeObserver = ro;
+  } catch {}
+  window[`debug_${label}`] = () => {
+    const c = map.getContainer();
+    console.log(`[${label}] container size`, c.clientWidth, c.clientHeight);
+    console.log(`[${label}] canvas size`, map.getCanvas().width, map.getCanvas().height);
+    console.log(`[${label}] style loaded?`, map.isStyleLoaded());
+    console.log(`[${label}] center/zoom`, map.getCenter(), map.getZoom());
+  };
+}
 function ensureFaceGeoMap() {
   if (!window.maplibregl) return;
   if (faceEditor.geoMap) return;
@@ -4624,6 +4664,7 @@ function ensureFaceGeoMap() {
   const projection = localStorage.getItem(FACE_GEO_STORAGE_KEYS.projection) || "mercator";
   const pitch = Number(localStorage.getItem(FACE_GEO_STORAGE_KEYS.pitch) || 0) || 0;
   faceEditor.geoMap = new maplibregl.Map({ container: el.faceGeoMap, style: geoStyleFor(basemap), center: [-20, 28], zoom: 2.2, pitch: Math.max(0, Math.min(70, pitch)), maxPitch: 70 });
+  attachMapDebugListeners(faceEditor.geoMap, "face-map");
   faceEditor.geoMap.doubleClickZoom.disable();
   faceEditor.geoMap.addControl(new maplibregl.NavigationControl({ visualizePitch: true }), "top-right");
   faceEditor.geoMap.addControl(new maplibregl.GlobeControl(), "top-right");
@@ -4670,7 +4711,12 @@ function ensureGalleryMap() {
     center: [-20, 28],
     zoom: 2.2
   });
+  attachMapDebugListeners(state.galleryMap, "gallery-map");
   state.galleryMap.addControl(new maplibregl.NavigationControl(), "top-right");
+  state.galleryMap.on("load", () => {
+    state.galleryMap.resize();
+    state.galleryMap.triggerRepaint();
+  });
   return state.galleryMap;
 }
 function clearGalleryMapMarkers() {
@@ -6947,7 +6993,11 @@ el.btnFaceGeoBasemapMap.onclick = () => {
   localStorage.setItem(FACE_GEO_STORAGE_KEYS.basemap, "map");
   if (faceEditor.geoMap) {
     faceEditor.geoMap.setStyle(geoStyleFor("map"));
-    faceEditor.geoMap.once("style.load", () => syncFaceGeoButtons());
+    faceEditor.geoMap.once("style.load", () => {
+      faceEditor.geoMap.resize();
+      faceEditor.geoMap.triggerRepaint();
+      syncFaceGeoButtons();
+    });
   }
   syncFaceGeoButtons();
 };
@@ -6955,7 +7005,11 @@ el.btnFaceGeoBasemapSat.onclick = () => {
   localStorage.setItem(FACE_GEO_STORAGE_KEYS.basemap, "satellite");
   if (faceEditor.geoMap) {
     faceEditor.geoMap.setStyle(geoStyleFor("satellite"));
-    faceEditor.geoMap.once("style.load", () => syncFaceGeoButtons());
+    faceEditor.geoMap.once("style.load", () => {
+      faceEditor.geoMap.resize();
+      faceEditor.geoMap.triggerRepaint();
+      syncFaceGeoButtons();
+    });
   }
   syncFaceGeoButtons();
 };
