@@ -67,8 +67,10 @@
     .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
     .faceEditorBox { background:#1a1a1a; border:1px solid #333; border-radius:10px; padding:10px; width:min(90vw,1000px); height:min(90vh,760px); max-height:calc(100vh - 36px); display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:10px; }
     #faceEditorOverlay .faceEditorBox { width:calc(100vw - 16px); height:calc(100vh - 16px); max-width:none; max-height:none; }
+    .faceCanvasPane { min-height:0; display:flex; flex-direction:column; gap:8px; }
     .faceCanvasWrap { position:relative; min-height:0; background:#000; display:flex; align-items:center; justify-content:center; overflow:hidden; border-radius:8px; touch-action:none; }
     .faceCanvasImg { max-width:100%; max-height:100%; user-select:none; }
+    .faceViewTools { border:1px solid #333; border-radius:8px; padding:8px; background:#111; display:grid; gap:6px; }
     .faceRect { position:absolute; border:2px solid #4cc9f0; background:rgba(76,201,240,.15); cursor:move; touch-action:none; }
     .faceRectHandle { position:absolute; width:18px; height:18px; right:-10px; bottom:-10px; background:#fff; border:1px solid #111; border-radius:50%; cursor:nwse-resize; touch-action:none; }
     .redeyeRect { position:absolute; border:2px solid #ff4d4f; background:rgba(255,77,79,.14); cursor:move; touch-action:none; }
@@ -212,8 +214,14 @@
   <!-- Face editor -->
   <div class="overlay" id="faceEditorOverlay" aria-hidden="true">
     <div class="faceEditorBox">
-      <div class="faceCanvasWrap" id="faceCanvasWrap">
-        <img id="faceCanvasImg" class="faceCanvasImg" alt="">
+      <div class="faceCanvasPane">
+        <div class="faceCanvasWrap" id="faceCanvasWrap">
+          <img id="faceCanvasImg" class="faceCanvasImg" alt="">
+        </div>
+        <div class="faceViewTools">
+          <div><b>Adjust view</b></div>
+          <label>Zoom <span id="faceZoomValue" class="mono">1.00×</span><input id="faceZoomSlider" type="range" min="1" max="8" step="0.01" value="1"></label>
+        </div>
       </div>
       <div class="faceEditorSide">
         <div><b>Edit image metadata</b></div>
@@ -247,7 +255,6 @@
           <button id="btnFacesMode">Faces</button>
         </div>
         <label style="display:flex; align-items:center; gap:8px;"><input id="facePreviewUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for preview</label>
-        <label>Zoom <span id="faceZoomValue" class="mono">1.00×</span><input id="faceZoomSlider" type="range" min="1" max="8" step="0.05" value="1"></label>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
         <div class="geoMapPanel">
@@ -3884,12 +3891,56 @@ function resetTiltDraftUI() {
 }
 
 function updateFaceCanvasTransform() {
-  const zoom = Math.max(1, Math.min(8, Number(faceEditor.zoom) || 1));
+  const zoomMin = Math.max(0.05, Number(faceEditor.zoomMin) || 1);
+  const zoom = Math.max(zoomMin, Math.min(8, Number(faceEditor.zoom) || zoomMin));
   const tilt = Math.max(-1, Math.min(1, Number(faceEditor.tiltDraft) || 0));
   const rotateDeg = tiltValueToDeg(tilt);
+  faceEditor.zoom = zoom;
+  clampFaceCanvasPan();
   el.faceCanvasImg.style.transformOrigin = "center center";
-  el.faceCanvasImg.style.transform = `scale(${zoom.toFixed(3)}) rotate(${rotateDeg.toFixed(2)}deg)`;
+  el.faceCanvasImg.style.transform = `translate(${faceEditor.panX.toFixed(1)}px, ${faceEditor.panY.toFixed(1)}px) scale(${(zoom / zoomMin).toFixed(4)}) rotate(${rotateDeg.toFixed(2)}deg)`;
   if (el.faceZoomValue) el.faceZoomValue.textContent = `${zoom.toFixed(2)}×`;
+  if (el.faceZoomSlider) {
+    el.faceZoomSlider.min = zoomMin.toFixed(2);
+    el.faceZoomSlider.max = String(Math.max(8, Number((zoomMin * 8).toFixed(2))));
+    el.faceZoomSlider.step = "0.01";
+    el.faceZoomSlider.value = zoom.toFixed(2);
+  }
+  updateFaceCanvasCursor();
+}
+function recomputeFaceZoomMin() {
+  const wrapW = Math.max(1, el.faceCanvasWrap.clientWidth || 1);
+  const wrapH = Math.max(1, el.faceCanvasWrap.clientHeight || 1);
+  const naturalW = Math.max(1, faceEditor.naturalW || 1);
+  const naturalH = Math.max(1, faceEditor.naturalH || 1);
+  const fit = Math.min(wrapW / naturalW, wrapH / naturalH, 1);
+  faceEditor.zoomMin = Math.max(0.05, fit);
+  if (!Number.isFinite(faceEditor.zoom) || faceEditor.zoom < faceEditor.zoomMin) faceEditor.zoom = faceEditor.zoomMin;
+}
+function clampFaceCanvasPan() {
+  const zoomMin = Math.max(0.05, Number(faceEditor.zoomMin) || 1);
+  const scale = Math.max(1, Number(faceEditor.zoom) || zoomMin) / zoomMin;
+  const baseW = Math.max(1, el.faceCanvasImg.clientWidth || 1);
+  const baseH = Math.max(1, el.faceCanvasImg.clientHeight || 1);
+  const wrapW = Math.max(1, el.faceCanvasWrap.clientWidth || 1);
+  const wrapH = Math.max(1, el.faceCanvasWrap.clientHeight || 1);
+  const maxPanX = Math.max(0, ((baseW * scale) - wrapW) / 2);
+  const maxPanY = Math.max(0, ((baseH * scale) - wrapH) / 2);
+  faceEditor.panX = Math.max(-maxPanX, Math.min(maxPanX, Number(faceEditor.panX) || 0));
+  faceEditor.panY = Math.max(-maxPanY, Math.min(maxPanY, Number(faceEditor.panY) || 0));
+}
+function canPanFaceCanvas() {
+  const zoomMin = Math.max(0.05, Number(faceEditor.zoomMin) || 1);
+  const scale = Math.max(zoomMin, Number(faceEditor.zoom) || zoomMin) / zoomMin;
+  return scale > 1.001;
+}
+function updateFaceCanvasCursor() {
+  const busy = faceEditor.awaitingNewFaceDraw || faceEditor.awaitingNewRedeyeDraw || faceEditor.pickingFinetuneNeutral || faceEditor.draggingIdx >= 0 || faceEditor.cropDragging || faceEditor.textDragging;
+  if (!busy && canPanFaceCanvas()) {
+    el.faceCanvasWrap.style.cursor = faceEditor.panning ? "grabbing" : "grab";
+  } else {
+    el.faceCanvasWrap.style.cursor = "";
+  }
 }
 
 
@@ -4043,6 +4094,12 @@ const faceEditor = {
   pendingNewRedeyeIdx: -1,
   dragTarget: "",
   zoom: 1,
+  zoomMin: 1,
+  panX: 0,
+  panY: 0,
+  panning: false,
+  panStartX: 0,
+  panStartY: 0,
   tiltDraft: 0,
   redeyeDetectionDebug: [],
   geoMap: null,
@@ -4481,6 +4538,7 @@ function renderFaceRects() {
     el.faceCanvasWrap.appendChild(box);
   });
   renderRedeyeDebugOverlay();
+  updateFaceCanvasCursor();
 }
 
 const FACE_API_SCRIPT_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
@@ -5014,6 +5072,10 @@ function openFaceEditor(imageItem) {
   applyFaceGeotagToInputs(faceEditor.geotag);
   if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
   faceEditor.zoom = 1;
+  faceEditor.zoomMin = 1;
+  faceEditor.panX = 0;
+  faceEditor.panY = 0;
+  faceEditor.panning = false;
   faceEditor.tiltDraft = 0;
   if (el.faceZoomSlider) el.faceZoomSlider.value = "1";
   updateFaceCanvasTransform();
@@ -5044,6 +5106,11 @@ function openFaceEditor(imageItem) {
   el.faceCanvasImg.onload = () => {
     faceEditor.naturalW = el.faceCanvasImg.naturalWidth || 1;
     faceEditor.naturalH = el.faceCanvasImg.naturalHeight || 1;
+    recomputeFaceZoomMin();
+    faceEditor.zoom = faceEditor.zoomMin;
+    faceEditor.panX = 0;
+    faceEditor.panY = 0;
+    updateFaceCanvasTransform();
     renderFaceRects();
     if (faceEditor.facesModeActive) detectFacesForEditor();
   };
@@ -7148,6 +7215,10 @@ window.addEventListener("resize", () => {
     faceEditor.previewKey = "";
     void refreshEditorPreview();
   }
+  if (faceEditor.imageItem) {
+    recomputeFaceZoomMin();
+    updateFaceCanvasTransform();
+  }
 });
 el.btnShowAllThumbs.onclick = () => {
   if (state.galleryMode === "thumbs") {
@@ -7364,7 +7435,9 @@ el.faceTiltSlider.oninput = () => {
   refreshEditorPreview(draftFilters);
 };
 el.faceZoomSlider.oninput = () => {
-  faceEditor.zoom = Math.max(1, Math.min(8, Number(el.faceZoomSlider.value || "1") || 1));
+  const minZoom = Math.max(0.05, Number(faceEditor.zoomMin) || 1);
+  const maxZoom = Math.max(8, minZoom * 8);
+  faceEditor.zoom = Math.max(minZoom, Math.min(maxZoom, Number(el.faceZoomSlider.value || String(minZoom)) || minZoom));
   updateFaceCanvasTransform();
   renderFaceRects();
 };
@@ -7526,6 +7599,19 @@ el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
     refreshFinetune2Draft();
     return;
   }
+  const canStartPan = (ev.target === el.faceCanvasImg || ev.target === el.faceCanvasWrap)
+    && !faceEditor.awaitingNewFaceDraw
+    && !faceEditor.awaitingNewRedeyeDraw
+    && !faceEditor.pickingFinetuneNeutral
+    && canPanFaceCanvas();
+  if (canStartPan) {
+    faceEditor.panning = true;
+    faceEditor.panStartX = ev.clientX - (faceEditor.panX || 0);
+    faceEditor.panStartY = ev.clientY - (faceEditor.panY || 0);
+    updateFaceCanvasCursor();
+    try { el.faceCanvasWrap.setPointerCapture(ev.pointerId); } catch {}
+    return;
+  }
   const target = ev.target;
   if (target === el.faceCanvasWrap || target === el.faceCanvasImg) {
     if (faceEditor.activeTextIdx >= 0) {
@@ -7536,6 +7622,12 @@ el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
   }
 });
 el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
+  if (faceEditor.panning) {
+    faceEditor.panX = ev.clientX - faceEditor.panStartX;
+    faceEditor.panY = ev.clientY - faceEditor.panStartY;
+    updateFaceCanvasTransform();
+    return;
+  }
   if (faceEditor.draggingIdx < 0 && !faceEditor.cropDragging && !faceEditor.textDragging) return;
   const r = el.faceCanvasImg.getBoundingClientRect();
   const p = el.faceCanvasWrap.getBoundingClientRect();
@@ -7624,8 +7716,10 @@ window.addEventListener('pointerup', () => {
   faceEditor.dragMode = "move";
   faceEditor.cropDragging = false;
   faceEditor.cropMode = "move";
+  faceEditor.panning = false;
   faceEditor.textDragging = false;
   faceEditor.textDragMode = "move";
+  updateFaceCanvasCursor();
   if (finishedNew >= 0 && faceEditor.faces[finishedNew]) {
     faceEditor.activeFaceIdx = finishedNew;
     faceEditor.pendingNewFaceIdx = -1;
