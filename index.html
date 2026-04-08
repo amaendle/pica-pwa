@@ -95,6 +95,7 @@
     .geoMapPanel { border:1px solid #333; border-radius:8px; padding:8px; background:#111; display:grid; gap:8px; }
     .geoMapBox { width:100%; height:220px; border:1px solid #333; border-radius:8px; overflow:hidden; }
     .geoMapRow { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+    .geoMapRow input { flex:1 1 0; min-width:0; }
     .geoMapRow button { font-size:11px; padding:4px 8px; }
     #faceFilterList { flex: 0 0 220px; min-height:220px; }
     .editorTextBox { position:absolute; min-width:24px; min-height:18px; display:flex; align-items:center; justify-content:center; user-select:none; cursor:move; }
@@ -199,7 +200,7 @@
           <button id="btnToggleText">Text: On</button>
           <button id="btnToggleFinetune2">FineTune2: On</button>
           <button id="btnToggleSlideWebgl">WebGL: On</button>
-          <button id="btnShowSlideImagedata">PMP imagedata</button>
+          <button id="btnShowSlideImagedata">Metadata</button>
           <button id="btnToggleStar">Star: Off</button>
           <button id="btnClose">Close (Esc)</button>
         </div>
@@ -220,11 +221,16 @@
         </div>
         <div class="faceViewTools">
           <div><b>Adjust view</b></div>
-          <label>Zoom <span id="faceZoomValue" class="mono">1.00×</span><input id="faceZoomSlider" type="range" min="1" max="8" step="0.01" value="1"></label>
+          <label>Zoom <span id="faceZoomValue" class="mono">1.00×</span><input id="faceZoomSlider" type="range" min="1" max="4" step="0.01" value="1"></label>
         </div>
       </div>
       <div class="faceEditorSide">
         <div><b>Edit image metadata</b></div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnFaceStarToggle" title="Toggle star">☆ Star</button>
+          <button id="btnFaceRotateLeft" title="Rotate left 90°">↺ Rotate left</button>
+          <button id="btnFaceRotateRight" title="Rotate right 90°">↻ Rotate right</button>
+        </div>
         <label>Caption<input id="faceCaptionInput" type="text"></label>
         <div><b>Albums</b></div>
         <div id="faceAlbumChips" class="albumChipWrap"></div>
@@ -256,7 +262,6 @@
         </div>
         <label style="display:flex; align-items:center; gap:8px;"><input id="facePreviewUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for preview</label>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
-        <label>IPTC keywords (comma)<input id="faceKeywordsInput" type="text"></label>
         <div class="geoMapPanel">
           <div><b>Geotag</b></div>
           <div class="geoMapRow">
@@ -267,13 +272,8 @@
             <button id="btnFaceGeoApplyCoords" type="button">Apply coords</button>
             <button id="btnFaceGeoClear" type="button">Clear geotag</button>
           </div>
-          <div class="geoMapRow">
-            <button id="btnFaceGeoBasemapMap" type="button">Map</button>
-            <button id="btnFaceGeoBasemapSat" type="button">Satellite</button>
-          </div>
           <div id="faceGeoMap" class="geoMapBox"></div>
         </div>
-        <button id="btnFaceStarToggle" title="Toggle star">☆ Star</button>
         <div id="cropControls" class="hidden">
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button class="btnAspect" data-ratio="">Free</button>
@@ -398,6 +398,7 @@
         <div><b>Applied filters</b></div>
         <select id="faceFilterList" class="mono" multiple size="10" style="width:100%; height:220px;"></select>
         <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
+        <label>Tags (comma)<input id="faceKeywordsInput" type="text"></label>
         <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
@@ -438,6 +439,9 @@
             <option value="320">Max 320 px</option>
           </select>
         </label>
+        <label>Editor max zoom multiplier
+          <input id="inpEditorMaxZoomMultiplier" type="number" min="1" max="12" step="0.25" value="4">
+        </label>
         <div class="status" style="padding:0; border:0;">
           Reverse-engineering notes:
           <a id="lnkReverseEngineeringDoc" href="docs/picasa-reverse-engineering.md" target="_blank" rel="noopener" style="color:#8cc8ff;">Open documentation</a>
@@ -454,7 +458,7 @@
   <div class="overlay" id="slideImagedataOverlay" aria-hidden="true">
     <div class="faceEditorBox" style="grid-template-columns:1fr; max-width:min(96vw,1000px); height:auto; max-height:min(90vh,820px);">
       <div class="faceEditorSide">
-        <div><b>PMP imagedata for current slideshow image</b></div>
+        <div><b>Metadata for current image</b></div>
         <div id="slideImagedataTitle" class="mono"></div>
         <pre id="slideImagedataBody" class="mono" style="margin:0; padding:10px; border:1px solid #333; border-radius:8px; background:#111; white-space:pre-wrap; overflow:auto; max-height:60vh;"></pre>
         <div style="display:flex; gap:8px;"><button id="btnSlideImagedataClose">Close</button></div>
@@ -1625,7 +1629,7 @@ async function importThumbCachesFromPmp() {
  *  IndexedDB persistence
  *  =========================== */
 const DB_NAME = "pica-library";
-const DB_VERSION = 5;
+const DB_VERSION = 6;
 const STORES = {
   libraries: "libraries",
   albums: "albums",
@@ -1633,7 +1637,8 @@ const STORES = {
   images: "images",
   pmpColumns: "pmpColumns",
   thumbnails: "thumbnails",
-  thumbnailIndexes: "thumbnailIndexes"
+  thumbnailIndexes: "thumbnailIndexes",
+  settings: "settings"
 };
 function openLibraryDB() {
   return new Promise((resolve, reject) => {
@@ -1673,6 +1678,9 @@ function openLibraryDB() {
         const idx = db.createObjectStore(STORES.thumbnailIndexes, { keyPath: "id" });
         idx.createIndex("libraryId", "libraryId", { unique: false });
         idx.createIndex("librarySource", "librarySource", { unique: false });
+      }
+      if (!db.objectStoreNames.contains(STORES.settings)) {
+        db.createObjectStore(STORES.settings, { keyPath: "id" });
       }
       if (oldVersion < 5 && tx && db.objectStoreNames.contains(STORES.thumbnailIndexes)) {
         try {
@@ -1782,6 +1790,36 @@ async function loadLibrarySnapshot(libraryId = "default") {
       tx.onabort = () => reject(tx.error || new Error("IndexedDB read aborted"));
     });
     return out;
+  } finally {
+    db.close();
+  }
+}
+
+async function saveAppSettings(settings = {}) {
+  const db = await openLibraryDB();
+  try {
+    const tx = db.transaction([STORES.settings], "readwrite");
+    tx.objectStore(STORES.settings).put({
+      id: "app-settings",
+      savedAt: Date.now(),
+      prefs: { ...(settings || {}) }
+    });
+    await txDone(tx);
+  } finally {
+    db.close();
+  }
+}
+
+async function loadAppSettings() {
+  const db = await openLibraryDB();
+  try {
+    const tx = db.transaction([STORES.settings], "readonly");
+    const req = tx.objectStore(STORES.settings).get("app-settings");
+    const row = await new Promise((resolve, reject) => {
+      req.onsuccess = () => resolve(req.result || null);
+      req.onerror = () => reject(req.error || new Error("Failed to load app settings"));
+    });
+    return row?.prefs && typeof row.prefs === "object" ? row.prefs : null;
   } finally {
     db.close();
   }
@@ -3293,6 +3331,23 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
         canvas = out;
       }
       hasAppliedTilt = true;
+      continue;
+    }
+    m = String(f).match(/^rotate=1,([+-]?[0-9]*\.?[0-9]+)$/i);
+    if (m) {
+      const deg = Number(m[1]);
+      if (!Number.isFinite(deg)) continue;
+      const rad = (deg * Math.PI) / 180;
+      const cx = canvas.width / 2;
+      const cy = canvas.height / 2;
+      const out = document.createElement("canvas");
+      out.width = canvas.width;
+      out.height = canvas.height;
+      const octx = out.getContext("2d");
+      octx.translate(cx, cy);
+      octx.rotate(rad);
+      octx.drawImage(canvas, -cx, -cy);
+      canvas = out;
     }
   }
 
@@ -3360,7 +3415,7 @@ const state = {
   activeListIndex: -1,
   libraryId: "default",
   slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true, enableFinetune2: true, useWebglPreview: true },
-  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini", thumbSource: "generated", editorPreviewSize: DEFAULT_EDITOR_PREVIEW_SIZE },
+  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini", thumbSource: "generated", editorPreviewSize: DEFAULT_EDITOR_PREVIEW_SIZE, editorMaxZoomMultiplier: 4 },
   preview: { useWebglPreview: true },
   pmpColumnsCache: [],
   thumbCaches: {
@@ -3475,10 +3530,10 @@ const el = {
   faceGeoLngInput: document.getElementById("faceGeoLngInput"),
   btnFaceGeoApplyCoords: document.getElementById("btnFaceGeoApplyCoords"),
   btnFaceGeoClear: document.getElementById("btnFaceGeoClear"),
-  btnFaceGeoBasemapMap: document.getElementById("btnFaceGeoBasemapMap"),
-  btnFaceGeoBasemapSat: document.getElementById("btnFaceGeoBasemapSat"),
   faceGeoMap: document.getElementById("faceGeoMap"),
   btnFaceStarToggle: document.getElementById("btnFaceStarToggle"),
+  btnFaceRotateLeft: document.getElementById("btnFaceRotateLeft"),
+  btnFaceRotateRight: document.getElementById("btnFaceRotateRight"),
   cropControls: document.getElementById("cropControls"),
   tiltControls: document.getElementById("tiltControls"),
   fillLightControls: document.getElementById("fillLightControls"),
@@ -3641,6 +3696,7 @@ const el = {
   selWriteKeywordsPref: document.getElementById("selWriteKeywordsPref"),
   selThumbSourcePref: document.getElementById("selThumbSourcePref"),
   selEditorPreviewSize: document.getElementById("selEditorPreviewSize"),
+  inpEditorMaxZoomMultiplier: document.getElementById("inpEditorMaxZoomMultiplier"),
   btnExportPmpCsv: document.getElementById("btnExportPmpCsv"),
   btnSettingsSave: document.getElementById("btnSettingsSave"),
   btnSettingsClose: document.getElementById("btnSettingsClose"),
@@ -3723,6 +3779,11 @@ function parseFiltersValue(val) {
 }
 function getEditorPreviewPreference() {
   return String(state.prefs.editorPreviewSize || DEFAULT_EDITOR_PREVIEW_SIZE || "fit").trim().toLowerCase() || "fit";
+}
+function getEditorMaxZoomMultiplier() {
+  const raw = Number(state.prefs.editorMaxZoomMultiplier);
+  if (!Number.isFinite(raw)) return 4;
+  return Math.max(1, Math.min(12, raw));
 }
 function getEditorPreviewRenderOptions() {
   const pref = getEditorPreviewPreference();
@@ -3880,7 +3941,8 @@ function resetTiltDraftUI() {
 
 function updateFaceCanvasTransform() {
   const zoomMin = Math.max(0.05, Number(faceEditor.zoomMin) || 1);
-  const zoom = Math.max(zoomMin, Math.min(8, Number(faceEditor.zoom) || zoomMin));
+  const maxZoom = Math.max(zoomMin, Number((zoomMin * getEditorMaxZoomMultiplier()).toFixed(4)));
+  const zoom = Math.max(zoomMin, Math.min(maxZoom, Number(faceEditor.zoom) || zoomMin));
   const tilt = Math.max(-1, Math.min(1, Number(faceEditor.tiltDraft) || 0));
   const rotateDeg = tiltValueToDeg(tilt);
   faceEditor.zoom = zoom;
@@ -3890,7 +3952,7 @@ function updateFaceCanvasTransform() {
   if (el.faceZoomValue) el.faceZoomValue.textContent = `${zoom.toFixed(2)}×`;
   if (el.faceZoomSlider) {
     el.faceZoomSlider.min = zoomMin.toFixed(2);
-    el.faceZoomSlider.max = String(Math.max(8, Number((zoomMin * 8).toFixed(2))));
+    el.faceZoomSlider.max = String(maxZoom.toFixed(2));
     el.faceZoomSlider.step = "0.01";
     el.faceZoomSlider.value = zoom.toFixed(2);
   }
@@ -4655,11 +4717,6 @@ function applyFaceGeotagToInputs(geo) {
   el.faceGeoLatInput.value = geo && Number.isFinite(geo.lat) ? Number(geo.lat).toFixed(6) : "";
   el.faceGeoLngInput.value = geo && Number.isFinite(geo.lng) ? Number(geo.lng).toFixed(6) : "";
 }
-function syncFaceGeoButtons() {
-  const basemap = localStorage.getItem(FACE_GEO_STORAGE_KEYS.basemap) || "map";
-  el.btnFaceGeoBasemapMap.classList.toggle("active", basemap === "map");
-  el.btnFaceGeoBasemapSat.classList.toggle("active", basemap === "satellite");
-}
 function attachMapDebugListeners(map, label = "map") {
   if (!map || map.__debugListenersAttached) return;
   map.__debugListenersAttached = true;
@@ -4734,10 +4791,7 @@ function setFaceMapBasemap(kind = "map") {
     faceEditor.geoMap.once("style.load", () => {
       faceEditor.geoMap.resize();
       faceEditor.geoMap.triggerRepaint();
-      syncFaceGeoButtons();
     });
-  } else {
-    syncFaceGeoButtons();
   }
 }
 function ensureFaceGeoMap() {
@@ -4754,7 +4808,6 @@ function ensureFaceGeoMap() {
   faceEditor.geoMap.addControl(new maplibregl.GlobeControl(), "top-right");
   faceEditor.geoMap.on("load", () => {
     faceEditor.geoMap.setProjection({ type: projection === "globe" ? "globe" : "mercator" });
-    syncFaceGeoButtons();
   });
   faceEditor.geoMap.on("dblclick", (e) => {
     if (faceEditor.geotag) return;
@@ -5196,7 +5249,6 @@ function openFaceEditor(imageItem) {
         });
       }
       syncFaceGeoMarker();
-      syncFaceGeoButtons();
     }, 0);
   }
   void resolvePmpGeoForImage(imageItem).then((pmpGeo) => {
@@ -5670,7 +5722,7 @@ async function listImagesForAlbumRefs(imageRefs = []) {
       const file = await handle.getFile();
       const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [], geotag: null };
       const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
-      const iptcKeywords = iniKeywords.length ? [] : await extractIptcKeywordsFromFile(file);
+      const iptcKeywords = await extractIptcKeywordsFromFile(file);
       const exifGps = meta.geotag ? null : await extractExifGpsFromFile(file);
       const mergedKeywords = Array.from(new Set([...iniKeywords, ...iptcKeywords]));
       out.push({
@@ -5682,7 +5734,7 @@ async function listImagesForAlbumRefs(imageRefs = []) {
         textOverlay: meta.textOverlay || null,
         textOverlays: meta.textOverlays || (meta.textOverlay ? [meta.textOverlay] : []),
         albumTokens: Array.from(picasa.membersByToken.keys()).filter((tok) => (picasa.membersByToken.get(tok) || new Set()).has(name)),
-        albumNames: [], keywords: mergedKeywords, star: !!meta.star, filters: meta.filters || [], geotag: meta.geotag || exifGps || null, exifGps: exifGps || null
+        albumNames: [], keywords: mergedKeywords, iniKeywords, iptcKeywords, star: !!meta.star, filters: meta.filters || [], geotag: meta.geotag || exifGps || null, exifGps: exifGps || null
       });
     }
   }
@@ -5925,9 +5977,26 @@ async function buildImagedataDumpForImage(imageItem) {
   const picasaRaw = thumbindexEntry?.picasaFileTime || "";
   const fsZone = getCentralEuropeTzLabel(fsRaw);
   const picasaZone = getCentralEuropeTzLabel(picasaRaw);
+  const iniKeywords = Array.isArray(imageItem?.iniKeywords) ? imageItem.iniKeywords : [];
+  const iptcKeywords = Array.isArray(imageItem?.iptcKeywords) ? imageItem.iptcKeywords : [];
   const lines = [
+    "== Image ==",
+    `path: ${String(imageItem?.relPath || imageItem?.name || "")}`,
+    `caption: ${String(imageItem?.caption || "(none)")}`,
+    `star: ${imageItem?.star ? "yes" : "no"}`,
+    "",
+    "== .picasa.ini / .picasa.info ==",
+    `keywords: ${(iniKeywords.length ? iniKeywords.join(", ") : "(none)")}`,
+    `albums: ${(Array.isArray(imageItem?.albumNames) && imageItem.albumNames.length) ? imageItem.albumNames.join(", ") : "(none)"}`,
+    `faces: ${Array.isArray(imageItem?.faces) && imageItem.faces.length ? imageItem.faces.map((f) => `${f.label || "(unnamed)"}@${f.rect64 || ""}`).join("; ") : "(none)"}`,
+    `iniGeotag: ${iniGeo && Number.isFinite(iniGeo.lat) && Number.isFinite(iniGeo.lng) ? `${iniGeo.lat}, ${iniGeo.lng}` : "(missing)"}`,
+    "",
+    "== IPTC / EXIF ==",
+    `iptcTags: ${iptcKeywords.length ? iptcKeywords.join(", ") : "(none)"}`,
+    `exifGps: ${exifGps && Number.isFinite(exifGps.lat) && Number.isFinite(exifGps.lng) ? `${exifGps.lat}, ${exifGps.lng}` : "(missing)"}`,
+    "",
+    "== Thumbindex mapping ==",
     `rowIndex: ${rowIndex}`,
-    `image: ${String(imageItem?.relPath || imageItem?.name || "")}`,
     `mappedFromThumbnailSource: ${source || "(unknown)"}`,
     `thumbindexIndex: ${rowIndex}`,
     `thumbindexFolder: ${thumbindexEntry?.folderPath || "(missing)"}`,
@@ -5943,12 +6012,12 @@ async function buildImagedataDumpForImage(imageItem) {
     `rowJoinMeaning: rowIndex is the primary key that joins thumbindex and imagedata`,
     `typeFieldAgreement: ${describeTypeFieldAgreement(thumbindexEntry?.typeCode, filetypeValue)}`,
     `faceNodePattern: ${describeFaceNodeRow(thumbindexEntry, filetypeValue)}`,
+    "",
+    "== imagedata PMP ==",
     `crop64Decoded: ${formatRect64Decoded(crop64Value)}`,
     `facerectDecoded: ${formatRect64Decoded(facerectValue)}`,
     `facerectdataDecoded: ${interpretFacerectdata(facerectdataValue, filetypeValue, facequalityValue)}`,
     `avgcolor: ${formatPmpDumpValue(avgcolorValue)}`,
-    `iniGeotag: ${iniGeo && Number.isFinite(iniGeo.lat) && Number.isFinite(iniGeo.lng) ? `${iniGeo.lat}, ${iniGeo.lng}` : "(missing)"}`,
-    `exifGps: ${exifGps && Number.isFinite(exifGps.lat) && Number.isFinite(exifGps.lng) ? `${exifGps.lat}, ${exifGps.lng}` : "(missing)"}`,
     `pmpLatitudeLongitude: ${Number.isFinite(pmpLatitude) && Number.isFinite(pmpLongitude) ? `${pmpLatitude}, ${pmpLongitude}` : "(missing)"}`,
     `pmpGeoview: ${pmpLookAt ? `${pmpLookAt.latitude}, ${pmpLookAt.longitude} range=${pmpLookAt.range}` : (pmpGeoviewRaw ? String(pmpGeoviewRaw) : "(missing)")}`,
     ""
@@ -5967,7 +6036,7 @@ async function buildImagedataDumpForImage(imageItem) {
     }
   }
   return {
-    title: `${String(imageItem?.relPath || imageItem?.name || "Current image")} — imagedata row ${rowIndex}`,
+    title: `${String(imageItem?.relPath || imageItem?.name || "Current image")} — metadata row ${rowIndex}`,
     body: lines.join("\n")
   };
 }
@@ -6290,7 +6359,7 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
       const file = await handle.getFile();
       const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
       const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
-      const iptcKeywords = iniKeywords.length ? [] : await extractIptcKeywordsFromFile(file);
+      const iptcKeywords = await extractIptcKeywordsFromFile(file);
       const exifGps = meta.geotag ? null : await extractExifGpsFromFile(file);
       const mergedKeywords = Array.from(new Set([...iniKeywords, ...iptcKeywords]));
       const albumTokens = [];
@@ -6316,6 +6385,8 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
         albumTokens,
         albumNames,
         keywords: mergedKeywords,
+        iniKeywords,
+        iptcKeywords,
         star: !!meta.star,
         filters: meta.filters || [],
         geotag: meta.geotag || exifGps || null,
@@ -6412,7 +6483,8 @@ async function renderTiles(images, navRequestId = state.activeNavRequestId) {
       const cap = document.createElement("div");
       cap.className = "caption";
       const faceNames = (it.faces || []).map((f) => f.label).filter(Boolean);
-      cap.textContent = `${it.star ? "★ " : ""}${it.caption || it.name}`;
+      const hasGeo = !!(it.geotag && Number.isFinite(it.geotag.lat) && Number.isFinite(it.geotag.lng));
+      cap.textContent = `${it.star ? "★ " : ""}${hasGeo ? "📍 " : ""}${it.caption || it.name}`;
       if (faceNames.length) cap.title = `Faces: ${faceNames.join(", ")}`;
       const row = document.createElement("div");
       row.className = "tileMetaRow";
@@ -6509,7 +6581,7 @@ async function showImagedataOverlayForTarget(imageItem = null, sourceOverride = 
   if (Number.isFinite(rowIdxOverride) && Number(rowIdxOverride) >= 0) target.pmpRowIdx = Number(rowIdxOverride);
   if (sourceOverride) target.pmpRowSource = sourceOverride;
   el.slideImagedataTitle.textContent = String(target.relPath || target.name || ((sourceOverride && Number.isFinite(rowIdxOverride)) ? `${sourceOverride}[${rowIdxOverride}]` : ""));
-  el.slideImagedataBody.textContent = "Loading imagedata PMP row…";
+  el.slideImagedataBody.textContent = "Loading metadata…";
   el.slideImagedataOverlay.classList.add("show");
   el.slideImagedataOverlay.setAttribute("aria-hidden", "false");
   try {
@@ -6517,7 +6589,7 @@ async function showImagedataOverlayForTarget(imageItem = null, sourceOverride = 
     el.slideImagedataTitle.textContent = dump.title;
     el.slideImagedataBody.innerHTML = renderImagedataBodyHtml(dump.body);
   } catch (e) {
-    el.slideImagedataBody.textContent = `Failed to load imagedata PMP row: ${String(e?.message || e)}`;
+    el.slideImagedataBody.textContent = `Failed to load metadata: ${String(e?.message || e)}`;
   }
 }
 async function showSlideImagedataOverlay() {
@@ -7117,11 +7189,15 @@ el.btnFaceGeoClear.onclick = () => {
   applyFaceGeotagToInputs(null);
   syncFaceGeoMarker();
 };
-el.btnFaceGeoBasemapMap.onclick = () => {
-  setFaceMapBasemap("map");
+el.btnFaceRotateLeft.onclick = () => {
+  faceEditor.filters.push("rotate=1,-90");
+  syncFaceFilterList();
+  void applyFacePreview();
 };
-el.btnFaceGeoBasemapSat.onclick = () => {
-  setFaceMapBasemap("satellite");
+el.btnFaceRotateRight.onclick = () => {
+  faceEditor.filters.push("rotate=1,90");
+  syncFaceFilterList();
+  void applyFacePreview();
 };
 el.btnApplyRedeyeFilter.onclick = () => {
   const draft = refreshRedeyeDraft();
@@ -7184,6 +7260,7 @@ el.btnSettings.onclick = () => {
   el.selWriteKeywordsPref.value = state.prefs.writeKeywords || "ini";
   el.selThumbSourcePref.value = state.prefs.thumbSource || "generated";
   el.selEditorPreviewSize.value = getEditorPreviewPreference();
+  el.inpEditorMaxZoomMultiplier.value = String(getEditorMaxZoomMultiplier());
   el.settingsOverlay.classList.add("show");
   el.settingsOverlay.setAttribute("aria-hidden", "false");
 };
@@ -7194,15 +7271,18 @@ el.btnSettingsClose.onclick = () => {
 el.btnExportPmpCsv.onclick = () => {
   void exportCompletePmpImagedataCsv();
 };
-el.btnSettingsSave.onclick = () => {
+el.btnSettingsSave.onclick = async () => {
   state.prefs.readCaption = el.selReadCaptionPref.value;
   state.prefs.readKeywords = el.selReadKeywordsPref.value;
   state.prefs.writeCaption = el.selWriteCaptionPref.value;
   state.prefs.writeKeywords = el.selWriteKeywordsPref.value;
   const prevThumbSource = state.prefs.thumbSource;
   const prevEditorPreviewSize = getEditorPreviewPreference();
+  const prevZoomMultiplier = getEditorMaxZoomMultiplier();
   state.prefs.thumbSource = el.selThumbSourcePref.value;
   state.prefs.editorPreviewSize = el.selEditorPreviewSize.value || DEFAULT_EDITOR_PREVIEW_SIZE;
+  state.prefs.editorMaxZoomMultiplier = Math.max(1, Math.min(12, Number(el.inpEditorMaxZoomMultiplier.value || "4") || 4));
+  el.inpEditorMaxZoomMultiplier.value = String(state.prefs.editorMaxZoomMultiplier);
   if (prevThumbSource !== state.prefs.thumbSource) {
     releaseAllBoundThumbImages();
     teardownRawThumbObserver();
@@ -7215,6 +7295,16 @@ el.btnSettingsSave.onclick = () => {
   if (faceEditor.imageItem && prevEditorPreviewSize !== getEditorPreviewPreference()) {
     faceEditor.previewKey = "";
     void refreshEditorPreview();
+  }
+  if (faceEditor.imageItem && prevZoomMultiplier !== getEditorMaxZoomMultiplier()) {
+    updateFaceCanvasTransform();
+    renderFaceRects();
+  }
+  try {
+    await saveAppSettings(state.prefs);
+  } catch (e) {
+    setStatus(`Settings saved in memory, but failed to persist to IndexedDB: ${String(e?.message || e)}`, "warn");
+    return;
   }
   setStatus("Settings saved.", "ok");
 };
@@ -7457,7 +7547,7 @@ el.faceTiltSlider.oninput = () => {
 };
 el.faceZoomSlider.oninput = () => {
   const minZoom = Math.max(0.05, Number(faceEditor.zoomMin) || 1);
-  const maxZoom = Math.max(8, minZoom * 8);
+  const maxZoom = Math.max(minZoom, minZoom * getEditorMaxZoomMultiplier());
   faceEditor.zoom = Math.max(minZoom, Math.min(maxZoom, Number(el.faceZoomSlider.value || String(minZoom)) || minZoom));
   updateFaceCanvasTransform();
   renderFaceRects();
@@ -7954,6 +8044,8 @@ applyGalleryDisplayMode();
 // Initial hint
 (async () => {
   try {
+    const persistedPrefs = await loadAppSettings();
+    if (persistedPrefs) state.prefs = { ...state.prefs, ...persistedPrefs };
     const hasSnapshot = await hydrateFromIndexedDb();
     if (!hasSnapshot) {
       setStatus(
