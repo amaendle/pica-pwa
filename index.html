@@ -113,6 +113,15 @@
   </div>
 
 <script>
+(() => {
+  const blockedContexts = new Set(["webgl", "experimental-webgl", "webgl2"]);
+  const originalGetContext = HTMLCanvasElement.prototype.getContext;
+  HTMLCanvasElement.prototype.getContext = function(type, ...args) {
+    if (blockedContexts.has(String(type).toLowerCase())) return null;
+    return originalGetContext.call(this, type, ...args);
+  };
+})();
+
 /** ===========================
  *  Helpers: path + file types
  *  =========================== */
@@ -276,8 +285,31 @@ function txDone(tx) {
   });
 }
 
+function deleteByLibraryId(store, libraryId) {
+  return new Promise((resolve, reject) => {
+    const req = store.index("libraryId").openCursor(IDBKeyRange.only(libraryId));
+    req.onsuccess = () => {
+      const cursor = req.result;
+      if (!cursor) {
+        resolve();
+        return;
+      }
+      cursor.delete();
+      cursor.continue();
+    };
+    req.onerror = () => reject(req.error || new Error("IndexedDB cleanup failed"));
+  });
+}
+
 async function saveLibrarySnapshot(snapshot) {
   const db = await openLibraryDB();
+  const cleanupTx = db.transaction([STORES.albums, STORES.folders], "readwrite");
+  await Promise.all([
+    deleteByLibraryId(cleanupTx.objectStore(STORES.albums), snapshot.libraryId),
+    deleteByLibraryId(cleanupTx.objectStore(STORES.folders), snapshot.libraryId)
+  ]);
+  await txDone(cleanupTx);
+
   const tx = db.transaction([STORES.libraries, STORES.albums, STORES.folders], "readwrite");
   const libraries = tx.objectStore(STORES.libraries);
   const albums = tx.objectStore(STORES.albums);
@@ -548,17 +580,7 @@ async function loadAlbumsFromPMP() {
   state.albums = resolveAlbumsAgainstIndex(albums);
   state.folderItems = buildFolderItems(state.albums);
 
-  await saveLibrarySnapshot({
-    libraryId: state.libraryId,
-    rootName: state.imageRoot?.name || "",
-    label: state.pmpRoot.name || "Imported library",
-    stats: { albums: state.albums.length, folders: state.folderItems.length },
-    albums: state.albums,
-    folders: state.folderItems
-  });
-
-  el.btnExport.disabled = false;
-  el.pillInfo.textContent = `${state.albums.length} albums`;
+  await persistCurrentSnapshot(state.pmpRoot.name || "Imported library");
   renderNavigation();
 }
 
@@ -580,6 +602,36 @@ function buildFolderItems(albums) {
     if (!uniq.has(f.pathRel)) uniq.set(f.pathRel, f);
   }
   return Array.from(uniq.values()).sort((a,b) => a.pathRel.localeCompare(b.pathRel, undefined, { sensitivity: "base" }));
+}
+
+function buildFolderItemsFromDirectoryIndex(dirIndex) {
+  if (!dirIndex) return [];
+
+  return Array.from(dirIndex.keys())
+    .map((pathRel, idx) => ({
+      id: `${state.libraryId}:folder:${pathRel || "__root__"}:${idx}`,
+      libraryId: state.libraryId,
+      name: pathRel ? pathRel.split("/").pop() : (state.imageRoot?.name || "(root)"),
+      pathRel,
+      absPath: "",
+      albumName: "",
+      broken: false
+    }))
+    .sort((a,b) => a.pathRel.localeCompare(b.pathRel, undefined, { sensitivity: "base" }));
+}
+
+async function persistCurrentSnapshot(label = "Imported library") {
+  await saveLibrarySnapshot({
+    libraryId: state.libraryId,
+    rootName: state.imageRoot?.name || "",
+    label,
+    stats: { albums: state.albums.length, folders: state.folderItems.length },
+    albums: state.albums,
+    folders: state.folderItems
+  });
+
+  el.btnExport.disabled = false;
+  el.pillInfo.textContent = `${state.albums.length} albums, ${state.folderItems.length} folders`;
 }
 
 /** ===========================
@@ -850,19 +902,14 @@ el.btnPickImages.onclick = async () => {
     if (state.albums.length) {
       state.albums = resolveAlbumsAgainstIndex(state.albums);
       state.folderItems = buildFolderItems(state.albums);
-      renderNavigation();
-      await saveLibrarySnapshot({
-        libraryId: state.libraryId,
-        rootName: state.imageRoot?.name || "",
-        label: state.pmpRoot?.name || "Imported library",
-        stats: { albums: state.albums.length, folders: state.folderItems.length },
-        albums: state.albums,
-        folders: state.folderItems
-      });
+    } else {
+      state.folderItems = buildFolderItemsFromDirectoryIndex(state.dirIndex);
     }
 
+    renderNavigation();
+    await persistCurrentSnapshot(state.pmpRoot?.name || state.imageRoot?.name || "Image library");
     refreshSelectionPill();
-    setStatus(`Indexed ${state.dirIndex.size} folders. ${state.albums.length ? "Navigation paths were re-resolved." : "Now choose PMP folder to import."}`, "ok");
+    setStatus(`Indexed ${state.dirIndex.size} folders. ${state.albums.length ? "Navigation paths were re-resolved." : "Folder view is ready; choose PMP folder to import albums."}`, "ok");
   } catch (e) {
     setStatus(String(e?.message || e), "err");
   }
