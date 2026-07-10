@@ -201,6 +201,7 @@
           <button id="btnToggleText">Text: On</button>
           <button id="btnToggleFinetune2">FineTune2: On</button>
           <button id="btnToggleSlideWebgl">WebGL: On</button>
+          <button id="btnSlideEdit">Edit</button>
           <label class="pill" style="display:flex; align-items:center; gap:6px;">Zoom <span id="slideZoomValue" class="mono">1.00×</span><input id="slideZoomSlider" type="range" min="1" max="6" step="0.01" value="1" style="width:120px;"></label>
           <button id="btnSlideZoomReset">Reset view</button>
           <button id="btnShowSlideImagedata">Metadata</button>
@@ -442,6 +443,7 @@
             <option value="320">Max 320 px</option>
           </select>
         </label>
+        <label style="display:flex; align-items:center; gap:8px;"><input id="settingsUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for slideshow, editor previews, and thumbnails</label>
         <label>Editor max zoom multiplier
           <input id="inpEditorMaxZoomMultiplier" type="number" min="1" max="12" step="0.25" value="4">
         </label>
@@ -2346,7 +2348,22 @@ function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = 
   };
 }
 
-
+function mapRectThroughFilterChain(rect, naturalW, naturalH, filters = [], fallbackCropRect64 = "") {
+  const b = rect || { x: 0, y: 0, w: 0, h: 0 };
+  const pts = [
+    mapPointThroughFilterChain(b.x, b.y, naturalW, naturalH, filters, fallbackCropRect64),
+    mapPointThroughFilterChain(b.x + b.w, b.y, naturalW, naturalH, filters, fallbackCropRect64),
+    mapPointThroughFilterChain(b.x, b.y + b.h, naturalW, naturalH, filters, fallbackCropRect64),
+    mapPointThroughFilterChain(b.x + b.w, b.y + b.h, naturalW, naturalH, filters, fallbackCropRect64)
+  ];
+  const xs = pts.map((pt) => Number(pt.x) || 0);
+  const ys = pts.map((pt) => Number(pt.y) || 0);
+  const minX = Math.min(...xs);
+  const maxX = Math.max(...xs);
+  const minY = Math.min(...ys);
+  const maxY = Math.max(...ys);
+  return { x: minX, y: minY, w: Math.max(0, maxX - minX), h: Math.max(0, maxY - minY) };
+}
 
 function applyFillLightOnCanvas(canvas, strength = 0) {
   const fl = Math.max(0, Math.min(1, Number(strength) || 0));
@@ -3418,7 +3435,7 @@ const state = {
   activeListIndex: -1,
   libraryId: "default",
   slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true, enableFinetune2: true, useWebglPreview: true, zoom: 1, panX: 0, panY: 0, panning: false, panStartX: 0, panStartY: 0 },
-  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini", thumbSource: "generated", editorPreviewSize: DEFAULT_EDITOR_PREVIEW_SIZE, editorMaxZoomMultiplier: 4, thumbSize: 140 },
+  prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini", thumbSource: "generated", editorPreviewSize: DEFAULT_EDITOR_PREVIEW_SIZE, editorMaxZoomMultiplier: 4, thumbSize: 140, useWebglPreview: true },
   preview: { useWebglPreview: true },
   pmpColumnsCache: [],
   thumbCaches: {
@@ -3510,6 +3527,7 @@ const el = {
   btnToggleText: document.getElementById("btnToggleText"),
   btnToggleFinetune2: document.getElementById("btnToggleFinetune2"),
   btnToggleSlideWebgl: document.getElementById("btnToggleSlideWebgl"),
+  btnSlideEdit: document.getElementById("btnSlideEdit"),
   slideZoomSlider: document.getElementById("slideZoomSlider"),
   slideZoomValue: document.getElementById("slideZoomValue"),
   btnSlideZoomReset: document.getElementById("btnSlideZoomReset"),
@@ -3704,6 +3722,7 @@ const el = {
   selThumbSourcePref: document.getElementById("selThumbSourcePref"),
   selEditorPreviewSize: document.getElementById("selEditorPreviewSize"),
   inpEditorMaxZoomMultiplier: document.getElementById("inpEditorMaxZoomMultiplier"),
+  settingsUseWebgl: document.getElementById("settingsUseWebgl"),
   btnExportPmpCsv: document.getElementById("btnExportPmpCsv"),
   btnSettingsSave: document.getElementById("btnSettingsSave"),
   btnSettingsClose: document.getElementById("btnSettingsClose"),
@@ -4531,7 +4550,7 @@ function renderFaceRects() {
 
   faceEditor.faces.forEach((face, idx) => {
     if (idx !== faceEditor.activeFaceIdx) return;
-    const b = rect64ToBox(face.rect64);
+    const b = mapRectThroughFilterChain(rect64ToBox(face.rect64), faceEditor.naturalW, faceEditor.naturalH, faceEditor.filters || [], faceEditor.cropRect64 || "");
     const div = document.createElement('div');
     div.className = 'faceRect active';
     div.style.left = `${offsetX + b.x * r.width}px`;
@@ -6485,7 +6504,7 @@ async function renderTiles(images, navRequestId = state.activeNavRequestId) {
         } else {
           tile.classList.add("thumbFromOriginal");
           const chain = buildEffectiveFilterChain(it.filters || [], it.cropRect64 || "");
-          it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "");
+          it.thumbUrl = await makeFilteredPreviewURL(it.file, chain, 320, "", { useWebglPreview: !!state.preview.useWebglPreview });
           img.src = it.thumbUrl;
         }
       } catch {
@@ -6595,6 +6614,21 @@ function applySlideTransform() {
   if (el.slideZoomValue) el.slideZoomValue.textContent = `${zoom.toFixed(2)}×`;
   if (el.slideZoomSlider) el.slideZoomSlider.value = zoom.toFixed(2);
 }
+function setSlideZoomCentered(nextZoom) {
+  const prevZoom = Math.max(1, Math.min(6, Number(state.slideshow.zoom) || 1));
+  const zoom = Math.max(1, Math.min(6, Number(nextZoom) || 1));
+  if (Math.abs(zoom - prevZoom) < 0.0001) {
+    state.slideshow.zoom = zoom;
+    return;
+  }
+  const panX = Number(state.slideshow.panX) || 0;
+  const panY = Number(state.slideshow.panY) || 0;
+  const ratio = zoom / prevZoom;
+  state.slideshow.zoom = zoom;
+  state.slideshow.panX = panX * ratio;
+  state.slideshow.panY = panY * ratio;
+}
+
 function resetSlideTransform() {
   state.slideshow.zoom = 1;
   state.slideshow.panX = 0;
@@ -6640,7 +6674,7 @@ function renderSlideFaceRects(item) {
   const offsetX = imgRect.left - layerRect.left;
   const offsetY = imgRect.top - layerRect.top;
   for (const f of (item.faces || [])) {
-    const b = rect64ToBox(f.rect64 || "");
+    const b = mapRectThroughFilterChain(rect64ToBox(f.rect64 || ""), item.naturalW || 1, item.naturalH || 1, state.slideshow.showCrop ? (item.filters || []) : [], state.slideshow.showCrop ? (item.cropRect64 || "") : "");
     const d = document.createElement('div');
     d.className = 'slideFaceRect';
     d.style.left = `${offsetX + b.x * imgRect.width}px`;
@@ -6701,7 +6735,7 @@ async function updateSlide() {
     for (const chosen of overlays) {
       const d = document.createElement("div");
       d.className = "slideTextOverlay";
-      const mapped = mapPointThroughFilterChain(chosen.x || 0.08, chosen.y || 0.08, it.naturalW || 1, it.naturalH || 1, state.slideshow.showCrop ? (it.filters || []) : [], state.slideshow.showCrop ? (it.cropRect64 || "") : "");
+      const mapped = mapPointThroughFilterChain(chosen.x || 0.08, chosen.y || 0.08, item.naturalW || 1, item.naturalH || 1, state.slideshow.showCrop ? (item.filters || []) : [], state.slideshow.showCrop ? (item.cropRect64 || "") : "");
       d.textContent = chosen.caption;
       d.style.left = `${offsetX + Math.max(0, Math.min(1, mapped.x || 0.08)) * imgRect.width}px`;
       d.style.top = `${offsetY + Math.max(0, Math.min(1, mapped.y || 0.08)) * imgRect.height}px`;
@@ -7290,6 +7324,7 @@ el.btnSettings.onclick = () => {
   el.selThumbSourcePref.value = state.prefs.thumbSource || "generated";
   el.selEditorPreviewSize.value = getEditorPreviewPreference();
   el.inpEditorMaxZoomMultiplier.value = String(getEditorMaxZoomMultiplier());
+  el.settingsUseWebgl.checked = !!state.prefs.useWebglPreview;
   el.settingsOverlay.classList.add("show");
   el.settingsOverlay.setAttribute("aria-hidden", "false");
 };
@@ -7308,10 +7343,23 @@ el.btnSettingsSave.onclick = async () => {
   const prevThumbSource = state.prefs.thumbSource;
   const prevEditorPreviewSize = getEditorPreviewPreference();
   const prevZoomMultiplier = getEditorMaxZoomMultiplier();
+  const prevUseWebgl = !!state.prefs.useWebglPreview;
   state.prefs.thumbSource = el.selThumbSourcePref.value;
   state.prefs.editorPreviewSize = el.selEditorPreviewSize.value || DEFAULT_EDITOR_PREVIEW_SIZE;
   state.prefs.editorMaxZoomMultiplier = Math.max(1, Math.min(12, Number(el.inpEditorMaxZoomMultiplier.value || "4") || 4));
+  state.prefs.useWebglPreview = !!el.settingsUseWebgl.checked;
+  state.preview.useWebglPreview = !!state.prefs.useWebglPreview;
+  state.slideshow.useWebglPreview = !!state.prefs.useWebglPreview;
   el.inpEditorMaxZoomMultiplier.value = String(state.prefs.editorMaxZoomMultiplier);
+  if (prevUseWebgl !== state.prefs.useWebglPreview) {
+    for (const it of (state.currentImages || [])) {
+      if (it.thumbUrl?.startsWith("blob:")) URL.revokeObjectURL(it.thumbUrl);
+      if (it.slidePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(it.slidePreviewUrl);
+      it.thumbUrl = "";
+      it.slidePreviewUrl = "";
+      it.slidePreviewKey = "";
+    }
+  }
   if (prevThumbSource !== state.prefs.thumbSource) {
     releaseAllBoundThumbImages();
     teardownRawThumbObserver();
@@ -7321,7 +7369,7 @@ el.btnSettingsSave.onclick = async () => {
   el.settingsOverlay.classList.remove("show");
   el.settingsOverlay.setAttribute("aria-hidden", "true");
   if (state.currentImages.length) void renderTiles(state.currentImages);
-  if (faceEditor.imageItem && prevEditorPreviewSize !== getEditorPreviewPreference()) {
+  if (faceEditor.imageItem && (prevEditorPreviewSize !== getEditorPreviewPreference() || prevUseWebgl !== state.prefs.useWebglPreview)) {
     faceEditor.previewKey = "";
     void refreshEditorPreview();
   }
@@ -7408,9 +7456,13 @@ el.btnToggleSlideWebgl.onclick = async () => {
   state.slideshow.useWebglPreview = !state.slideshow.useWebglPreview;
   if (state.slideshow.open) await updateSlide();
 };
+el.btnSlideEdit.onclick = () => {
+  const it = state.currentImages[state.slideshow.index];
+  if (it) openFaceEditor(it);
+};
 el.btnShowSlideImagedata.onclick = () => { void showSlideImagedataOverlay(); };
 el.slideZoomSlider.oninput = () => {
-  state.slideshow.zoom = Math.max(1, Math.min(6, Number(el.slideZoomSlider.value || "1") || 1));
+  setSlideZoomCentered(Math.max(1, Math.min(6, Number(el.slideZoomSlider.value || "1") || 1)));
   applySlideTransform();
   const it = state.currentImages[state.slideshow.index];
   if (it) renderSlideFaceRects(it);
@@ -7442,7 +7494,7 @@ el.slideImg.addEventListener("pointercancel", stopSlidePan);
 el.slideImg.addEventListener("wheel", (ev) => {
   if (!state.slideshow.open) return;
   const delta = ev.deltaY < 0 ? 0.1 : -0.1;
-  state.slideshow.zoom = Math.max(1, Math.min(6, (Number(state.slideshow.zoom) || 1) + delta));
+  setSlideZoomCentered(Math.max(1, Math.min(6, (Number(state.slideshow.zoom) || 1) + delta)));
   if (state.slideshow.zoom <= 1.001) {
     state.slideshow.panX = 0;
     state.slideshow.panY = 0;
@@ -8126,6 +8178,8 @@ applyGalleryDisplayMode();
   try {
     const persistedPrefs = await loadAppSettings();
     if (persistedPrefs) state.prefs = { ...state.prefs, ...persistedPrefs };
+    state.preview.useWebglPreview = !!state.prefs.useWebglPreview;
+    state.slideshow.useWebglPreview = !!state.prefs.useWebglPreview;
     applyThumbSizePreference();
     const hasSnapshot = await hydrateFromIndexedDb();
     if (!hasSnapshot) {
