@@ -3306,6 +3306,7 @@ function applyFinetune2OnCanvas(canvas, params) {
 
 async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackCropRect64 = "", options = {}) {
   const useWebglPreview = options.useWebglPreview ?? !!state.preview?.useWebglPreview;
+  const notifyFallback = (action) => { if (useWebglPreview) notifyWebglFallback(action); };
   const src = URL.createObjectURL(file instanceof Blob ? file : new Blob([file]));
   const img = await new Promise((res, rej) => {
     const im = new Image();
@@ -3340,6 +3341,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       const fl = Number(m[1]);
       const canUseWebgl = !!useWebglPreview && !hasAppliedTilt;
       if (!(canUseWebgl && applyFillLightOnCanvasWebGL(canvas, fl))) {
+        if (canUseWebgl) notifyFallback("filllight");
         applyFillLightOnCanvas(canvas, fl);
       }
       continue;
@@ -3348,65 +3350,73 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     if (m) {
       const canUseWebgl = !!useWebglPreview && !hasAppliedTilt;
       if (canUseWebgl) {
-        if (!applyFinetune2OnCanvasWebGL(canvas, m)) canvas = applyFinetune2OnCanvas(canvas, m);
+        if (!applyFinetune2OnCanvasWebGL(canvas, m)) {
+          notifyFallback("finetune2");
+          canvas = applyFinetune2OnCanvas(canvas, m);
+        }
       } else {
         canvas = applyFinetune2OnCanvas(canvas, m);
       }
       continue;
     }
     if (/^sepia=1$/i.test(String(f).trim())) {
-      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "sepia"))) applyAdvancedColorFilterOnCanvas(canvas, "sepia");
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "sepia"))) { notifyFallback("sepia"); applyAdvancedColorFilterOnCanvas(canvas, "sepia"); }
       continue;
     }
     if (/^bw=1$/i.test(String(f).trim())) {
-      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "bw"))) applyAdvancedColorFilterOnCanvas(canvas, "bw");
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "bw"))) { notifyFallback("bw"); applyAdvancedColorFilterOnCanvas(canvas, "bw"); }
       continue;
     }
     if (/^warm=1$/i.test(String(f).trim())) {
-      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "warm"))) applyAdvancedColorFilterOnCanvas(canvas, "warm");
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "warm"))) { notifyFallback("warm"); applyAdvancedColorFilterOnCanvas(canvas, "warm"); }
       continue;
     }
     if (/^grain2=1$/i.test(String(f).trim())) {
-      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "grain2"))) applyAdvancedColorFilterOnCanvas(canvas, "grain2");
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "grain2"))) { notifyFallback("grain2"); applyAdvancedColorFilterOnCanvas(canvas, "grain2"); }
       continue;
     }
     m = parseSatFilter(f);
     if (m) {
-      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "sat", m))) applyAdvancedColorFilterOnCanvas(canvas, "sat", m);
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "sat", m))) { notifyFallback("sat"); applyAdvancedColorFilterOnCanvas(canvas, "sat", m); }
       continue;
     }
     m = parseTintFilter(f);
     if (m) {
-      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "tint", m))) applyAdvancedColorFilterOnCanvas(canvas, "tint", m);
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "tint", m))) { notifyFallback("tint"); applyAdvancedColorFilterOnCanvas(canvas, "tint", m); }
       continue;
     }
     m = parseAnselFilter(f);
     if (m) {
-      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "ansel", m))) applyAdvancedColorFilterOnCanvas(canvas, "ansel", m);
+      if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "ansel", m))) { notifyFallback("ansel"); applyAdvancedColorFilterOnCanvas(canvas, "ansel", m); }
       continue;
     }
     m = parseGlow2Filter(f);
     if (m) {
+      notifyFallback("glow2");
       applyGlow2OnCanvas(canvas, m);
       continue;
     }
     m = parseRadblurFilter(f);
     if (m) {
+      notifyFallback("radblur");
       applyRadialBlurOnCanvas(canvas, m);
       continue;
     }
     m = parseRadsatFilter(f);
     if (m) {
+      notifyFallback("radsat");
       applyRadialSaturationOnCanvas(canvas, m);
       continue;
     }
     m = parseDirTintFilter(f);
     if (m) {
+      notifyFallback("dirtint");
       applyDirectionalTintOnCanvas(canvas, m);
       continue;
     }
     m = parseRedeyeFilter(f);
     if (m) {
+      notifyFallback("redeye");
       applyRedeyeAreasOnCanvas(canvas, m);
       continue;
     }
@@ -3415,12 +3425,13 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       const rad = tiltValueToRad(Number(m[1]));
       const cx = view.x + view.w / 2;
       const cy = view.y + view.h / 2;
-      const canUseWebgl = !!useWebglPreview && rad >= 0;
+      const canUseWebgl = !!useWebglPreview;
       if (canUseWebgl) {
         const outGl = rotateCanvasWebGL(canvas, rad, cx, cy);
         if (outGl) {
           canvas = ensureCanvas2D(outGl);
         } else {
+          notifyFallback("tilt");
           const out = document.createElement("canvas");
           out.width = canvas.width;
           out.height = canvas.height;
@@ -3470,6 +3481,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     if (croppedGl) {
       canvas = ensureCanvas2D(croppedGl);
     } else {
+      notifyFallback("crop");
       const cropped = document.createElement("canvas");
       cropped.width = sw;
       cropped.height = sh;
@@ -3566,7 +3578,8 @@ const state = {
   galleryMap: null,
   galleryMapMarkers: [],
   navRequestSeq: 0,
-  activeNavRequestId: 0
+  activeNavRequestId: 0,
+  webglFallbackNotices: new Set()
 };
 function beginNavRequest() {
   const id = ++state.navRequestSeq;
@@ -3825,6 +3838,12 @@ const el = {
 function setStatus(msg, cls = "") {
   el.mainStatus.className = "status " + cls;
   el.mainStatus.textContent = msg || "";
+}
+function notifyWebglFallback(action) {
+  const key = String(action || "filter");
+  if (state.webglFallbackNotices?.has(key)) return;
+  state.webglFallbackNotices?.add(key);
+  setStatus(`WebGL path unavailable for ${key}; using CPU fallback for this operation.`, "warn");
 }
 function setAsideState(text, cls="") {
   el.pillState.textContent = text;
@@ -6776,14 +6795,16 @@ function goToAlbumByToken(token) {
   if (idx >= 0) selectAlbum(idx);
 }
 
-function renderSlideFaceRects(item) {
+function renderSlideFaceRects(item, forceLabel = "") {
   el.slideFaceLayer.querySelectorAll(".slideFaceRect").forEach((n) => n.remove());
-  if (!state.slideshow.showFaces) return;
+  const forced = String(forceLabel || "");
+  if (!state.slideshow.showFaces && !forced) return;
   const imgRect = el.slideImg.getBoundingClientRect();
   const layerRect = el.slideFaceLayer.getBoundingClientRect();
   const offsetX = imgRect.left - layerRect.left;
   const offsetY = imgRect.top - layerRect.top;
   for (const f of (item.faces || [])) {
+    if (forced && String(f.label || "") !== forced) continue;
     const b = mapRectThroughFilterChain(rect64ToBox(f.rect64 || ""), item.naturalW || 1, item.naturalH || 1, state.slideshow.showCrop ? (item.filters || []) : [], state.slideshow.showCrop ? (item.cropRect64 || "") : "");
     const d = document.createElement('div');
     d.className = 'slideFaceRect';
@@ -6819,11 +6840,22 @@ async function updateSlide() {
   applySlideTransform();
 
   const faces = (it.faces || []).map((f) => f.label).filter(Boolean);
-  const caption = it.caption ? ` | caption: ${it.caption}` : "";
-  const faceText = faces.length ? ` | faces: ${faces.join(", ")}` : "";
-  const tagText = (it.keywords || []).length ? ` | tags: ${(it.keywords || []).join(", ")}` : "";
+  const caption = it.caption ? ` | caption: ${escapeHtml(it.caption)}` : "";
+  const faceText = faces.length ? ` | faces: ${faces.map((name) => `<a href="#" class="slideFaceName" data-face-label="${escapeHtml(name)}">${escapeHtml(name)}</a>`).join(", ")}` : "";
+  const tagText = (it.keywords || []).length ? ` | tags: ${escapeHtml((it.keywords || []).join(", "))}` : "";
   const starText = it.star ? " | ★ starred" : "";
-  el.slideMeta.textContent = `${state.slideshow.index + 1}/${state.currentImages.length}  ${it.relPath}${caption}${faceText}${tagText}${starText}`;
+  el.slideMeta.innerHTML = `${state.slideshow.index + 1}/${state.currentImages.length}  ${escapeHtml(it.relPath)}${caption}${faceText}${tagText}${starText}`;
+  el.slideMeta.querySelectorAll(".slideFaceName").forEach((a) => {
+    const show = (ev) => { ev.preventDefault(); renderSlideFaceRects(it, a.getAttribute("data-face-label") || ""); };
+    const hide = () => renderSlideFaceRects(it);
+    a.addEventListener("mouseenter", show);
+    a.addEventListener("focus", show);
+    a.addEventListener("touchstart", show, { passive: false });
+    a.addEventListener("touchend", hide);
+    a.addEventListener("touchcancel", hide);
+    a.addEventListener("mouseleave", hide);
+    a.addEventListener("blur", hide);
+  });
 
   if ((it.albumTokens || []).length) {
     el.slideAlbums.innerHTML = `Albums: ` + it.albumTokens.map((tok, i) => `<a href="#" data-token="${tok}" class="mono">${it.albumNames?.[i] || tok}</a>`).join(" | ");
