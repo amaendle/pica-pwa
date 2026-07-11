@@ -708,20 +708,45 @@ class PMPReaderJS {
 /** ===========================
  *  File System Access helpers
  *  =========================== */
+function errorMessageWithPath(error, path = "") {
+  const msg = String(error?.message || error || "Unknown file error");
+  const pth = String(path || "").trim();
+  return pth ? `${msg} (path: ${pth})` : msg;
+}
+
 async function getFileHandleByPath(rootDirHandle, relPath) {
   // relPath like "db/albumdata_name.pmp"
-  const segs = relPath.split("/").filter(Boolean);
+  const pathText = String(relPath || "");
+  const segs = pathText.split("/").filter(Boolean);
   let cur = rootDirHandle;
-  for (let i=0;i<segs.length;i++) {
-    const name = segs[i];
-    const isLast = i === segs.length - 1;
-    if (isLast) return await cur.getFileHandle(name);
-    cur = await cur.getDirectoryHandle(name);
+  try {
+    for (let i=0;i<segs.length;i++) {
+      const name = segs[i];
+      const isLast = i === segs.length - 1;
+      if (isLast) return await cur.getFileHandle(name);
+      cur = await cur.getDirectoryHandle(name);
+    }
+  } catch (e) {
+    throw new Error(errorMessageWithPath(e, pathText));
   }
-  throw new Error("Invalid path");
+  throw new Error(errorMessageWithPath("Invalid path", pathText));
 }
-async function readFileAsArrayBuffer(fileHandle) {
-  const file = await fileHandle.getFile();
+async function getFileWithPath(fileHandle, path = "") {
+  try {
+    return await fileHandle.getFile();
+  } catch (e) {
+    throw new Error(errorMessageWithPath(e, path || fileHandle?.name || ""));
+  }
+}
+async function getDirectoryHandleWithPath(dirHandle, path = "") {
+  try {
+    return await dirHandle.getDirectoryHandle(path);
+  } catch (e) {
+    throw new Error(errorMessageWithPath(e, path));
+  }
+}
+async function readFileAsArrayBuffer(fileHandle, path = "") {
+  const file = await getFileWithPath(fileHandle, path);
   return await file.arrayBuffer();
 }
 
@@ -1376,7 +1401,7 @@ function parseThumbindexDb(buffer) {
 async function readOptionalBuffer(rootHandle, relPath) {
   try {
     const fh = await getFileHandleByPath(rootHandle, relPath);
-    return await readFileAsArrayBuffer(fh);
+    return await readFileAsArrayBuffer(fh, relPath);
   } catch {
     return null;
   }
@@ -5747,7 +5772,7 @@ async function findPicasaIniFileHandle(dirHandle) {
       .sort((a, b) => a.fileName.localeCompare(b.fileName, undefined, { numeric: true, sensitivity: "base" }));
     for (const candidate of picasaNamed) {
       try {
-        const text = await (await candidate.fileHandle.getFile()).text();
+        const text = await (await getFileWithPath(candidate.fileHandle, candidate.fileName)).text();
         if (looksLikePicasaIniText(text)) {
           found = candidate;
           detection = "content-fallback";
@@ -5788,7 +5813,7 @@ async function getPicasaMetaForFolder(pathRel, dirHandle) {
       upsertIniAlbumsFromPicasa(pathRel, empty);
       return empty;
     }
-    const text = await (await scanResult.found.fileHandle.getFile()).text();
+    const text = await (await getFileWithPath(scanResult.found.fileHandle, `${pathRel}/${scanResult.found.fileName}`.replace(/^\/+/, ""))).text();
     const parsed = parsePicasaIni(text);
     parsed.sourceFile = scanResult.found.fileName;
     parsed.scannedFileNames = scanResult.scannedFileNames;
@@ -5861,7 +5886,7 @@ async function listImagesForAlbumRefs(imageRefs = []) {
     const picasa = await getPicasaMetaForFolder(pathRel, dirHandle);
     for await (const [name, handle] of dirHandle.entries()) {
       if (handle.kind !== "file" || !isImageName(name) || !namesSet.has(String(name).toLowerCase())) continue;
-      const file = await handle.getFile();
+      const file = await getFileWithPath(handle, pathRel ? `${pathRel}/${name}` : name);
       const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [], geotag: null };
       const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
       const iptcKeywords = await extractIptcKeywordsFromFile(file);
@@ -5886,14 +5911,14 @@ async function listImagesForAlbumRefs(imageRefs = []) {
 
 
 async function scanAndStoreAllPmpColumns() {
-  const dbDir = await state.pmpRoot.getDirectoryHandle("db");
+  const dbDir = await getDirectoryHandleWithPath(state.pmpRoot, "db");
   const out = [];
   for await (const [name, handle] of dbDir.entries()) {
     if (handle.kind !== "file") continue;
     const m = String(name).match(/^(albumdata|catdata|imagedata)_([^\.]+)\.pmp$/i);
     if (!m) continue;
     try {
-      const file = await handle.getFile();
+      const file = await getFileWithPath(handle, `db/${name}`);
       const buf = await file.arrayBuffer();
       const parsed = PMPReaderJS.read(buf);
       out.push({
@@ -6213,7 +6238,7 @@ async function loadAlbumsFromPMP() {
   for (const rel of required) {
     try {
       const fh = await getFileHandleByPath(state.pmpRoot, rel);
-      buffers[rel] = await readFileAsArrayBuffer(fh);
+      buffers[rel] = await readFileAsArrayBuffer(fh, rel);
     } catch (e) {
       if (rel.endsWith("albumdata_albumcontactids.pmp")) {
         buffers[rel] = null;
@@ -6500,7 +6525,7 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
   for await (const [name, handle] of dirHandle.entries()) {
     if (handle.kind === "file" && isImageName(name)) {
       if (members && !members.has(name)) continue;
-      const file = await handle.getFile();
+      const file = await getFileWithPath(handle, relDir ? `${relDir}/${name}` : name);
       const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
       const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
       const iptcKeywords = await extractIptcKeywordsFromFile(file);
