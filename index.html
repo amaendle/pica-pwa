@@ -3176,6 +3176,17 @@ function applyFinetune2OnCanvasWebGL(canvas, params) {
     return false;
   }
 }
+function ensureCanvas2D(canvas) {
+  if (!canvas) return canvas;
+  const ctx = canvas.getContext("2d");
+  if (ctx) return canvas;
+  const out = document.createElement("canvas");
+  out.width = Math.max(1, canvas.width || 1);
+  out.height = Math.max(1, canvas.height || 1);
+  out.getContext("2d").drawImage(canvas, 0, 0);
+  return out;
+}
+
 function parseFinetune2Filter(filterString = "") {
   const m = String(filterString || "").trim().match(/^finetune2=1,([^,]*),([^,]*),([^,]*),([0-9a-f]{8}),([^,]*)$/i);
   if (!m) return null;
@@ -3200,7 +3211,9 @@ function parseFinetune2Filter(filterString = "") {
 
 function applyFinetune2OnCanvas(canvas, params) {
   if (!canvas || !params) return canvas;
+  canvas = ensureCanvas2D(canvas);
   const ctx = canvas.getContext("2d");
+  if (!ctx) return canvas;
   const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   const data = imgData.data;
   const toLinear = (s) => s <= 0.04045 ? (s / 12.92) : Math.pow((s + 0.055) / 1.055, 2.4);
@@ -3335,9 +3348,9 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     if (m) {
       const canUseWebgl = !!useWebglPreview && !hasAppliedTilt;
       if (canUseWebgl) {
-        if (!applyFinetune2OnCanvasWebGL(canvas, m)) applyFinetune2OnCanvas(canvas, m);
+        if (!applyFinetune2OnCanvasWebGL(canvas, m)) canvas = applyFinetune2OnCanvas(canvas, m);
       } else {
-        applyFinetune2OnCanvas(canvas, m);
+        canvas = applyFinetune2OnCanvas(canvas, m);
       }
       continue;
     }
@@ -3402,11 +3415,11 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       const rad = tiltValueToRad(Number(m[1]));
       const cx = view.x + view.w / 2;
       const cy = view.y + view.h / 2;
-      const canUseWebgl = !!useWebglPreview;
+      const canUseWebgl = !!useWebglPreview && rad >= 0;
       if (canUseWebgl) {
         const outGl = rotateCanvasWebGL(canvas, rad, cx, cy);
         if (outGl) {
-          canvas = outGl;
+          canvas = ensureCanvas2D(outGl);
         } else {
           const out = document.createElement("canvas");
           out.width = canvas.width;
@@ -3455,7 +3468,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   if (!!useWebglPreview) {
     const croppedGl = cropCanvasWebGL(canvas, sx, sy, sw, sh);
     if (croppedGl) {
-      canvas = croppedGl;
+      canvas = ensureCanvas2D(croppedGl);
     } else {
       const cropped = document.createElement("canvas");
       cropped.width = sw;
@@ -6832,7 +6845,7 @@ async function updateSlide() {
     for (const chosen of overlays) {
       const d = document.createElement("div");
       d.className = "slideTextOverlay";
-      const mapped = mapPointThroughFilterChain(chosen.x || 0.08, chosen.y || 0.08, item.naturalW || 1, item.naturalH || 1, state.slideshow.showCrop ? (item.filters || []) : [], state.slideshow.showCrop ? (item.cropRect64 || "") : "");
+      const mapped = mapPointThroughFilterChain(chosen.x || 0.08, chosen.y || 0.08, it.naturalW || 1, it.naturalH || 1, state.slideshow.showCrop ? (it.filters || []) : [], state.slideshow.showCrop ? (it.cropRect64 || "") : "");
       d.textContent = chosen.caption;
       d.style.left = `${offsetX + Math.max(0, Math.min(1, mapped.x || 0.08)) * imgRect.width}px`;
       d.style.top = `${offsetY + Math.max(0, Math.min(1, mapped.y || 0.08)) * imgRect.height}px`;
