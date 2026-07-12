@@ -1529,6 +1529,9 @@ function releaseThumbResourcesOnVisibility() {
   teardownTileThumbObserver();
   revokeThumbUrlCache();
 }
+function yieldToBrowser() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 async function renderAllThumbsGallery() {
   const selectedSource = String(state.prefs.thumbSource || "generated");
@@ -1648,6 +1651,7 @@ async function importThumbSource(source) {
     if (!(blob instanceof Blob)) continue;
     rows[idx] = { idx, blob };
     rowCount += 1;
+    if (idx > 0 && idx % 500 === 0) await yieldToBrowser();
   }
   state.thumbIndexedRows[source] = rows;
 
@@ -1658,7 +1662,9 @@ async function importThumbSource(source) {
 
   const thumbindexFile = idxFiles.find((f) => String(f?.fileName || "").toLowerCase() === "thumbindex.db");
   const thumbindexMappings = thumbindexFile ? parseThumbindexDb(thumbindexFile.buffer) : [];
+  let mappingCounter = 0;
   for (const m of thumbindexMappings) {
+    if (++mappingCounter % 1000 === 0) await yieldToBrowser();
     const idx = Number(m?.idx);
     const nm = normalizeThumbKey(m?.name || "");
     if (!nm) continue;
@@ -1999,31 +2005,47 @@ async function saveIndexedThumbsForSource(source, thumbBlobs = [], mappedNames =
   const db = await openLibraryDB();
   const libraryId = String(state.libraryId || "default");
   const librarySource = `${libraryId}:${source}`;
+  const chunkSize = 250;
   try {
-    const tx = db.transaction([STORES.thumbnails], "readwrite");
-    const store = tx.objectStore(STORES.thumbnails);
-    const idx = store.index("librarySource");
-    const existingKeys = await new Promise((resolve, reject) => {
-      const req = idx.getAllKeys(librarySource);
-      req.onsuccess = () => resolve(req.result || []);
-      req.onerror = () => reject(req.error || new Error("Failed to list thumbnail keys"));
-    });
-    for (const k of existingKeys) store.delete(k);
-    for (let i = 0; i < thumbBlobs.length; i++) {
-      if (!(thumbBlobs[i] instanceof Blob)) continue;
-      const mappedName = String(mappedNames[i] || "").trim().toLowerCase();
-      store.put({
-        id: `${librarySource}:${i}`,
-        libraryId,
-        source,
-        librarySource,
-        idx: i,
-        mappedName,
-        blob: thumbBlobs[i],
-        importedAt: Date.now()
+    let existingKeys = [];
+    {
+      const tx = db.transaction([STORES.thumbnails], "readonly");
+      const idx = tx.objectStore(STORES.thumbnails).index("librarySource");
+      existingKeys = await new Promise((resolve, reject) => {
+        const req = idx.getAllKeys(librarySource);
+        req.onsuccess = () => resolve(req.result || []);
+        req.onerror = () => reject(req.error || new Error("Failed to list thumbnail keys"));
       });
+      await txDone(tx);
     }
-    await txDone(tx);
+    for (let start = 0; start < existingKeys.length; start += chunkSize) {
+      const tx = db.transaction([STORES.thumbnails], "readwrite");
+      const store = tx.objectStore(STORES.thumbnails);
+      for (const k of existingKeys.slice(start, start + chunkSize)) store.delete(k);
+      await txDone(tx);
+      await yieldToBrowser();
+    }
+    for (let start = 0; start < thumbBlobs.length; start += chunkSize) {
+      const tx = db.transaction([STORES.thumbnails], "readwrite");
+      const store = tx.objectStore(STORES.thumbnails);
+      const end = Math.min(thumbBlobs.length, start + chunkSize);
+      for (let i = start; i < end; i++) {
+        if (!(thumbBlobs[i] instanceof Blob)) continue;
+        const mappedName = String(mappedNames[i] || "").trim().toLowerCase();
+        store.put({
+          id: `${librarySource}:${i}`,
+          libraryId,
+          source,
+          librarySource,
+          idx: i,
+          mappedName,
+          blob: thumbBlobs[i],
+          importedAt: Date.now()
+        });
+      }
+      await txDone(tx);
+      await yieldToBrowser();
+    }
   } finally {
     db.close();
   }
@@ -5924,7 +5946,9 @@ async function listImagesForAlbumRefs(imageRefs = []) {
 async function scanAndStoreAllPmpColumns() {
   const dbDir = await getDirectoryHandleWithPath(state.pmpRoot, "db");
   const out = [];
+  let scannedCount = 0;
   for await (const [name, handle] of dbDir.entries()) {
+    if (++scannedCount % 10 === 0) await yieldToBrowser();
     if (handle.kind !== "file") continue;
     const m = String(name).match(/^(albumdata|catdata|imagedata)_([^\.]+)\.pmp$/i);
     if (!m) continue;
