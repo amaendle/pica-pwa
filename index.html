@@ -6,6 +6,7 @@
   <title>Pixasa Web Prototype (Frontend-only, PMP + Folder Picker)</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.js"></script>
+  <script src="./sixties-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -90,6 +91,7 @@
     .faceEditorSide { display:flex; flex-direction:column; gap:8px; min-height:0; overflow-y:auto; overflow-x:hidden; padding-right:4px; }
     .faceEditorSide input, .faceEditorSide textarea, .faceEditorSide select { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
     .albumChipWrap { display:flex; flex-wrap:wrap; gap:6px; min-height:36px; padding:6px; border:1px solid #333; border-radius:8px; background:#111; }
+    .albumChipWrap input { flex:1 1 180px; min-width:160px; border:0; background:transparent; padding:4px 2px; }
     .albumChip { display:inline-flex; align-items:center; gap:6px; padding:4px 8px; border:1px solid #444; border-radius:999px; background:#1f1f1f; font-size:12px; }
     .albumChip button { all:unset; cursor:pointer; color:#ff9a9a; font-size:12px; line-height:1; }
     .geoMapPanel { border:1px solid #333; border-radius:8px; padding:8px; background:#111; display:grid; gap:8px; }
@@ -167,7 +169,7 @@
       <div class="toolbar">
         <span id="viewTitle">No selection</span>
         <input id="albumNameInput" class="hidden" type="text" style="max-width:220px;" placeholder="Album name">
-        <button id="btnRenameAlbum" class="hidden">Rename album</button>
+        <button id="btnRenameAlbum" class="hidden" aria-hidden="true">Rename album</button>
         <button id="btnToggleGalleryMap">Map view</button>
         <label class="pill" style="display:flex; align-items:center; gap:6px;">Thumb size <input id="thumbSizeSlider" type="range" min="100" max="280" step="10" value="140" style="width:120px;"></label>
         <span class="pill" id="countPill"></span>
@@ -226,6 +228,7 @@
         <div class="faceViewTools">
           <div><b>Adjust view</b></div>
           <label>Zoom <span id="faceZoomValue" class="mono">1.00×</span><input id="faceZoomSlider" type="range" min="1" max="4" step="0.01" value="1"></label>
+          <label style="display:flex; align-items:center; gap:8px;"><input id="facePreviewUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for preview</label>
         </div>
       </div>
       <div class="faceEditorSide">
@@ -237,8 +240,7 @@
         </div>
         <label>Caption<input id="faceCaptionInput" type="text"></label>
         <div><b>Albums</b></div>
-        <div id="faceAlbumChips" class="albumChipWrap"></div>
-        <input id="faceAlbumTokenInput" type="text" list="faceAlbumSuggestions" placeholder="Type album name, Enter/comma to add">
+        <div id="faceAlbumChips" class="albumChipWrap"><input id="faceAlbumTokenInput" type="text" list="faceAlbumSuggestions" placeholder="Type album name, Enter/comma to add"></div>
         <datalist id="faceAlbumSuggestions"></datalist>
         <input id="faceAlbumNamesInput" type="hidden">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -262,9 +264,9 @@
           <button id="btnApplyBwFilter">B/W</button>
           <button id="btnApplyWarmFilter">Warm</button>
           <button id="btnApplyGrain2Filter">Grain2</button>
+          <button id="btnApplySixtiesFilter">1960s</button>
           <button id="btnFacesMode">Faces</button>
         </div>
-        <label style="display:flex; align-items:center; gap:8px;"><input id="facePreviewUseWebgl" type="checkbox" checked style="width:auto;">Use WebGL for preview</label>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <div class="geoMapPanel">
           <div><b>Geotag</b></div>
@@ -3400,6 +3402,13 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "grain2"))) { notifyFallback("grain2"); applyAdvancedColorFilterOnCanvas(canvas, "grain2"); }
       continue;
     }
+    if (/^sixties=1$/i.test(String(f).trim())) {
+      if (useWebglPreview) notifyFallback("1960s filter");
+      const fn = window.SixtiesFilter?.applySixtiesFilterToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas));
+      else notifyWebglFallback("1960s filter unavailable");
+      continue;
+    }
     m = parseSatFilter(f);
     if (m) {
       if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "sat", m))) { notifyFallback("sat"); applyAdvancedColorFilterOnCanvas(canvas, "sat", m); }
@@ -4353,7 +4362,7 @@ function cssColorToHex(color, fallback = "#ffffff") {
 
 function renderAlbumChipEditor() {
   if (!el.faceAlbumChips) return;
-  el.faceAlbumChips.innerHTML = "";
+  el.faceAlbumChips.querySelectorAll(".albumChip").forEach((n) => n.remove());
   const sortedTokens = Array.from(faceEditor.selectedAlbumTokens);
   for (const tok of sortedTokens) {
     const chip = document.createElement("span");
@@ -4369,7 +4378,7 @@ function renderAlbumChipEditor() {
       renderAlbumSelectFromState();
     };
     chip.appendChild(rm);
-    el.faceAlbumChips.appendChild(chip);
+    el.faceAlbumChips.insertBefore(chip, el.faceAlbumTokenInput || null);
   }
 }
 
@@ -5832,8 +5841,10 @@ async function getPicasaMetaForFolder(pathRel, dirHandle) {
 
 function refreshAlbumNameEditor() {
   const show = state.currentViewMode === "albums" && state.activeListIndex >= 0;
-  el.albumNameInput.classList.toggle("hidden", !show);
-  el.btnRenameAlbum.classList.toggle("hidden", !show);
+  el.albumNameInput.classList.add("hidden");
+  el.btnRenameAlbum.classList.add("hidden");
+  el.viewTitle.title = show ? "Click album name to rename" : "";
+  el.viewTitle.style.cursor = show ? "text" : "";
   if (!show) return;
   const album = state.albums[state.activeListIndex];
   el.albumNameInput.value = album?.name || "";
@@ -6111,10 +6122,32 @@ async function buildImagedataDumpForImage(imageItem) {
     };
   }
   const { rowIndex, source } = await resolvePmpRowIdxForImage(imageItem);
-  if (rowIndex < 0) {
+  const hasPmpMapping = rowIndex >= 0;
+  if (!hasPmpMapping) {
+    const exifGps = imageItem?.exifGps || (imageItem?.file ? await extractExifGpsFromFile(imageItem.file) : null);
+    const iniGeo = imageItem?.geotag || null;
+    const iniKeywords = Array.isArray(imageItem?.iniKeywords) ? imageItem.iniKeywords : [];
+    const iptcKeywords = Array.isArray(imageItem?.iptcKeywords) ? imageItem.iptcKeywords : [];
     return {
       title: String(imageItem?.relPath || imageItem?.name || "Current image"),
-      body: `No thumbnail/PMP idx mapping was found for ${String(imageItem?.relPath || imageItem?.name || "the current image")}.`
+      body: [
+        `No thumbnail/PMP idx mapping was found for ${String(imageItem?.relPath || imageItem?.name || "the current image")}.`,
+        "",
+        "== Image ==",
+        `path: ${String(imageItem?.relPath || imageItem?.name || "")}`,
+        `caption: ${String(imageItem?.caption || "(none)")}`,
+        `star: ${imageItem?.star ? "yes" : "no"}`,
+        "",
+        "== .picasa.ini / .picasa.info ==",
+        `keywords: ${(iniKeywords.length ? iniKeywords.join(", ") : "(none)")}`,
+        `albums: ${(Array.isArray(imageItem?.albumNames) && imageItem.albumNames.length) ? imageItem.albumNames.join(", ") : "(none)"}`,
+        `faces: ${Array.isArray(imageItem?.faces) && imageItem.faces.length ? imageItem.faces.map((f) => `${f.label || "(unnamed)"}@${f.rect64 || ""}`).join("; ") : "(none)"}`,
+        `iniGeotag: ${iniGeo && Number.isFinite(iniGeo.lat) && Number.isFinite(iniGeo.lng) ? `${iniGeo.lat}, ${iniGeo.lng}` : "(missing)"}`,
+        "",
+        "== IPTC / EXIF ==",
+        `iptcTags: ${iptcKeywords.length ? iptcKeywords.join(", ") : "(none)"}`,
+        `exifGps: ${exifGps && Number.isFinite(exifGps.lat) && Number.isFinite(exifGps.lng) ? `${exifGps.lat}, ${exifGps.lng}` : "(missing)"}`
+      ].join("\n")
     };
   }
   const maxEntries = columns.reduce((max, col) => Math.max(max, Array.isArray(col?.entries) ? col.entries.length : 0), 0);
@@ -6841,6 +6874,40 @@ function renderSlideFaceRects(item, forceLabel = "") {
     el.slideFaceLayer.appendChild(d);
   }
 }
+function renderSlideTextOverlays(it) {
+  el.slideFaceLayer.querySelectorAll(".slideTextOverlay").forEach((n) => n.remove());
+  el.slideTextOverlay.style.display = "none";
+  if (!state.slideshow.showText || !(it?.textOverlays || []).length) return;
+  const imgRect = el.slideImg.getBoundingClientRect();
+  const layerRect = el.slideFaceLayer.getBoundingClientRect();
+  const offsetX = imgRect.left - layerRect.left;
+  const offsetY = imgRect.top - layerRect.top;
+  const overlays = (it.textOverlays || []).filter((t) => t && t.enabled !== false && String(t.caption || "").trim());
+  for (const chosen of overlays) {
+    const d = document.createElement("div");
+    d.className = "slideTextOverlay";
+    const mapped = mapPointThroughFilterChain(chosen.x || 0.08, chosen.y || 0.08, it.naturalW || 1, it.naturalH || 1, state.slideshow.showCrop ? (it.filters || []) : [], state.slideshow.showCrop ? (it.cropRect64 || "") : "");
+    d.textContent = chosen.caption;
+    d.style.left = `${offsetX + Math.max(0, Math.min(1, mapped.x || 0.08)) * imgRect.width}px`;
+    d.style.top = `${offsetY + Math.max(0, Math.min(1, mapped.y || 0.08)) * imgRect.height}px`;
+    d.style.fontFamily = chosen.fontFamily || "Arial";
+    const sizeFromCode = Number.isFinite(chosen.sizeCode) && chosen.sizeCode > 0 ? Math.max(10, chosen.sizeCode / 4) : 0;
+    const sizeFromRel = Math.max(16, (chosen.sizeRel || 0.04) * Math.max(300, imgRect.width || 300));
+    d.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel) * Math.max(1, Number(state.slideshow.zoom) || 1)}px`;
+    const noSolidFill = (Number(chosen.renderFlags || 0) & 0x1) !== 0;
+    const solidFillMode = (Number(chosen.renderFlags || 0) & 0x2) !== 0;
+    d.style.color = noSolidFill && !solidFillMode ? "transparent" : (chosen.colorPrimary || "#fff");
+    d.style.opacity = `${Math.max(0, Math.min(1, (Number(chosen.opacity255 ?? 255) || 255) / 255))}`;
+    d.style.fontWeight = String(Number(chosen.fontWeight || 400) || 400);
+    d.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
+    d.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
+    d.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
+    d.style.transform = `rotate(${textRotationToDeg(chosen.rotation).toFixed(2)}deg)`;
+    d.style.transformOrigin = "top left";
+    el.slideFaceLayer.appendChild(d);
+  }
+}
+
 async function updateSlide() {
   const it = state.currentImages[state.slideshow.index];
   if (!it) return;
@@ -6891,38 +6958,7 @@ async function updateSlide() {
     el.slideAlbums.textContent = "Albums: (none)";
   }
 
-  el.slideFaceLayer.querySelectorAll(".slideTextOverlay").forEach((n) => n.remove());
-  el.slideTextOverlay.style.display = "none";
-  if (state.slideshow.showText && (it.textOverlays || []).length) {
-    const imgRect = el.slideImg.getBoundingClientRect();
-    const layerRect = el.slideFaceLayer.getBoundingClientRect();
-    const offsetX = imgRect.left - layerRect.left;
-    const offsetY = imgRect.top - layerRect.top;
-    const overlays = (it.textOverlays || []).filter((t) => t && t.enabled !== false && String(t.caption || "").trim());
-    for (const chosen of overlays) {
-      const d = document.createElement("div");
-      d.className = "slideTextOverlay";
-      const mapped = mapPointThroughFilterChain(chosen.x || 0.08, chosen.y || 0.08, it.naturalW || 1, it.naturalH || 1, state.slideshow.showCrop ? (it.filters || []) : [], state.slideshow.showCrop ? (it.cropRect64 || "") : "");
-      d.textContent = chosen.caption;
-      d.style.left = `${offsetX + Math.max(0, Math.min(1, mapped.x || 0.08)) * imgRect.width}px`;
-      d.style.top = `${offsetY + Math.max(0, Math.min(1, mapped.y || 0.08)) * imgRect.height}px`;
-      d.style.fontFamily = chosen.fontFamily || "Arial";
-      const sizeFromCode = Number.isFinite(chosen.sizeCode) && chosen.sizeCode > 0 ? Math.max(10, chosen.sizeCode / 4) : 0;
-      const sizeFromRel = Math.max(16, (chosen.sizeRel || 0.04) * Math.max(300, imgRect.width || 300));
-      d.style.fontSize = `${Math.max(sizeFromCode, sizeFromRel)}px`;
-      const noSolidFill = (Number(chosen.renderFlags || 0) & 0x1) !== 0;
-      const solidFillMode = (Number(chosen.renderFlags || 0) & 0x2) !== 0;
-      d.style.color = noSolidFill && !solidFillMode ? "transparent" : (chosen.colorPrimary || "#fff");
-      d.style.opacity = `${Math.max(0, Math.min(1, (Number(chosen.opacity255 ?? 255) || 255) / 255))}`;
-      d.style.fontWeight = String(Number(chosen.fontWeight || 400) || 400);
-      d.style.fontStyle = ((Number(chosen.textStyleAnchorFlags || 0) & 0x8) !== 0) ? "italic" : "normal";
-      d.style.textDecoration = ((Number(chosen.textStyleAnchorFlags || 0) & 0x1) !== 0) ? "underline" : "none";
-      d.style.webkitTextStroke = `${Math.max(0, Number(chosen.strokeWidthFactor ?? (chosen.outlineWidth || 0)) * 6)}px ${chosen.colorSecondary || "#000"}`;
-      d.style.transform = `rotate(${textRotationToDeg(chosen.rotation).toFixed(2)}deg)`;
-      d.style.transformOrigin = "top left";
-      el.slideFaceLayer.appendChild(d);
-    }
-  }
+  renderSlideTextOverlays(it);
 
   el.btnToggleFaces.textContent = state.slideshow.showFaces ? "Faces: On" : "Faces: Off";
   el.btnToggleCrop.textContent = state.slideshow.showCrop ? "Crop: On" : "Crop: Off";
@@ -7068,7 +7104,10 @@ el.btnRenameAlbum.onclick = async () => {
     state.iniAlbumsByToken.get(album.token).name = newName;
   }
   renderNavigation();
-  if (state.currentViewMode === "albums" && idx >= 0) el.viewTitle.textContent = `Album: ${newName}`;
+  if (state.currentViewMode === "albums" && idx >= 0) {
+    state.currentTitle = newName;
+    el.viewTitle.textContent = `Album: ${newName}`;
+  }
   ensureSpecialAlbums();
   await saveLibrarySnapshot({
     id: state.libraryId,
@@ -7081,6 +7120,41 @@ el.btnRenameAlbum.onclick = async () => {
   setStatus("Album name updated.", "ok");
 };
 el.albumNameInput.addEventListener("keydown", (ev) => { if (ev.key === "Enter") el.btnRenameAlbum.click(); });
+function beginInlineAlbumRename() {
+  if (state.currentViewMode !== "albums" || state.activeListIndex < 0) return;
+  const album = state.albums[state.activeListIndex];
+  if (!album || el.viewTitle.isContentEditable) return;
+  el.viewTitle.dataset.renameOriginal = album.name || "";
+  el.viewTitle.textContent = album.name || "";
+  el.viewTitle.contentEditable = "true";
+  el.viewTitle.focus();
+  const range = document.createRange();
+  range.selectNodeContents(el.viewTitle);
+  const sel = window.getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+}
+function cancelInlineAlbumRename() {
+  if (!el.viewTitle.isContentEditable) return;
+  const original = el.viewTitle.dataset.renameOriginal || state.currentTitle || "";
+  el.viewTitle.contentEditable = "false";
+  el.viewTitle.textContent = `Album: ${original}`;
+}
+async function commitInlineAlbumRename() {
+  if (!el.viewTitle.isContentEditable) return;
+  const newName = String(el.viewTitle.textContent || "").trim();
+  el.viewTitle.contentEditable = "false";
+  el.albumNameInput.value = newName || (el.viewTitle.dataset.renameOriginal || "");
+  await el.btnRenameAlbum.onclick();
+}
+el.viewTitle.addEventListener("click", () => beginInlineAlbumRename());
+el.viewTitle.addEventListener("keydown", (ev) => {
+  if (!el.viewTitle.isContentEditable) return;
+  if (ev.key === "Escape") { ev.preventDefault(); cancelInlineAlbumRename(); }
+  if (ev.key === "Enter") { ev.preventDefault(); void commitInlineAlbumRename(); }
+});
+el.viewTitle.addEventListener("blur", () => { if (el.viewTitle.isContentEditable) void commitInlineAlbumRename(); });
+
 el.btnAlbumCreate.onclick = () => {
   const raw = (el.faceAlbumTokenInput?.value || el.faceAlbumNamesInput.value || "");
   commitAlbumInputTokens(raw);
@@ -7375,6 +7449,7 @@ el.btnApplySepiaFilter.onclick = () => applyNoParamFilter("sepia=1");
 el.btnApplyBwFilter.onclick = () => applyNoParamFilter("bw=1");
 el.btnApplyWarmFilter.onclick = () => applyNoParamFilter("warm=1");
 el.btnApplyGrain2Filter.onclick = () => applyNoParamFilter("grain2=1");
+el.btnApplySixtiesFilter.onclick = () => applyNoParamFilter("sixties=1");
 el.btnApplyTintFilter.onclick = () => {
   applyNoParamFilter(refreshTintDraft());
   el.tintControls.classList.add("hidden");
@@ -7634,12 +7709,12 @@ el.slideZoomSlider.oninput = () => {
   setSlideZoomCentered(Math.max(1, Math.min(6, Number(el.slideZoomSlider.value || "1") || 1)));
   applySlideTransform();
   const it = state.currentImages[state.slideshow.index];
-  if (it) renderSlideFaceRects(it);
+  if (it) { renderSlideFaceRects(it); renderSlideTextOverlays(it); }
 };
 el.btnSlideZoomReset.onclick = () => {
   resetSlideTransform();
   const it = state.currentImages[state.slideshow.index];
-  if (it) renderSlideFaceRects(it);
+  if (it) { renderSlideFaceRects(it); renderSlideTextOverlays(it); }
 };
 el.slideImg.addEventListener("pointerdown", (ev) => {
   if (!state.slideshow.open || state.slideshow.zoom <= 1) return;
@@ -7655,7 +7730,7 @@ el.slideImg.addEventListener("pointermove", (ev) => {
   state.slideshow.panY = ev.clientY - state.slideshow.panStartY;
   applySlideTransform();
   const it = state.currentImages[state.slideshow.index];
-  if (it) renderSlideFaceRects(it);
+  if (it) { renderSlideFaceRects(it); renderSlideTextOverlays(it); }
 });
 const stopSlidePan = () => { state.slideshow.panning = false; };
 el.slideImg.addEventListener("pointerup", stopSlidePan);
@@ -7670,7 +7745,7 @@ el.slideImg.addEventListener("wheel", (ev) => {
   }
   applySlideTransform();
   const it = state.currentImages[state.slideshow.index];
-  if (it) renderSlideFaceRects(it);
+  if (it) { renderSlideFaceRects(it); renderSlideTextOverlays(it); }
   ev.preventDefault();
 }, { passive: false });
 el.btnSlideImagedataClose.onclick = closeSlideImagedataOverlay;
@@ -8037,6 +8112,7 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
     faceEditor.panX = ev.clientX - faceEditor.panStartX;
     faceEditor.panY = ev.clientY - faceEditor.panStartY;
     updateFaceCanvasTransform();
+    renderFaceRects();
     return;
   }
   if (faceEditor.draggingIdx < 0 && !faceEditor.cropDragging && !faceEditor.textDragging) return;
@@ -8074,7 +8150,7 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
       const px = ev.clientX - p.left;
       const py = ev.clientY - p.top;
       const ang = Math.atan2(py - faceEditor.textRotateOriginY, px - faceEditor.textRotateOriginX);
-      txt.rotation = ang / (2 * Math.PI);
+      txt.rotation = -ang / (2 * Math.PI);
       renderFaceRects();
       return;
     }
