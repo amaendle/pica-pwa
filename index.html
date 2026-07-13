@@ -377,29 +377,8 @@
 
         <div id="heatmapControls" class="hidden">
           <div><b>Heatmap false-colour filter</b></div>
-          <div id="heatmapPalettePreview" style="height:18px; border:1px solid #333; border-radius:6px; background:#000;"></div>
-          <div id="heatmapParamControls" style="display:grid; gap:6px;"></div>
-          <label>Palette direction<select id="heatmapReverseInput"><option value="0">Blue low → red high</option><option value="1">Red low → blue high</option></select></label>
-          <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button id="btnHeatmapReset" type="button">Reset Heatmap</button>
-            <button id="btnHeatmapExportPng" type="button">Export full-resolution PNG</button>
-          </div>
-          <div style="display:grid; gap:6px;">
-            <label>Heatmap settings JSON<textarea id="heatmapSettingsJson" rows="4" class="mono"></textarea></label>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button id="btnHeatmapExportJson" type="button">Export JSON</button>
-              <button id="btnHeatmapImportJson" type="button">Import JSON</button>
-            </div>
-          </div>
-          <div style="display:grid; gap:6px;">
-            <label>Preset name<input id="heatmapPresetNameInput" type="text" placeholder="Preset name"></label>
-            <label>Saved presets<select id="heatmapPresetSelect"></select></label>
-            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-              <button id="btnHeatmapPresetSave" type="button">Save/overwrite preset</button>
-              <button id="btnHeatmapPresetLoad" type="button">Load preset</button>
-              <button id="btnHeatmapPresetDelete" type="button">Delete preset</button>
-            </div>
-          </div>
+          <label>Hue shift <span id="heatmapHueShiftValue" class="mono">0°</span><input id="heatmapHueShiftInput" type="range" min="-180" max="180" step="1" value="0"></label>
+          <label>Fade <span id="heatmapFadeValue" class="mono">1.00</span><input id="heatmapFadeInput" type="range" min="0" max="1" step="0.01" value="1"></label>
         </div>
         <div id="redeyeControls" class="hidden">
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -3639,8 +3618,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     out.getContext("2d").drawImage(canvas, 0, 0, out.width, out.height);
     canvas = out;
   }
-  const mimeType = String(options.mimeType || "image/jpeg");
-  const blob = await new Promise((res) => canvas.toBlob(res, mimeType, mimeType === "image/jpeg" ? 0.9 : undefined));
+  const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.9));
   return URL.createObjectURL(blob);
 }
 
@@ -3801,19 +3779,10 @@ const el = {
   radsatControls: document.getElementById("radsatControls"),
   dirTintControls: document.getElementById("dirTintControls"),
   heatmapControls: document.getElementById("heatmapControls"),
-  heatmapPalettePreview: document.getElementById("heatmapPalettePreview"),
-  heatmapParamControls: document.getElementById("heatmapParamControls"),
-  heatmapReverseInput: document.getElementById("heatmapReverseInput"),
-  heatmapSettingsJson: document.getElementById("heatmapSettingsJson"),
-  heatmapPresetNameInput: document.getElementById("heatmapPresetNameInput"),
-  heatmapPresetSelect: document.getElementById("heatmapPresetSelect"),
-  btnHeatmapReset: document.getElementById("btnHeatmapReset"),
-  btnHeatmapExportPng: document.getElementById("btnHeatmapExportPng"),
-  btnHeatmapExportJson: document.getElementById("btnHeatmapExportJson"),
-  btnHeatmapImportJson: document.getElementById("btnHeatmapImportJson"),
-  btnHeatmapPresetSave: document.getElementById("btnHeatmapPresetSave"),
-  btnHeatmapPresetLoad: document.getElementById("btnHeatmapPresetLoad"),
-  btnHeatmapPresetDelete: document.getElementById("btnHeatmapPresetDelete"),
+  heatmapHueShiftInput: document.getElementById("heatmapHueShiftInput"),
+  heatmapHueShiftValue: document.getElementById("heatmapHueShiftValue"),
+  heatmapFadeInput: document.getElementById("heatmapFadeInput"),
+  heatmapFadeValue: document.getElementById("heatmapFadeValue"),
   redeyeControls: document.getElementById("redeyeControls"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
@@ -7338,134 +7307,29 @@ const applyNoParamFilter = (filterToken) => {
 };
 
 
-const HEATMAP_PRESET_STORAGE_KEY = "pica-heatmap-presets-v2";
-let heatmapControlLocks = {};
-function heatmapDefaults() {
-  return window.HeatmapFilter?.normalizeParams ? window.HeatmapFilter.normalizeParams() : { hueShift: 0, fade: 1, reverse: false };
+function readHeatmapParamsFromControls() {
+  const hueShift = Math.max(-180, Math.min(180, Number(el.heatmapHueShiftInput?.value || 0) || 0));
+  const fade = Math.max(0, Math.min(1, Number(el.heatmapFadeInput?.value || 1) || 0));
+  return window.HeatmapFilter?.normalizeParams ? window.HeatmapFilter.normalizeParams({ hueShift, fade }) : { hueShift, fade };
 }
-function heatmapPresetFromParams(params = null) {
-  const fn = window.HeatmapFilter?.makePreset;
-  return typeof fn === "function" ? fn(params || readHeatmapParamsFromControls(), heatmapControlLocks) : { filter: "heatmap-calibrator-v2", params: params || readHeatmapParamsFromControls(), locked: { ...heatmapControlLocks }, fullSizeRefinement: false, savedAt: new Date().toISOString() };
+function writeHeatmapControls(params = {}) {
+  const normalized = window.HeatmapFilter?.normalizeParams ? window.HeatmapFilter.normalizeParams(params) : params;
+  if (el.heatmapHueShiftInput) el.heatmapHueShiftInput.value = String(normalized.hueShift || 0);
+  if (el.heatmapHueShiftValue) el.heatmapHueShiftValue.textContent = `${Math.round(normalized.hueShift || 0)}°`;
+  if (el.heatmapFadeInput) el.heatmapFadeInput.value = String(normalized.fade ?? 1);
+  if (el.heatmapFadeValue) el.heatmapFadeValue.textContent = `${Number(normalized.fade ?? 1).toFixed(2)}`;
 }
 function heatmapToken(params = null) {
   const normalized = window.HeatmapFilter?.normalizeParams ? window.HeatmapFilter.normalizeParams(params || readHeatmapParamsFromControls()) : (params || {});
-  return `heatmap=1,${encodeURIComponent(JSON.stringify(normalized))}`;
+  return `heatmap=1,${encodeURIComponent(JSON.stringify({ hueShift: normalized.hueShift, fade: normalized.fade }))}`;
 }
-function loadHeatmapPresets() {
-  try {
-    const raw = localStorage.getItem(HEATMAP_PRESET_STORAGE_KEY);
-    const parsed = raw ? JSON.parse(raw) : {};
-    return parsed && typeof parsed === "object" ? parsed : {};
-  } catch { return {}; }
-}
-function saveHeatmapPresets(presets) {
-  localStorage.setItem(HEATMAP_PRESET_STORAGE_KEY, JSON.stringify(presets || {}));
-}
-function refreshHeatmapPresetSelect() {
-  if (!el.heatmapPresetSelect) return;
-  const presets = loadHeatmapPresets();
-  el.heatmapPresetSelect.innerHTML = "";
-  for (const name of Object.keys(presets).sort((a, b) => a.localeCompare(b))) {
-    const opt = document.createElement("option");
-    opt.value = name;
-    opt.textContent = name;
-    el.heatmapPresetSelect.appendChild(opt);
-  }
-}
-function buildHeatmapControls() {
-  if (!el.heatmapParamControls || el.heatmapParamControls.dataset.ready === "1") return;
-  const defs = window.HeatmapFilter?.HEATMAP_PARAM_DEFS || {};
-  const groups = ["Input signal", "Palette mapping", "Output"];
-  for (const group of groups) {
-    const section = document.createElement("div");
-    section.style.display = "grid";
-    section.style.gap = "4px";
-    const title = document.createElement("b");
-    title.textContent = group;
-    section.appendChild(title);
-    for (const [key, def] of Object.entries(defs).filter(([, d]) => d.group === group)) {
-      const row = document.createElement("div");
-      row.style.display = "grid";
-      row.style.gridTemplateColumns = "120px minmax(120px,1fr) 82px auto";
-      row.style.gap = "6px";
-      row.style.alignItems = "center";
-      const label = document.createElement("label");
-      label.textContent = def.label;
-      const range = document.createElement("input");
-      range.type = "range";
-      range.min = String(def.min); range.max = String(def.max); range.step = String(def.step);
-      range.dataset.heatmapParam = key;
-      const number = document.createElement("input");
-      number.type = "number";
-      number.min = String(def.min); number.max = String(def.max); number.step = String(def.step);
-      number.dataset.heatmapNumber = key;
-      const lock = document.createElement("button");
-      lock.type = "button"; lock.className = "miniBtn"; lock.dataset.heatmapLock = key; lock.textContent = "🔓"; lock.title = `Lock ${def.label}`;
-      const sync = (from) => {
-        const val = from === range ? range.value : number.value;
-        range.value = val; number.value = val;
-        updateHeatmapPreviewFromControls();
-      };
-      range.oninput = () => sync(range);
-      number.oninput = () => sync(number);
-      lock.onclick = () => { heatmapControlLocks[key] = !heatmapControlLocks[key]; lock.textContent = heatmapControlLocks[key] ? "🔒" : "🔓"; };
-      row.append(label, range, number, lock);
-      section.appendChild(row);
-    }
-    el.heatmapParamControls.appendChild(section);
-  }
-  el.heatmapParamControls.dataset.ready = "1";
-  writeHeatmapParamsToControls(heatmapDefaults());
-  refreshHeatmapPresetSelect();
-}
-function readHeatmapParamsFromControls() {
-  const params = heatmapDefaults();
-  el.heatmapParamControls?.querySelectorAll("[data-heatmap-param]").forEach((node) => { params[node.dataset.heatmapParam] = Number(node.value); });
-  params.reverse = String(el.heatmapReverseInput?.value || "0") === "1";
-  return window.HeatmapFilter?.normalizeParams ? window.HeatmapFilter.normalizeParams(params) : params;
-}
-function writeHeatmapParamsToControls(params = {}) {
-  const normalized = window.HeatmapFilter?.normalizeParams ? window.HeatmapFilter.normalizeParams(params) : params;
-  el.heatmapParamControls?.querySelectorAll("[data-heatmap-param]").forEach((range) => {
-    const key = range.dataset.heatmapParam;
-    const val = normalized[key];
-    range.value = String(val);
-    const number = el.heatmapParamControls.querySelector(`[data-heatmap-number="${key}"]`);
-    if (number) number.value = String(val);
-  });
-  if (el.heatmapReverseInput) el.heatmapReverseInput.value = normalized.reverse ? "1" : "0";
-  updateHeatmapPalettePreview(normalized);
-  if (el.heatmapSettingsJson) el.heatmapSettingsJson.value = JSON.stringify(heatmapPresetFromParams(normalized), null, 2);
-}
-function updateHeatmapPalettePreview(params = null) {
-  if (!el.heatmapPalettePreview || !window.HeatmapFilter?.heatmapPixel) return;
-  const p = window.HeatmapFilter.normalizeParams(params || readHeatmapParamsFromControls());
-  const stops = [];
-  for (let i = 0; i <= 24; i++) {
-    const signal = i / 24;
-    const [r, g, b] = window.HeatmapFilter.heatmapPixel(signal, 0, 0, { ...p, redWeight: 1, greenWeight: 0, blueWeight: 0, bias: 0, inputGamma: 1, low: p.low, high: p.high });
-    stops.push(`rgb(${Math.round(r * 255)},${Math.round(g * 255)},${Math.round(b * 255)}) ${(signal * 100).toFixed(2)}%`);
-  }
-  el.heatmapPalettePreview.style.background = `linear-gradient(to right, ${stops.join(", ")})`;
-}
-function updateHeatmapPreviewFromControls() {
+function refreshHeatmapDraft() {
   const params = readHeatmapParamsFromControls();
-  writeHeatmapParamsToControls(params);
-  refreshEditorPreview((faceEditor.filters || []).concat([heatmapToken(params)]));
+  writeHeatmapControls(params);
+  const draft = heatmapToken(params);
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
 }
-async function exportHeatmapPng() {
-  if (!faceEditor.imageItem?.file) return;
-  const filters = (faceEditor.filters || []).concat([heatmapToken(readHeatmapParamsFromControls())]);
-  const url = await makeFilteredPreviewURL(faceEditor.imageItem.file, filters, 0, "", { useWebglPreview: !!state.preview.useWebglPreview, mimeType: "image/png" });
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = `${String(faceEditor.imageItem.name || "heatmap").replace(/\.[^.]+$/, "")}-heatmap.png`;
-  document.body.appendChild(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 5000);
-}
-
 const refreshTintDraft = () => {
   const preserve = Number(el.faceTintPreserveInput.value || "0") || 0;
   const color = normalizeFilterHexColor(el.faceTintColorInput.value, "ffffffff");
@@ -7697,15 +7561,9 @@ el.btnApplySixtiesFilter.onclick = () => applyNoParamFilter("sixties=1");
 el.btnApplyInfraredMonoFilter.onclick = () => applyNoParamFilter("infraredmono=1");
 el.btnApplyInvertColorsFilter.onclick = () => applyNoParamFilter("invert=1");
 el.btnApplyCrossProcessFilter.onclick = () => applyNoParamFilter("crossprocess=1");
-el.btnApplyHeatmapFilter.onclick = () => applyNoParamFilter(heatmapToken(readHeatmapParamsFromControls()));
-el.heatmapReverseInput.onchange = () => updateHeatmapPreviewFromControls();
-el.btnHeatmapReset.onclick = () => { heatmapControlLocks = {}; writeHeatmapParamsToControls(heatmapDefaults()); updateHeatmapPreviewFromControls(); };
-el.btnHeatmapExportJson.onclick = () => { el.heatmapSettingsJson.value = JSON.stringify(heatmapPresetFromParams(), null, 2); };
-el.btnHeatmapImportJson.onclick = () => { try { const parsed = JSON.parse(el.heatmapSettingsJson.value || "{}"); heatmapControlLocks = { ...(parsed.locked || {}) }; writeHeatmapParamsToControls(parsed.params || parsed); updateHeatmapPreviewFromControls(); } catch (e) { el.faceEditorStatus.textContent = `Heatmap JSON import failed: ${String(e?.message || e)}`; } };
-el.btnHeatmapPresetSave.onclick = () => { const name = String(el.heatmapPresetNameInput.value || el.heatmapPresetSelect.value || "").trim(); if (!name) return; const presets = loadHeatmapPresets(); presets[name] = heatmapPresetFromParams(); saveHeatmapPresets(presets); refreshHeatmapPresetSelect(); el.heatmapPresetSelect.value = name; };
-el.btnHeatmapPresetLoad.onclick = () => { const presets = loadHeatmapPresets(); const preset = presets[el.heatmapPresetSelect.value]; if (!preset) return; heatmapControlLocks = { ...(preset.locked || {}) }; writeHeatmapParamsToControls(preset.params || {}); updateHeatmapPreviewFromControls(); };
-el.btnHeatmapPresetDelete.onclick = () => { const name = el.heatmapPresetSelect.value; const presets = loadHeatmapPresets(); delete presets[name]; saveHeatmapPresets(presets); refreshHeatmapPresetSelect(); };
-el.btnHeatmapExportPng.onclick = () => { void exportHeatmapPng(); };
+el.btnApplyHeatmapFilter.onclick = () => applyNoParamFilter(refreshHeatmapDraft());
+el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
+el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
 el.btnApplyTintFilter.onclick = () => {
   applyNoParamFilter(refreshTintDraft());
   el.tintControls.classList.add("hidden");
@@ -8095,11 +7953,10 @@ el.btnAnselMode.onclick = () => {
   if (show) refreshAnselDraft();
 };
 el.btnHeatmapMode.onclick = () => {
-  buildHeatmapControls();
   const show = el.heatmapControls.classList.contains("hidden");
   el.heatmapControls.classList.toggle("hidden", !show);
   el.btnHeatmapMode.textContent = show ? "Hide Heatmap" : "Heatmap";
-  if (show) updateHeatmapPreviewFromControls();
+  if (show) refreshHeatmapDraft();
 };
 el.btnRedeyeMode.onclick = () => {
   const show = el.redeyeControls.classList.contains("hidden");
