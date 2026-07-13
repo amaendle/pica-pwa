@@ -8,6 +8,7 @@
   <script src="https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.js"></script>
   <script src="./sixties-filter.js"></script>
   <script src="./infrared-filter.js"></script>
+  <script src="./creative-filters.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -244,6 +245,7 @@
         <div id="faceAlbumChips" class="albumChipWrap"><input id="faceAlbumTokenInput" type="text" list="faceAlbumSuggestions" placeholder="Type album name, Enter/comma to add"></div>
         <datalist id="faceAlbumSuggestions"></datalist>
         <input id="faceAlbumNamesInput" type="hidden">
+        <label>Tags (comma)<input id="faceKeywordsInput" type="text"></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnAlbumCreate" class="hidden">Add album from input</button>
         </div>
@@ -267,6 +269,8 @@
           <button id="btnApplyGrain2Filter">Grain2</button>
           <button id="btnApplySixtiesFilter">1960s</button>
           <button id="btnApplyInfraredMonoFilter">Infrared Mono (Calibrated)</button>
+          <button id="btnApplyInvertColorsFilter">Invert colors</button>
+          <button id="btnApplyCrossProcessFilter">Cross-process</button>
           <button id="btnFacesMode">Faces</button>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -406,7 +410,6 @@
         <div><b>Applied filters</b></div>
         <select id="faceFilterList" class="mono" multiple size="10" style="width:100%; height:220px;"></select>
         <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
-        <label>Tags (comma)<input id="faceKeywordsInput" type="text"></label>
         <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
@@ -1980,6 +1983,8 @@ async function generateAndPersistThumbForImageItem(imageItem, source) {
     if (Number.isFinite(existing) && existing >= 0) return existing;
   }
   const rows = Array.isArray(state.thumbIndexedRows[source]) ? state.thumbIndexedRows[source] : (state.thumbIndexedRows[source] = []);
+  const displayName = String(imageItem.relPath || imageItem.name || mappedName);
+  setStatus(`Updating thumbnail for ${displayName}…`, "warn");
   const idx = nextThumbIdxForSource(source);
   rows[idx] = { idx, generated: true, pending: true };
   const chain = buildEffectiveFilterChain(imageItem.filters || [], imageItem.cropRect64 || "");
@@ -1993,9 +1998,11 @@ async function generateAndPersistThumbForImageItem(imageItem, source) {
       if (key && !state.thumbNameToIdx[source].has(key)) state.thumbNameToIdx[source].set(key, idx);
     }
     await putIndexedThumbForSource(source, idx, blob, mappedName);
+    setStatus(`Updated thumbnail for ${displayName}.`, "ok");
     return idx;
   } catch (e) {
     if (rows[idx]?.pending) delete rows[idx];
+    setStatus(`Failed to update thumbnail for ${displayName}: ${String(e?.message || e)}`, "err");
     throw e;
   } finally {
     if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -3440,6 +3447,20 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Infrared Mono filter unavailable");
       continue;
     }
+    if (/^invert=1$/i.test(String(f).trim())) {
+      if (useWebglPreview) notifyFallback("invert colors");
+      const fn = window.CreativeFilters?.applyInvertColorsToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas));
+      else notifyWebglFallback("Invert colors filter unavailable");
+      continue;
+    }
+    if (/^crossprocess=1$/i.test(String(f).trim())) {
+      if (useWebglPreview) notifyFallback("cross-process");
+      const fn = window.CreativeFilters?.applyCrossProcessToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas));
+      else notifyWebglFallback("Cross-process filter unavailable");
+      continue;
+    }
     m = parseSatFilter(f);
     if (m) {
       if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "sat", m))) { notifyFallback("sat"); applyAdvancedColorFilterOnCanvas(canvas, "sat", m); }
@@ -3862,6 +3883,8 @@ const el = {
   btnApplyGrain2Filter: document.getElementById("btnApplyGrain2Filter"),
   btnApplySixtiesFilter: document.getElementById("btnApplySixtiesFilter"),
   btnApplyInfraredMonoFilter: document.getElementById("btnApplyInfraredMonoFilter"),
+  btnApplyInvertColorsFilter: document.getElementById("btnApplyInvertColorsFilter"),
+  btnApplyCrossProcessFilter: document.getElementById("btnApplyCrossProcessFilter"),
   btnFacesMode: document.getElementById("btnFacesMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnRenameFace: document.getElementById("btnRenameFace"),
@@ -7486,6 +7509,8 @@ el.btnApplyWarmFilter.onclick = () => applyNoParamFilter("warm=1");
 el.btnApplyGrain2Filter.onclick = () => applyNoParamFilter("grain2=1");
 el.btnApplySixtiesFilter.onclick = () => applyNoParamFilter("sixties=1");
 el.btnApplyInfraredMonoFilter.onclick = () => applyNoParamFilter("infraredmono=1");
+el.btnApplyInvertColorsFilter.onclick = () => applyNoParamFilter("invert=1");
+el.btnApplyCrossProcessFilter.onclick = () => applyNoParamFilter("crossprocess=1");
 el.btnApplyTintFilter.onclick = () => {
   applyNoParamFilter(refreshTintDraft());
   el.tintControls.classList.add("hidden");
