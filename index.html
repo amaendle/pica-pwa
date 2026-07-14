@@ -329,10 +329,9 @@
           <div><b>Looks &amp; Color Styles</b></div>
           <div class="geoMapRow">
             <button id="btnApplySixtiesFilter">1960s</button>
-            <button id="btnApplyInfraredMonoFilter">Infrared Mono (Calibrated)</button>
+            <button id="btnApplyInfraredMonoFilter">Infrared Mono</button>
             <button id="btnApplyInvertColorsFilter">Invert colors</button>
             <button id="btnHeatmapMode">Heatmap</button>
-            <button id="btnApplyHeatmapFilter">Apply Heatmap</button>
             <button id="btnApplyCrossProcessFilter">Cross-process</button>
           </div>
         </div>
@@ -340,7 +339,6 @@
           <div><b>Effects &amp; Finishes</b></div>
           <div class="geoMapRow">
             <button id="btnBoostMode">Boost</button>
-            <button id="btnApplyBoostFilter">Apply Boost</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -384,7 +382,10 @@
             <label style="flex:2 1 180px;">Alpha <span id="faceTintAlphaValue" class="mono">255</span><input id="faceTintAlphaInput" type="range" min="0" max="255" step="1" value="255"></label>
           </div>
           <label>Tint Color (ARGB hex)<input id="faceTintColorInput" type="text" value="ffffffff" maxlength="8"></label>
-          <button id="btnApplyTintFilter">Apply tint filter</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyTintFilter">Apply tint filter</button>
+            <button id="btnCancelTintFilter" type="button">Cancel</button>
+          </div>
         </div>
         <div id="satControls" class="hidden">
           <label>Saturation <span id="faceSatValue" class="mono">0.000000</span><input id="faceSatSlider" type="range" min="0" max="1" step="0.001" value="0"></label>
@@ -396,7 +397,10 @@
             <label style="flex:2 1 180px;">Alpha <span id="faceAnselAlphaValue" class="mono">255</span><input id="faceAnselAlphaInput" type="range" min="0" max="255" step="1" value="255"></label>
           </div>
           <label>Ansel Color (ARGB hex)<input id="faceAnselColorInput" type="text" value="ffffffff" maxlength="8"></label>
-          <button id="btnApplyAnselFilter">Apply ansel filter</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyAnselFilter">Apply ansel filter</button>
+            <button id="btnCancelAnselFilter" type="button">Cancel</button>
+          </div>
         </div>
         <div id="radblurControls" class="hidden">
           <label>Center X <span id="faceRadblurXValue" class="mono">0.500000</span><input id="faceRadblurXInput" type="range" min="0" max="1" step="0.001" value="0.5"></label>
@@ -434,9 +438,17 @@
           <div><b>Heatmap false-colour filter</b></div>
           <label>Hue shift <span id="heatmapHueShiftValue" class="mono">0°</span><input id="heatmapHueShiftInput" type="range" min="-180" max="180" step="1" value="0"></label>
           <label>Fade <span id="heatmapFadeValue" class="mono">1.00</span><input id="heatmapFadeInput" type="range" min="0" max="1" step="0.01" value="1"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyHeatmapFilter">Apply Heatmap</button>
+            <button id="btnCancelHeatmapFilter" type="button">Cancel</button>
+          </div>
         </div>
         <div id="boostControls" class="hidden">
           <label>Boost <span id="boostValue" class="mono">50</span><input id="boostInput" type="range" min="0" max="100" step="1" value="50"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyBoostFilter">Apply Boost</button>
+            <button id="btnCancelBoostFilter" type="button">Cancel</button>
+          </div>
         </div>
         <div id="redeyeControls" class="hidden">
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -449,7 +461,7 @@
           <div class="mono">Areas: <span id="faceRedeyeCount">0</span></div>
         </div>
         <div><b>Applied filters</b></div>
-        <select id="faceFilterList" class="mono" multiple size="1" style="width:100%;"></select>
+        <select id="faceFilterList" class="mono" multiple size="2" style="width:100%;"></select>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnUndoFilter">Undo filter</button>
           <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
@@ -3490,7 +3502,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       continue;
     }
     if (/^infraredmono=1$/i.test(String(f).trim())) {
-      if (useWebglPreview) notifyFallback("Infrared Mono (Calibrated)");
+      if (useWebglPreview) notifyFallback("Infrared Mono");
       const fn = window.InfraredFilter?.applyInfraredMonoCalibratedToCanvas;
       if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas));
       else notifyWebglFallback("Infrared Mono filter unavailable");
@@ -3971,7 +3983,9 @@ const el = {
   btnApplyInvertColorsFilter: document.getElementById("btnApplyInvertColorsFilter"),
   btnApplyCrossProcessFilter: document.getElementById("btnApplyCrossProcessFilter"),
   btnApplyHeatmapFilter: document.getElementById("btnApplyHeatmapFilter"),
+  btnCancelHeatmapFilter: document.getElementById("btnCancelHeatmapFilter"),
   btnApplyBoostFilter: document.getElementById("btnApplyBoostFilter"),
+  btnCancelBoostFilter: document.getElementById("btnCancelBoostFilter"),
   btnFacesMode: document.getElementById("btnFacesMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnRenameFace: document.getElementById("btnRenameFace"),
@@ -3981,8 +3995,10 @@ const el = {
   btnApplyFillLightFilter: document.getElementById("btnApplyFillLightFilter"),
   btnApplyFinetune2Filter: document.getElementById("btnApplyFinetune2Filter"),
   btnApplyTintFilter: document.getElementById("btnApplyTintFilter"),
+  btnCancelTintFilter: document.getElementById("btnCancelTintFilter"),
   btnApplySatFilter: document.getElementById("btnApplySatFilter"),
   btnApplyAnselFilter: document.getElementById("btnApplyAnselFilter"),
+  btnCancelAnselFilter: document.getElementById("btnCancelAnselFilter"),
   btnApplyRadblurFilter: document.getElementById("btnApplyRadblurFilter"),
   btnApplyGlow2Filter: document.getElementById("btnApplyGlow2Filter"),
   btnApplyRadsatFilter: document.getElementById("btnApplyRadsatFilter"),
@@ -4244,7 +4260,7 @@ function renderFilterList() {
   if (!el.faceFilterList) return;
   el.faceFilterList.innerHTML = "";
   const filterCount = Array.isArray(faceEditor.filters) ? faceEditor.filters.length : 0;
-  el.faceFilterList.size = Math.max(1, Math.min(10, filterCount || 1));
+  el.faceFilterList.size = Math.max(2, Math.min(10, filterCount || 1));
   if (!filterCount) {
     const opt = document.createElement("option");
     opt.value = "";
@@ -7675,8 +7691,23 @@ el.btnApplySixtiesFilter.onclick = () => applyNoParamFilter("sixties=1");
 el.btnApplyInfraredMonoFilter.onclick = () => applyNoParamFilter("infraredmono=1");
 el.btnApplyInvertColorsFilter.onclick = () => applyNoParamFilter("invert=1");
 el.btnApplyCrossProcessFilter.onclick = () => applyNoParamFilter("crossprocess=1");
-el.btnApplyHeatmapFilter.onclick = () => applyNoParamFilter(refreshHeatmapDraft());
-el.btnApplyBoostFilter.onclick = () => applyNoParamFilter(refreshBoostDraft());
+const cancelDraftFilterControls = (controlsEl, modeButton, modeLabel) => {
+  controlsEl.classList.add("hidden");
+  modeButton.textContent = modeLabel;
+  refreshEditorPreview();
+};
+el.btnApplyHeatmapFilter.onclick = () => {
+  applyNoParamFilter(refreshHeatmapDraft());
+  el.heatmapControls.classList.add("hidden");
+  el.btnHeatmapMode.textContent = "Heatmap";
+};
+el.btnCancelHeatmapFilter.onclick = () => cancelDraftFilterControls(el.heatmapControls, el.btnHeatmapMode, "Heatmap");
+el.btnApplyBoostFilter.onclick = () => {
+  applyNoParamFilter(refreshBoostDraft());
+  el.boostControls.classList.add("hidden");
+  el.btnBoostMode.textContent = "Boost";
+};
+el.btnCancelBoostFilter.onclick = () => cancelDraftFilterControls(el.boostControls, el.btnBoostMode, "Boost");
 el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
 el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
 el.boostInput.oninput = () => refreshBoostDraft();
@@ -7685,6 +7716,7 @@ el.btnApplyTintFilter.onclick = () => {
   el.tintControls.classList.add("hidden");
   el.btnTintMode.textContent = "Tint";
 };
+el.btnCancelTintFilter.onclick = () => cancelDraftFilterControls(el.tintControls, el.btnTintMode, "Tint");
 el.btnApplySatFilter.onclick = () => {
   applyNoParamFilter(refreshSatDraft());
   el.satControls.classList.add("hidden");
@@ -7695,6 +7727,7 @@ el.btnApplyAnselFilter.onclick = () => {
   el.anselControls.classList.add("hidden");
   el.btnAnselMode.textContent = "Ansel";
 };
+el.btnCancelAnselFilter.onclick = () => cancelDraftFilterControls(el.anselControls, el.btnAnselMode, "Ansel");
 el.btnApplyRadblurFilter.onclick = () => {
   applyNoParamFilter(refreshRadblurDraft());
   el.radblurControls.classList.add("hidden");
