@@ -10,6 +10,7 @@
   <script src="./infrared-filter.js"></script>
   <script src="./creative-filters.js"></script>
   <script src="./heatmap-filter.js"></script>
+  <script src="./boost-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -264,6 +265,7 @@
           <button id="btnRadsatMode">Radial Sat</button>
           <button id="btnDirTintMode">Dir Tint</button>
           <button id="btnHeatmapMode">Heatmap</button>
+          <button id="btnBoostMode">Boost</button>
           <button id="btnRedeyeMode">Red-eye</button>
           <button id="btnApplySepiaFilter">Sepia</button>
           <button id="btnApplyBwFilter">B/W</button>
@@ -274,6 +276,7 @@
           <button id="btnApplyInvertColorsFilter">Invert colors</button>
           <button id="btnApplyCrossProcessFilter">Cross-process</button>
           <button id="btnApplyHeatmapFilter">Apply Heatmap</button>
+          <button id="btnApplyBoostFilter">Apply Boost</button>
           <button id="btnFacesMode">Faces</button>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -379,6 +382,9 @@
           <div><b>Heatmap false-colour filter</b></div>
           <label>Hue shift <span id="heatmapHueShiftValue" class="mono">0°</span><input id="heatmapHueShiftInput" type="range" min="-180" max="180" step="1" value="0"></label>
           <label>Fade <span id="heatmapFadeValue" class="mono">1.00</span><input id="heatmapFadeInput" type="range" min="0" max="1" step="0.01" value="1"></label>
+        </div>
+        <div id="boostControls" class="hidden">
+          <label>Boost <span id="boostValue" class="mono">50</span><input id="boostInput" type="range" min="0" max="100" step="1" value="50"></label>
         </div>
         <div id="redeyeControls" class="hidden">
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -2791,6 +2797,11 @@ function parseSatFilter(filterString = "") {
   if (!m) return null;
   return { saturation: Math.max(0, Math.min(1, Number(m[1]) || 0)) };
 }
+function parseBoostFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^boost=1,([^,]+)$/i);
+  if (!m) return null;
+  return { percent: Math.max(0, Math.min(100, Math.round(Number(m[1]) || 0))) };
+}
 
 function parseAnselFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^ansel=1,([0-9a-f#]+)$/i);
@@ -3470,6 +3481,18 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Cross-process filter unavailable");
       continue;
     }
+    m = parseBoostFilter(f);
+    if (m) {
+      if (m.percent <= 0) continue;
+      const glFn = window.BoostFilter?.applyBoostToCanvasWebGL;
+      const cpuFn = window.BoostFilter?.applyBoostToCanvas;
+      if (!(useWebglPreview && typeof glFn === "function" && glFn(canvas, m.percent))) {
+        if (useWebglPreview) notifyFallback("boost");
+        if (typeof cpuFn === "function") canvas = cpuFn(ensureCanvas2D(canvas), undefined, m.percent);
+        else notifyWebglFallback("Boost filter unavailable");
+      }
+      continue;
+    }
     m = String(f).match(/^heatmap=1,(.+)$/i);
     if (m) {
       if (useWebglPreview) notifyFallback("heatmap");
@@ -3783,6 +3806,9 @@ const el = {
   heatmapHueShiftValue: document.getElementById("heatmapHueShiftValue"),
   heatmapFadeInput: document.getElementById("heatmapFadeInput"),
   heatmapFadeValue: document.getElementById("heatmapFadeValue"),
+  boostControls: document.getElementById("boostControls"),
+  boostInput: document.getElementById("boostInput"),
+  boostValue: document.getElementById("boostValue"),
   redeyeControls: document.getElementById("redeyeControls"),
   faceTiltSlider: document.getElementById("faceTiltSlider"),
   faceTiltValue: document.getElementById("faceTiltValue"),
@@ -3901,6 +3927,7 @@ const el = {
   btnRadsatMode: document.getElementById("btnRadsatMode"),
   btnDirTintMode: document.getElementById("btnDirTintMode"),
   btnHeatmapMode: document.getElementById("btnHeatmapMode"),
+  btnBoostMode: document.getElementById("btnBoostMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -3911,6 +3938,7 @@ const el = {
   btnApplyInvertColorsFilter: document.getElementById("btnApplyInvertColorsFilter"),
   btnApplyCrossProcessFilter: document.getElementById("btnApplyCrossProcessFilter"),
   btnApplyHeatmapFilter: document.getElementById("btnApplyHeatmapFilter"),
+  btnApplyBoostFilter: document.getElementById("btnApplyBoostFilter"),
   btnFacesMode: document.getElementById("btnFacesMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnRenameFace: document.getElementById("btnRenameFace"),
@@ -4105,6 +4133,13 @@ function lastSatFromFilters(filters) {
     if (p) return p;
   }
   return { saturation: 0 };
+}
+function lastBoostFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseBoostFilter(filters[i]);
+    if (p) return p.percent;
+  }
+  return 50;
 }
 function lastAnselFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
@@ -5338,6 +5373,8 @@ function openFaceEditor(imageItem) {
   el.glow2Controls.classList.add("hidden");
   el.radsatControls.classList.add("hidden");
   el.dirTintControls.classList.add("hidden");
+  el.heatmapControls.classList.add("hidden");
+  el.boostControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -5350,6 +5387,8 @@ function openFaceEditor(imageItem) {
   el.btnGlow2Mode.textContent = "Glow2";
   el.btnRadsatMode.textContent = "Radial Sat";
   el.btnDirTintMode.textContent = "Dir Tint";
+  el.btnHeatmapMode.textContent = "Heatmap";
+  el.btnBoostMode.textContent = "Boost";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -5393,6 +5432,9 @@ function openFaceEditor(imageItem) {
   const sat = lastSatFromFilters(faceEditor.filters);
   el.faceSatSlider.value = Number(sat.saturation || 0).toFixed(3);
   el.faceSatValue.textContent = Number(sat.saturation || 0).toFixed(6);
+  const boostPercent = lastBoostFromFilters(faceEditor.filters);
+  if (el.boostInput) el.boostInput.value = String(boostPercent);
+  if (el.boostValue) el.boostValue.textContent = String(boostPercent);
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -7330,6 +7372,16 @@ function refreshHeatmapDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readBoostPercentFromControl() {
+  return Math.max(0, Math.min(100, Math.round(Number(el.boostInput?.value || 50) || 0)));
+}
+function refreshBoostDraft() {
+  const percent = readBoostPercentFromControl();
+  if (el.boostValue) el.boostValue.textContent = String(percent);
+  const draft = `boost=1,${percent}`;
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+}
 const refreshTintDraft = () => {
   const preserve = Number(el.faceTintPreserveInput.value || "0") || 0;
   const color = normalizeFilterHexColor(el.faceTintColorInput.value, "ffffffff");
@@ -7562,8 +7614,10 @@ el.btnApplyInfraredMonoFilter.onclick = () => applyNoParamFilter("infraredmono=1
 el.btnApplyInvertColorsFilter.onclick = () => applyNoParamFilter("invert=1");
 el.btnApplyCrossProcessFilter.onclick = () => applyNoParamFilter("crossprocess=1");
 el.btnApplyHeatmapFilter.onclick = () => applyNoParamFilter(refreshHeatmapDraft());
+el.btnApplyBoostFilter.onclick = () => applyNoParamFilter(refreshBoostDraft());
 el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
 el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
+el.boostInput.oninput = () => refreshBoostDraft();
 el.btnApplyTintFilter.onclick = () => {
   applyNoParamFilter(refreshTintDraft());
   el.tintControls.classList.add("hidden");
@@ -7957,6 +8011,12 @@ el.btnHeatmapMode.onclick = () => {
   el.heatmapControls.classList.toggle("hidden", !show);
   el.btnHeatmapMode.textContent = show ? "Hide Heatmap" : "Heatmap";
   if (show) refreshHeatmapDraft();
+};
+el.btnBoostMode.onclick = () => {
+  const show = el.boostControls.classList.contains("hidden");
+  el.boostControls.classList.toggle("hidden", !show);
+  el.btnBoostMode.textContent = show ? "Hide Boost" : "Boost";
+  if (show) refreshBoostDraft();
 };
 el.btnRedeyeMode.onclick = () => {
   const show = el.redeyeControls.classList.contains("hidden");
