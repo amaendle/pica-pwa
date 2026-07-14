@@ -176,7 +176,6 @@
     </aside>
     <main>
       <div class="toolbar">
-        <span id="viewTitle">No selection</span>
         <input id="albumNameInput" class="hidden" type="text" style="max-width:220px;" placeholder="Album name">
         <button id="btnRenameAlbum" class="hidden" aria-hidden="true">Rename album</button>
         <button id="btnToggleGalleryMap">Map view</button>
@@ -216,7 +215,6 @@
           <label class="pill" style="display:flex; align-items:center; gap:6px;">Zoom <span id="slideZoomValue" class="mono">1.00×</span><input id="slideZoomSlider" type="range" min="1" max="6" step="0.01" value="1" style="width:120px;"></label>
           <button id="btnSlideZoomReset">Reset view</button>
           <button id="btnShowSlideImagedata">Metadata</button>
-          <button id="btnToggleStar">Star: Off</button>
           <button id="btnClose">Close (Esc)</button>
         </div>
       </div>
@@ -224,6 +222,7 @@
         <button id="btnPrev">◀ Prev</button>
         <button id="btnPlay">▶ Play</button>
         <button id="btnNext">Next ▶</button>
+        <button id="btnToggleStar" title="Toggle star">☆</button>
       </div>
     </div>
   </div>
@@ -252,7 +251,7 @@
           <button id="btnFaceRotateRight" title="Rotate right 90°">↻ Rotate right</button>
         </div>
         <label>Caption<input id="faceCaptionInput" type="text"></label>
-        <div><b>Albums</b></div>
+        <label for="faceAlbumTokenInput">Albums</label>
         <div id="faceAlbumChips" class="albumChipWrap"><input id="faceAlbumTokenInput" type="text" list="faceAlbumSuggestions" placeholder="Type album name, Enter/comma to add"></div>
         <datalist id="faceAlbumSuggestions"></datalist>
         <input id="faceAlbumNamesInput" type="hidden">
@@ -280,8 +279,6 @@
           <button id="btnRemoveFace" class="hidden">Remove face</button>
           <button id="btnFacesMode">Faces</button>
           <button id="btnTextAdd">Add text</button>
-          <button id="btnFaceSave">Save</button>
-          <button id="btnFaceCancel">Cancel</button>
         </div>
         <label id="textInputRow" class="hidden">Text overlay<input id="faceTextInput" type="text"></label>
         <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
@@ -298,7 +295,6 @@
         <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
         <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
         <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
-        <div class="mono" id="faceEditorStatus"></div>
         </div>
         <div id="faceFiltersTab" class="faceEditorTabPanel hidden" role="tabpanel">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -307,7 +303,6 @@
           <button id="btnTiltMode">Tilt</button>
           <button id="btnFillLightMode">Fill Light</button>
           <button id="btnFinetune2Mode">Fine Tune 2</button>
-          <button id="btnSatMode">Saturation</button>
           <button id="btnRedeyeMode">Red-eye</button>
         </div>
         <div class="geoMapPanel filterCategoryPanel">
@@ -318,6 +313,7 @@
             <button id="btnApplyWarmFilter">Warm</button>
             <button id="btnApplyGrain2Filter">Grain2</button>
             <button id="btnTintMode">Tint</button>
+            <button id="btnSatMode">Saturation</button>
             <button id="btnAnselMode">Ansel</button>
             <button id="btnRadblurMode">Radial Blur</button>
             <button id="btnGlow2Mode">Glow2</button>
@@ -467,6 +463,11 @@
           <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
         </div>
         </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnFaceSave">Save</button>
+          <button id="btnFaceCancel">Cancel</button>
+        </div>
+        <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
   </div>
@@ -1610,7 +1611,7 @@ async function renderAllThumbsGallery() {
   revokeThumbRawUrls(selectedSource);
   state.thumbRawUrls[selectedSource] = validRows.map((r) => Number(r.idx)).filter((n)=>Number.isFinite(n));
   state.galleryMode = "thumbs";
-  el.viewTitle.textContent = `Thumbnails (${selectedSource})`;
+  setViewTitle(`Thumbnails (${selectedSource})`);
   el.resolvePill.textContent = `Original thumbnail size`;
   el.countPill.textContent = `${validRows.length} thumbnails`;
   el.grid.classList.add("rawThumbGrid");
@@ -6052,10 +6053,18 @@ async function getPicasaMetaForFolder(pathRel, dirHandle) {
   }
 }
 
+function setViewTitle(text) {
+  state.currentTitleText = String(text || "");
+  if (el.viewTitle) el.viewTitle.textContent = state.currentTitleText;
+}
 function refreshAlbumNameEditor() {
   const show = state.currentViewMode === "albums" && state.activeListIndex >= 0;
   el.albumNameInput.classList.add("hidden");
   el.btnRenameAlbum.classList.add("hidden");
+  if (!el.viewTitle) {
+    if (show) el.albumNameInput.value = state.albums[state.activeListIndex]?.name || "";
+    return;
+  }
   el.viewTitle.title = show ? "Click album name to rename" : "";
   el.viewTitle.style.cursor = show ? "text" : "";
   if (!show) return;
@@ -6328,6 +6337,26 @@ function renderImagedataBodyHtml(bodyText = "") {
   return html.join("\n");
 }
 
+function formatFileMetadataDate(ms) {
+  const n = Number(ms);
+  if (!Number.isFinite(n) || n <= 0) return "(missing)";
+  try {
+    return new Date(n).toISOString();
+  } catch {
+    return "(invalid)";
+  }
+}
+
+function imageFileMetadataLines(imageItem) {
+  const file = imageItem?.file || null;
+  const size = Number(file?.size);
+  return [
+    `filesize: ${Number.isFinite(size) ? `${size} bytes` : "(missing)"}`,
+    "datetimeCreated: (unavailable from browser File API)",
+    `datetimeModified: ${formatFileMetadataDate(file?.lastModified)}`
+  ];
+}
+
 async function buildImagedataDumpForImage(imageItem) {
   const buildFallbackDump = async (reason) => {
     const exifGps = imageItem?.exifGps || (imageItem?.file ? await extractExifGpsFromFile(imageItem.file) : null);
@@ -6341,6 +6370,7 @@ async function buildImagedataDumpForImage(imageItem) {
         "",
         "== Image ==",
         `path: ${String(imageItem?.relPath || imageItem?.name || "")}`,
+        ...imageFileMetadataLines(imageItem),
         `caption: ${String(imageItem?.caption || "(none)")}`,
         `star: ${imageItem?.star ? "yes" : "no"}`,
         "",
@@ -6399,6 +6429,7 @@ async function buildImagedataDumpForImage(imageItem) {
   const lines = [
     "== Image ==",
     `path: ${String(imageItem?.relPath || imageItem?.name || "")}`,
+    ...imageFileMetadataLines(imageItem),
     `caption: ${String(imageItem?.caption || "(none)")}`,
     `star: ${imageItem?.star ? "yes" : "no"}`,
     "",
@@ -6641,7 +6672,7 @@ async function selectAlbum(idx) {
   renderNavigation();
   clearGrid();
   state.currentTitle = album.name || "(unnamed album)";
-  el.viewTitle.textContent = `Album: ${state.currentTitle}`;
+  setViewTitle(`Album: ${state.currentTitle}`);
   el.albumMetaPill.textContent = `token: ${album.token || "(none)"} | id: ${album.id || "(none)"}`;
   refreshAlbumNameEditor();
   if (album.source === "ini" || album.source === "system") {
@@ -6732,7 +6763,7 @@ async function openFolderPath(pathRel, navRequestId = beginNavRequest()) {
   renderNavigation();
   const folderLabel = pathRel || "/";
   state.currentTitle = folderLabel;
-  el.viewTitle.textContent = `Folder: ${folderLabel}`;
+  setViewTitle(`Folder: ${folderLabel}`);
   el.albumMetaPill.textContent = "";
   refreshAlbumNameEditor();
   await showImagesForResolvedPath(pathRel, `Folder: ${folderLabel}`, {}, navRequestId);
@@ -7196,7 +7227,7 @@ async function updateSlide() {
   el.btnToggleText.textContent = state.slideshow.showText ? "Text: On" : "Text: Off";
   if (el.btnToggleFinetune2) el.btnToggleFinetune2.textContent = state.slideshow.enableFinetune2 ? "FineTune2: On" : "FineTune2: Off";
   if (el.btnToggleSlideWebgl) el.btnToggleSlideWebgl.textContent = state.slideshow.useWebglPreview ? "WebGL: On" : "WebGL: Off";
-  el.btnToggleStar.textContent = it.star ? "Star: On" : "Star: Off";
+  el.btnToggleStar.textContent = it.star ? "★" : "☆";
   const prev = state.currentImages[state.slideshow.index - 1];
   const next = state.currentImages[state.slideshow.index + 1];
   if (prev && !prev.url) prev.url = URL.createObjectURL(prev.file);
@@ -7319,7 +7350,7 @@ el.btnViewAlbums.onclick = () => {
   state.currentViewMode = "albums";
   state.activeListIndex = -1;
   clearGrid();
-  el.viewTitle.textContent = "Album navigation";
+  setViewTitle("Album navigation");
   renderNavigation();
   setStatus("Switched to album view.", "ok");
 };
@@ -7337,7 +7368,7 @@ el.btnRenameAlbum.onclick = async () => {
   renderNavigation();
   if (state.currentViewMode === "albums" && idx >= 0) {
     state.currentTitle = newName;
-    el.viewTitle.textContent = `Album: ${newName}`;
+    setViewTitle(`Album: ${newName}`);
   }
   ensureSpecialAlbums();
   await saveLibrarySnapshot({
@@ -7352,7 +7383,7 @@ el.btnRenameAlbum.onclick = async () => {
 };
 el.albumNameInput.addEventListener("keydown", (ev) => { if (ev.key === "Enter") el.btnRenameAlbum.click(); });
 function beginInlineAlbumRename() {
-  if (state.currentViewMode !== "albums" || state.activeListIndex < 0) return;
+  if (!el.viewTitle || state.currentViewMode !== "albums" || state.activeListIndex < 0) return;
   const album = state.albums[state.activeListIndex];
   if (!album || el.viewTitle.isContentEditable) return;
   el.viewTitle.dataset.renameOriginal = album.name || "";
@@ -7366,25 +7397,27 @@ function beginInlineAlbumRename() {
   sel.addRange(range);
 }
 function cancelInlineAlbumRename() {
-  if (!el.viewTitle.isContentEditable) return;
+  if (!el.viewTitle || !el.viewTitle.isContentEditable) return;
   const original = el.viewTitle.dataset.renameOriginal || state.currentTitle || "";
   el.viewTitle.contentEditable = "false";
   el.viewTitle.textContent = `Album: ${original}`;
 }
 async function commitInlineAlbumRename() {
-  if (!el.viewTitle.isContentEditable) return;
+  if (!el.viewTitle || !el.viewTitle.isContentEditable) return;
   const newName = String(el.viewTitle.textContent || "").trim();
   el.viewTitle.contentEditable = "false";
   el.albumNameInput.value = newName || (el.viewTitle.dataset.renameOriginal || "");
   await el.btnRenameAlbum.onclick();
 }
-el.viewTitle.addEventListener("click", () => beginInlineAlbumRename());
-el.viewTitle.addEventListener("keydown", (ev) => {
-  if (!el.viewTitle.isContentEditable) return;
-  if (ev.key === "Escape") { ev.preventDefault(); cancelInlineAlbumRename(); }
-  if (ev.key === "Enter") { ev.preventDefault(); void commitInlineAlbumRename(); }
-});
-el.viewTitle.addEventListener("blur", () => { if (el.viewTitle.isContentEditable) void commitInlineAlbumRename(); });
+if (el.viewTitle) {
+  el.viewTitle.addEventListener("click", () => beginInlineAlbumRename());
+  el.viewTitle.addEventListener("keydown", (ev) => {
+    if (!el.viewTitle.isContentEditable) return;
+    if (ev.key === "Escape") { ev.preventDefault(); cancelInlineAlbumRename(); }
+    if (ev.key === "Enter") { ev.preventDefault(); void commitInlineAlbumRename(); }
+  });
+  el.viewTitle.addEventListener("blur", () => { if (el.viewTitle.isContentEditable) void commitInlineAlbumRename(); });
+}
 
 el.btnAlbumCreate.onclick = () => {
   const raw = (el.faceAlbumTokenInput?.value || el.faceAlbumNamesInput.value || "");
