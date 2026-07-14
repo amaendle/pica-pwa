@@ -138,6 +138,8 @@
       background: linear-gradient(to bottom, rgba(0,0,0,.75), rgba(0,0,0,0));
       color: #ddd; font-size: 12px;
     }
+    .overlayTop, .overlayBar { transition: opacity .25s ease; }
+    .overlay.controlsHidden .overlayTop, .overlay.controlsHidden .overlayBar { opacity:0; pointer-events:none; }
     .kbd { border: 1px solid #444; padding: 2px 6px; border-radius: 6px; font-size: 11px; color: #ccc; }
     @media (max-width: 980px) {
       .faceEditorBox { grid-template-columns: 1fr; height:auto; max-height:calc(100vh - 36px); }
@@ -149,7 +151,7 @@
 </head>
 <body>
   <header>
-    <button id="btnPick">Open Library Folder</button>
+    <button id="btnPick" title="Open Library Folder" aria-label="Open Library Folder">📁</button>
     <button id="btnPickPmp">Open PMP Import Folder</button>
     <button id="btnExport" disabled>Export IndexedDB Library</button>
     <button id="btnReload" disabled>Reload PMP</button>
@@ -159,7 +161,6 @@
   </header>
   <div class="layout">
     <aside>
-      <div class="sectionTitle">Navigation (from db/*.pmp)</div>
       <div class="toolbar" style="position:static; border-bottom:1px solid #222;">
         <button id="btnViewAlbums">Album view</button>
         <button id="btnViewFolders">Folder view</button>
@@ -206,7 +207,7 @@
       <div class="overlayTop">
         <div><div id="slideMeta" class="mono"></div><div id="slideAlbums" style="margin-top:4px"></div></div>
         <div style="display:flex; gap:8px;">
-          <button id="btnToggleFaces">Faces: On</button>
+          <button id="btnToggleFaces">Faces: Off</button>
           <button id="btnToggleCrop">Crop: On</button>
           <button id="btnToggleText">Text: On</button>
           <button id="btnToggleFinetune2">FineTune2: On</button>
@@ -240,7 +241,6 @@
         </div>
       </div>
       <div class="faceEditorSide">
-        <div><b>Edit image metadata</b></div>
         <div class="faceEditorTabs" role="tablist" aria-label="Editor sections">
           <button id="btnFaceTabBasic" class="faceEditorTabBtn active" type="button" role="tab" aria-selected="true" aria-controls="faceBasicTab">Basic</button>
           <button id="btnFaceTabFilters" class="faceEditorTabBtn" type="button" role="tab" aria-selected="false" aria-controls="faceFiltersTab">Filters</button>
@@ -256,7 +256,7 @@
         <div id="faceAlbumChips" class="albumChipWrap"><input id="faceAlbumTokenInput" type="text" list="faceAlbumSuggestions" placeholder="Type album name, Enter/comma to add"></div>
         <datalist id="faceAlbumSuggestions"></datalist>
         <input id="faceAlbumNamesInput" type="hidden">
-        <label>Tags (comma)<input id="faceKeywordsInput" type="text"></label>
+        <label>Tags (comma)<textarea id="faceKeywordsInput" rows="3"></textarea></label>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnAlbumCreate" class="hidden">Add album from input</button>
         </div>
@@ -298,6 +298,7 @@
         <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
         <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
         <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
+        <div class="mono" id="faceEditorStatus"></div>
         </div>
         <div id="faceFiltersTab" class="faceEditorTabPanel hidden" role="tabpanel">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -306,7 +307,6 @@
           <button id="btnTiltMode">Tilt</button>
           <button id="btnFillLightMode">Fill Light</button>
           <button id="btnFinetune2Mode">Fine Tune 2</button>
-          <button id="btnTintMode">Tint</button>
           <button id="btnSatMode">Saturation</button>
           <button id="btnAnselMode">Ansel</button>
           <button id="btnRadblurMode">Radial Blur</button>
@@ -316,16 +316,22 @@
           <button id="btnHeatmapMode">Heatmap</button>
           <button id="btnBoostMode">Boost</button>
           <button id="btnRedeyeMode">Red-eye</button>
-          <button id="btnApplySepiaFilter">Sepia</button>
-          <button id="btnApplyBwFilter">B/W</button>
-          <button id="btnApplyWarmFilter">Warm</button>
-          <button id="btnApplyGrain2Filter">Grain2</button>
           <button id="btnApplySixtiesFilter">1960s</button>
           <button id="btnApplyInfraredMonoFilter">Infrared Mono (Calibrated)</button>
           <button id="btnApplyInvertColorsFilter">Invert colors</button>
           <button id="btnApplyCrossProcessFilter">Cross-process</button>
           <button id="btnApplyHeatmapFilter">Apply Heatmap</button>
           <button id="btnApplyBoostFilter">Apply Boost</button>
+        </div>
+        <div class="geoMapPanel">
+          <div><b>Standard filters</b></div>
+          <div class="geoMapRow">
+            <button id="btnApplySepiaFilter">Sepia</button>
+            <button id="btnApplyBwFilter">B/W</button>
+            <button id="btnApplyWarmFilter">Warm</button>
+            <button id="btnApplyGrain2Filter">Grain2</button>
+            <button id="btnTintMode">Tint</button>
+          </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
         <div id="cropControls" class="hidden">
@@ -439,7 +445,6 @@
           <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
         </div>
         </div>
-        <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
   </div>
@@ -3678,7 +3683,7 @@ const state = {
   currentViewMode: "albums",
   activeListIndex: -1,
   libraryId: "default",
-  slideshow: { open: false, index: 0, playing: false, timer: null, intervalMs: 2500, showFaces: true, showCrop: true, showText: true, enableFinetune2: true, useWebglPreview: true, zoom: 1, panX: 0, panY: 0, panning: false, panStartX: 0, panStartY: 0 },
+  slideshow: { open: false, index: 0, playing: false, timer: null, controlsTimer: null, intervalMs: 2500, showFaces: false, showCrop: true, showText: true, enableFinetune2: true, useWebglPreview: true, zoom: 1, panX: 0, panY: 0, panning: false, panStartX: 0, panStartY: 0 },
   prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini", thumbSource: "bigthumbs", editorPreviewSize: DEFAULT_EDITOR_PREVIEW_SIZE, editorMaxZoomMultiplier: 4, thumbSize: 140, useWebglPreview: true, persistGeneratedThumbs: true },
   preview: { useWebglPreview: true },
   pmpColumnsCache: [],
@@ -6269,16 +6274,7 @@ function renderImagedataBodyHtml(bodyText = "") {
 }
 
 async function buildImagedataDumpForImage(imageItem) {
-  const columns = await getCachedPmpColumns("imagedata");
-  if (!columns.length) {
-    return {
-      title: String(imageItem?.relPath || imageItem?.name || "Current image"),
-      body: "No imagedata_*.pmp columns are cached for this library."
-    };
-  }
-  const { rowIndex, source } = await resolvePmpRowIdxForImage(imageItem);
-  const hasPmpMapping = rowIndex >= 0;
-  if (!hasPmpMapping) {
+  const buildFallbackDump = async (reason) => {
     const exifGps = imageItem?.exifGps || (imageItem?.file ? await extractExifGpsFromFile(imageItem.file) : null);
     const iniGeo = imageItem?.geotag || null;
     const iniKeywords = Array.isArray(imageItem?.iniKeywords) ? imageItem.iniKeywords : [];
@@ -6286,7 +6282,7 @@ async function buildImagedataDumpForImage(imageItem) {
     return {
       title: String(imageItem?.relPath || imageItem?.name || "Current image"),
       body: [
-        `No thumbnail/PMP idx mapping was found for ${String(imageItem?.relPath || imageItem?.name || "the current image")}.`,
+        reason,
         "",
         "== Image ==",
         `path: ${String(imageItem?.relPath || imageItem?.name || "")}`,
@@ -6304,6 +6300,15 @@ async function buildImagedataDumpForImage(imageItem) {
         `exifGps: ${exifGps && Number.isFinite(exifGps.lat) && Number.isFinite(exifGps.lng) ? `${exifGps.lat}, ${exifGps.lng}` : "(missing)"}`
       ].join("\n")
     };
+  };
+  const columns = await getCachedPmpColumns("imagedata");
+  if (!columns.length) {
+    return buildFallbackDump("No imagedata_*.pmp columns are cached for this library.");
+  }
+  const { rowIndex, source } = await resolvePmpRowIdxForImage(imageItem);
+  const hasPmpMapping = rowIndex >= 0;
+  if (!hasPmpMapping) {
+    return buildFallbackDump(`No thumbnail/PMP idx mapping was found for ${String(imageItem?.relPath || imageItem?.name || "the current image")}.`);
   }
   const maxEntries = columns.reduce((max, col) => Math.max(max, Array.isArray(col?.entries) ? col.entries.length : 0), 0);
   if (rowIndex >= maxEntries) {
@@ -6933,19 +6938,34 @@ function openSlideshow(index) {
   resetSlideTransform();
   el.overlay.classList.add("show");
   el.overlay.setAttribute("aria-hidden", "false");
+  showSlideControlsTemporarily();
   updateSlide();
 }
 function closeSlideshow() {
   stopPlaying();
   state.slideshow.open = false;
   state.slideshow.panning = false;
+  if (state.slideshow.controlsTimer) clearTimeout(state.slideshow.controlsTimer);
+  state.slideshow.controlsTimer = null;
+  el.overlay.classList.remove("controlsHidden");
   el.overlay.classList.remove("show");
   el.overlay.setAttribute("aria-hidden", "true");
   closeSlideImagedataOverlay();
 }
+function showSlideControlsTemporarily() {
+  if (!state.slideshow.open) return;
+  el.overlay.classList.remove("controlsHidden");
+  if (state.slideshow.controlsTimer) clearTimeout(state.slideshow.controlsTimer);
+  state.slideshow.controlsTimer = setTimeout(() => {
+    if (state.slideshow.open && !el.slideImagedataOverlay.classList.contains("show")) {
+      el.overlay.classList.add("controlsHidden");
+    }
+  }, 3500);
+}
 function closeSlideImagedataOverlay() {
   el.slideImagedataOverlay.classList.remove("show");
   el.slideImagedataOverlay.setAttribute("aria-hidden", "true");
+  showSlideControlsTemporarily();
 }
 function applySlideTransform() {
   const zoom = Math.max(1, Math.min(6, Number(state.slideshow.zoom) || 1));
@@ -6988,6 +7008,7 @@ async function showImagedataOverlayForTarget(imageItem = null, sourceOverride = 
   if (sourceOverride) target.pmpRowSource = sourceOverride;
   el.slideImagedataTitle.textContent = String(target.relPath || target.name || ((sourceOverride && Number.isFinite(rowIdxOverride)) ? `${sourceOverride}[${rowIdxOverride}]` : ""));
   el.slideImagedataBody.textContent = "Loading metadata…";
+  showSlideControlsTemporarily();
   el.slideImagedataOverlay.classList.add("show");
   el.slideImagedataOverlay.setAttribute("aria-hidden", "false");
   try {
@@ -7883,6 +7904,9 @@ el.btnViewFolders.onclick = () => {
   openFolderPath(state.folderBrowserPath);
 };
 el.btnClose.onclick = closeSlideshow;
+el.overlay.addEventListener("mousemove", showSlideControlsTemporarily);
+el.overlay.addEventListener("touchstart", showSlideControlsTemporarily, { passive: true });
+el.overlay.addEventListener("click", showSlideControlsTemporarily);
 el.btnPrev.onclick = prevSlide;
 el.btnNext.onclick = nextSlide;
 el.btnPlay.onclick = togglePlay;
