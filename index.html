@@ -93,6 +93,10 @@
     .ghostFaceRect { position:absolute; border:2px dashed rgba(255,255,255,.65); background:rgba(255,255,255,.08); pointer-events:auto; }
     .ghostFaceAddBtn { position:absolute; right:-10px; top:-10px; width:22px; height:22px; border-radius:50%; border:1px solid #222; background:#22c55e; color:#fff; font-weight:700; display:flex; align-items:center; justify-content:center; cursor:pointer; }
     .faceEditorSide { display:flex; flex-direction:column; gap:8px; min-height:0; overflow-y:auto; overflow-x:hidden; padding-right:4px; }
+    .faceEditorTabs { display:flex; gap:6px; border-bottom:1px solid #333; padding-bottom:6px; }
+    .faceEditorTabBtn { flex:1 1 0; padding:6px 8px; font-size:12px; }
+    .faceEditorTabBtn.active { background:#333; border-color:#666; }
+    .faceEditorTabPanel { display:flex; flex-direction:column; gap:8px; }
     .faceEditorSide input, .faceEditorSide textarea, .faceEditorSide select { width:100%; background:#111; color:#eee; border:1px solid #333; border-radius:6px; padding:6px 8px; }
     .albumChipWrap { display:flex; flex-wrap:wrap; gap:6px; min-height:36px; padding:6px; border:1px solid #333; border-radius:8px; background:#111; }
     .albumChipWrap input { flex:1 1 180px; min-width:160px; border:0; background:transparent; padding:4px 2px; }
@@ -237,6 +241,11 @@
       </div>
       <div class="faceEditorSide">
         <div><b>Edit image metadata</b></div>
+        <div class="faceEditorTabs" role="tablist" aria-label="Editor sections">
+          <button id="btnFaceTabBasic" class="faceEditorTabBtn active" type="button" role="tab" aria-selected="true" aria-controls="faceBasicTab">Basic</button>
+          <button id="btnFaceTabFilters" class="faceEditorTabBtn" type="button" role="tab" aria-selected="false" aria-controls="faceFiltersTab">Filters</button>
+        </div>
+        <div id="faceBasicTab" class="faceEditorTabPanel" role="tabpanel">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnFaceStarToggle" title="Toggle star">☆ Star</button>
           <button id="btnFaceRotateLeft" title="Rotate left 90°">↺ Rotate left</button>
@@ -251,6 +260,46 @@
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnAlbumCreate" class="hidden">Add album from input</button>
         </div>
+        <div class="geoMapPanel">
+          <div><b>Geotag</b></div>
+          <div class="geoMapRow">
+            <input id="faceGeoLatInput" type="number" step="0.000001" placeholder="Latitude">
+            <input id="faceGeoLngInput" type="number" step="0.000001" placeholder="Longitude">
+          </div>
+          <div class="geoMapRow">
+            <button id="btnFaceGeoApplyCoords" type="button">Apply coords</button>
+            <button id="btnFaceGeoClear" type="button">Clear geotag</button>
+          </div>
+          <div id="faceGeoMap" class="geoMapBox"></div>
+        </div>
+        <label class="hidden" id="faceFaceSelectWrap">Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
+        <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnFaceAdd" class="hidden">Add face rectangle</button>
+          <button id="btnRenameFace" class="hidden">Rename face</button>
+          <button id="btnRemoveFace" class="hidden">Remove face</button>
+          <button id="btnFacesMode">Faces</button>
+          <button id="btnTextAdd">Add text</button>
+          <button id="btnFaceSave">Save</button>
+          <button id="btnFaceCancel">Cancel</button>
+        </div>
+        <label id="textInputRow" class="hidden">Text overlay<input id="faceTextInput" type="text"></label>
+        <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
+        <label id="textSizeRow" class="hidden">Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
+        <label id="textColorRow" class="hidden">Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
+        <label id="textOutlineColorRow" class="hidden">Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
+        <label id="textOutlineWidthRow" class="hidden">Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="0.1" value="1"></label>
+        <label id="textOpacityRow" class="hidden">Opacity (0-255)<input id="faceTextOpacityInput" type="range" min="0" max="255" step="1" value="128"></label>
+        <label id="textScaleXRow" class="hidden">ScaleX (raw)<input id="faceTextScaleXInput" type="number" min="0" max="5" step="0.01" value="1"></label>
+        <label id="textScaleYRow" class="hidden">ScaleY (raw)<input id="faceTextScaleYInput" type="number" min="0" max="5" step="0.01" value="1"></label>
+        <label id="textStrokeFactorRow" class="hidden">Stroke width factor (0..1)<input id="faceTextStrokeFactorInput" type="range" min="0" max="1" step="0.01" value="0"></label>
+        <label id="textWeightRow" class="hidden">Font weight<input id="faceTextWeightInput" type="number" min="100" max="900" step="100" value="400"></label>
+        <label id="textAlignRow" class="hidden">Paragraph align<select id="faceTextAlignInput"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+        <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
+        <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
+        <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
+        </div>
+        <div id="faceFiltersTab" class="faceEditorTabPanel hidden" role="tabpanel">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnCropMode">Crop</button>
           <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
@@ -277,21 +326,8 @@
           <button id="btnApplyCrossProcessFilter">Cross-process</button>
           <button id="btnApplyHeatmapFilter">Apply Heatmap</button>
           <button id="btnApplyBoostFilter">Apply Boost</button>
-          <button id="btnFacesMode">Faces</button>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
-        <div class="geoMapPanel">
-          <div><b>Geotag</b></div>
-          <div class="geoMapRow">
-            <input id="faceGeoLatInput" type="number" step="0.000001" placeholder="Latitude">
-            <input id="faceGeoLngInput" type="number" step="0.000001" placeholder="Longitude">
-          </div>
-          <div class="geoMapRow">
-            <button id="btnFaceGeoApplyCoords" type="button">Apply coords</button>
-            <button id="btnFaceGeoClear" type="button">Clear geotag</button>
-          </div>
-          <div id="faceGeoMap" class="geoMapBox"></div>
-        </div>
         <div id="cropControls" class="hidden">
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button class="btnAspect" data-ratio="">Free</button>
@@ -396,35 +432,13 @@
           <div class="status">Auto-detect uses MediaPipe iris landmarks + pixel analysis. You can still add/adjust areas manually.</div>
           <div class="mono">Areas: <span id="faceRedeyeCount">0</span></div>
         </div>
-        <label class="hidden" id="faceFaceSelectWrap">Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
-        <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="btnFaceAdd" class="hidden">Add face rectangle</button>
-          <button id="btnRenameFace" class="hidden">Rename face</button>
-          <button id="btnRemoveFace" class="hidden">Remove face</button>
-          <button id="btnTextAdd">Add text</button>
-          <button id="btnUndoFilter">Undo filter</button>
-          <button id="btnFaceSave">Save</button>
-          <button id="btnFaceCancel">Cancel</button>
-        </div>
-        <label id="textInputRow" class="hidden">Text overlay<input id="faceTextInput" type="text"></label>
-        <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
-        <label id="textSizeRow" class="hidden">Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
-        <label id="textColorRow" class="hidden">Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
-        <label id="textOutlineColorRow" class="hidden">Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
-        <label id="textOutlineWidthRow" class="hidden">Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="0.1" value="1"></label>
-        <label id="textOpacityRow" class="hidden">Opacity (0-255)<input id="faceTextOpacityInput" type="range" min="0" max="255" step="1" value="128"></label>
-        <label id="textScaleXRow" class="hidden">ScaleX (raw)<input id="faceTextScaleXInput" type="number" min="0" max="5" step="0.01" value="1"></label>
-        <label id="textScaleYRow" class="hidden">ScaleY (raw)<input id="faceTextScaleYInput" type="number" min="0" max="5" step="0.01" value="1"></label>
-        <label id="textStrokeFactorRow" class="hidden">Stroke width factor (0..1)<input id="faceTextStrokeFactorInput" type="range" min="0" max="1" step="0.01" value="0"></label>
-        <label id="textWeightRow" class="hidden">Font weight<input id="faceTextWeightInput" type="number" min="100" max="900" step="100" value="400"></label>
-        <label id="textAlignRow" class="hidden">Paragraph align<select id="faceTextAlignInput"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
-        <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
-        <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
-        <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
         <div><b>Applied filters</b></div>
         <select id="faceFilterList" class="mono" multiple size="10" style="width:100%; height:220px;"></select>
-        <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button id="btnUndoFilter">Undo filter</button>
+          <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
+        </div>
+        </div>
         <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
@@ -3914,6 +3928,10 @@ const el = {
   faceTextRenderFlagsInput: document.getElementById("faceTextRenderFlagsInput"),
   faceFilterList: document.getElementById("faceFilterList"),
   btnRemoveSelectedFilters: document.getElementById("btnRemoveSelectedFilters"),
+  btnFaceTabBasic: document.getElementById("btnFaceTabBasic"),
+  btnFaceTabFilters: document.getElementById("btnFaceTabFilters"),
+  faceBasicTab: document.getElementById("faceBasicTab"),
+  faceFiltersTab: document.getElementById("faceFiltersTab"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnCropMode: document.getElementById("btnCropMode"),
   btnTiltMode: document.getElementById("btnTiltMode"),
@@ -5343,7 +5361,18 @@ function setFacesMode(active) {
   if (faceEditor.facesModeActive) detectFacesForEditor();
 }
 
+function showFaceEditorTab(tab) {
+  const showFilters = tab === "filters";
+  el.faceBasicTab.classList.toggle("hidden", showFilters);
+  el.faceFiltersTab.classList.toggle("hidden", !showFilters);
+  el.btnFaceTabBasic.classList.toggle("active", !showFilters);
+  el.btnFaceTabFilters.classList.toggle("active", showFilters);
+  el.btnFaceTabBasic.setAttribute("aria-selected", showFilters ? "false" : "true");
+  el.btnFaceTabFilters.setAttribute("aria-selected", showFilters ? "true" : "false");
+}
+
 function openFaceEditor(imageItem) {
+  showFaceEditorTab("basic");
   faceEditor.imageItem = imageItem;
   faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
   faceEditor.activeFaceIdx = -1;
@@ -8025,6 +8054,8 @@ el.btnRedeyeMode.onclick = () => {
   if (show) refreshRedeyeDraft();
   if (!show) faceEditor.awaitingNewRedeyeDraw = false;
 };
+el.btnFaceTabBasic.onclick = () => showFaceEditorTab("basic");
+el.btnFaceTabFilters.onclick = () => showFaceEditorTab("filters");
 el.btnFacesMode.onclick = () => {
   setFacesMode(!faceEditor.facesModeActive);
 };
