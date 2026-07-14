@@ -310,7 +310,7 @@
           <button id="btnSatMode">Saturation</button>
           <button id="btnRedeyeMode">Red-eye</button>
         </div>
-        <div class="geoMapPanel">
+        <div class="geoMapPanel filterCategoryPanel">
           <div><b>Color &amp; Tone Adjustments</b></div>
           <div class="geoMapRow">
             <button id="btnApplySepiaFilter">Sepia</button>
@@ -325,7 +325,7 @@
             <button id="btnDirTintMode">Dir Tint</button>
           </div>
         </div>
-        <div class="geoMapPanel">
+        <div class="geoMapPanel filterCategoryPanel">
           <div><b>Looks &amp; Color Styles</b></div>
           <div class="geoMapRow">
             <button id="btnApplySixtiesFilter">1960s</button>
@@ -335,7 +335,7 @@
             <button id="btnApplyCrossProcessFilter">Cross-process</button>
           </div>
         </div>
-        <div class="geoMapPanel">
+        <div class="geoMapPanel filterCategoryPanel">
           <div><b>Effects &amp; Finishes</b></div>
           <div class="geoMapRow">
             <button id="btnBoostMode">Boost</button>
@@ -4028,6 +4028,33 @@ const el = {
   slideImagedataBody: document.getElementById("slideImagedataBody"),
   btnSlideImagedataClose: document.getElementById("btnSlideImagedataClose"),
 };
+
+const filterControlPanels = [
+  el.cropControls,
+  el.tiltControls,
+  el.fillLightControls,
+  el.finetune2Controls,
+  el.tintControls,
+  el.satControls,
+  el.anselControls,
+  el.radblurControls,
+  el.glow2Controls,
+  el.radsatControls,
+  el.dirTintControls,
+  el.heatmapControls,
+  el.boostControls,
+  el.redeyeControls
+].filter(Boolean);
+const filterCategoryPanels = Array.from(document.querySelectorAll(".filterCategoryPanel"));
+function updateFilterCategoryPanelVisibility() {
+  const hasActiveControl = filterControlPanels.some((panel) => !panel.classList.contains("hidden"));
+  filterCategoryPanels.forEach((panel) => panel.classList.toggle("hidden", hasActiveControl));
+}
+filterControlPanels.forEach((panel) => {
+  new MutationObserver(updateFilterCategoryPanelVisibility).observe(panel, { attributes: true, attributeFilter: ["class"] });
+});
+updateFilterCategoryPanelVisibility();
+
 function setStatus(msg, cls = "") {
   el.mainStatus.className = "status " + cls;
   el.mainStatus.textContent = msg || "";
