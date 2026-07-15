@@ -157,6 +157,7 @@
     <button id="btnReload" disabled>Reload PMP</button>
     <button id="btnSettings">Settings</button>
     <span class="pill" id="pillState">No library selected</span>
+    <span class="pill" id="pillPmpState">Picasa DB: not connected</span>
     <span class="pill mono" id="pillInfo"></span>
   </header>
   <div class="layout">
@@ -272,8 +273,8 @@
           <div id="faceGeoMap" class="geoMapBox"></div>
         </div>
         <div class="geoMapPanel">
-          <div><b>Available faces</b></div>
-          <label id="faceFaceSelectWrap">Faces<select id="faceFaceSelect" multiple size="6"></select></label>
+          <div><b>Faces</b></div>
+          <label id="faceFaceSelectWrap">Faces<select id="faceFaceSelect" multiple size="2"></select></label>
           <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
           <div class="geoMapRow">
             <button id="btnFaceAdd">Add face rectangle</button>
@@ -296,6 +297,7 @@
         <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
         <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
         <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
+        <button id="btnCancelTextEdit" class="hidden" type="button">Cancel text</button>
         </div>
         <div id="faceFiltersTab" class="faceEditorTabPanel hidden" role="tabpanel">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -352,15 +354,24 @@
             <button class="btnAspect" data-ratio="4:3">4:3</button>
             <button class="btnAspect" data-ratio="16:9">16:9</button>
           </div>
-          <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
+            <button id="btnCancelCropFilter" type="button">Cancel</button>
+          </div>
         </div>
         <div id="tiltControls" class="hidden">
           <label>Tilt value <span id="faceTiltValue" class="mono">0.00</span><input id="faceTiltSlider" type="range" min="-1" max="1" step="0.01" value="0"></label>
-          <button id="btnApplyTiltFilter">Apply tilt filter</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyTiltFilter">Apply tilt filter</button>
+            <button id="btnCancelTiltFilter" type="button">Cancel</button>
+          </div>
           </div>
         <div id="fillLightControls" class="hidden">
           <label>Fill Light <span id="faceFillLightValue" class="mono">0.00</span><input id="faceFillLightSlider" type="range" min="0" max="1" step="0.01" value="0"></label>
-          <button id="btnApplyFillLightFilter">Apply fill light filter</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyFillLightFilter">Apply fill light filter</button>
+            <button id="btnCancelFillLightFilter" type="button">Cancel</button>
+          </div>
         </div>
         <div id="finetune2Controls" class="hidden">
           <label>Fill Light <span id="faceFinetuneFillValue" class="mono">0.000000</span><input id="faceFinetuneFillSlider" type="range" min="0" max="1" step="0.001" value="0"></label>
@@ -376,7 +387,10 @@
             <button id="btnFaceFinetuneClearNeutral" class="miniBtn">Clear neutral</button>
           </div>
           <label>Neutral ARGB (AARRGGBB)<input id="faceFinetuneNeutralInput" type="text" value="00000000" maxlength="8" placeholder="00000000" readonly></label>
-          <button id="btnApplyFinetune2Filter">Apply finetune2 filter</button>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyFinetune2Filter">Apply finetune2 filter</button>
+            <button id="btnCancelFinetune2Filter" type="button">Cancel</button>
+          </div>
         </div>
         <div id="tintControls" class="hidden">
           <label>Preserve Color <span id="faceTintPreserveValue" class="mono">0.000000</span><input id="faceTintPreserveInput" type="number" step="0.000001" value="0"></label>
@@ -459,6 +473,7 @@
             <button id="btnAddRedeyeArea">Add pupil area</button>
             <button id="btnClearRedeyeAreas">Clear areas</button>
             <button id="btnApplyRedeyeFilter">Apply red-eye filter</button>
+            <button id="btnCancelRedeyeFilter" type="button">Cancel</button>
           </div>
           <div class="status">Auto-detect uses MediaPipe iris landmarks + pixel analysis. You can still add/adjust areas manually.</div>
           <div class="mono">Areas: <span id="faceRedeyeCount">0</span></div>
@@ -3778,6 +3793,7 @@ const el = {
   btnViewAlbums: document.getElementById("btnViewAlbums"),
   btnViewFolders: document.getElementById("btnViewFolders"),
   pillState: document.getElementById("pillState"),
+  pillPmpState: document.getElementById("pillPmpState"),
   pillInfo: document.getElementById("pillInfo"),
   albumList: document.getElementById("albumList"),
   grid: document.getElementById("grid"),
@@ -3928,6 +3944,7 @@ const el = {
   faceLabelRow: document.getElementById("faceLabelRow"),
   faceFaceLabelInput: document.getElementById("faceFaceLabelInput"),
   btnTextAdd: document.getElementById("btnTextAdd"),
+  btnCancelTextEdit: document.getElementById("btnCancelTextEdit"),
   textInputRow: document.getElementById("textInputRow"),
   textFontRow: document.getElementById("textFontRow"),
   textSizeRow: document.getElementById("textSizeRow"),
@@ -3999,9 +4016,13 @@ const el = {
   btnRenameFace: document.getElementById("btnRenameFace"),
   btnRemoveFace: document.getElementById("btnRemoveFace"),
   btnApplyCropFilter: document.getElementById("btnApplyCropFilter"),
+  btnCancelCropFilter: document.getElementById("btnCancelCropFilter"),
   btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
+  btnCancelTiltFilter: document.getElementById("btnCancelTiltFilter"),
   btnApplyFillLightFilter: document.getElementById("btnApplyFillLightFilter"),
+  btnCancelFillLightFilter: document.getElementById("btnCancelFillLightFilter"),
   btnApplyFinetune2Filter: document.getElementById("btnApplyFinetune2Filter"),
+  btnCancelFinetune2Filter: document.getElementById("btnCancelFinetune2Filter"),
   btnApplyTintFilter: document.getElementById("btnApplyTintFilter"),
   btnCancelTintFilter: document.getElementById("btnCancelTintFilter"),
   btnApplySatFilter: document.getElementById("btnApplySatFilter"),
@@ -4015,6 +4036,7 @@ const el = {
   btnAddRedeyeArea: document.getElementById("btnAddRedeyeArea"),
   btnClearRedeyeAreas: document.getElementById("btnClearRedeyeAreas"),
   btnApplyRedeyeFilter: document.getElementById("btnApplyRedeyeFilter"),
+  btnCancelRedeyeFilter: document.getElementById("btnCancelRedeyeFilter"),
   btnUndoFilter: document.getElementById("btnUndoFilter"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
@@ -4076,6 +4098,10 @@ function notifyWebglFallback(action) {
 function setAsideState(text, cls="") {
   el.pillState.textContent = text;
   el.pillState.className = "pill " + cls;
+}
+function setPmpState(text, cls = "") {
+  el.pillPmpState.textContent = text;
+  el.pillPmpState.className = "pill " + cls;
 }
 function clearGrid() {
   // revoke thumb URLs to avoid leaks
@@ -4498,6 +4524,7 @@ const faceEditor = {
   textRotateOriginY: 0,
   textOverlays: [],
   activeTextIdx: -1,
+  pendingNewTextIdx: -1,
   star: false,
   geotag: null,
   cropAspectRatio: null,
@@ -4641,11 +4668,12 @@ function updateSelectionRows() {
   if (el.btnRenameFace) el.btnRenameFace.classList.toggle("hidden", !hasFace);
   if (el.btnRemoveFace) el.btnRemoveFace.classList.toggle("hidden", !hasFace);
   const hasText = faceEditor.activeTextIdx >= 0 && !!faceEditor.textOverlays[faceEditor.activeTextIdx];
-  [el.textInputRow, el.textFontRow, el.textSizeRow, el.textColorRow, el.textOutlineColorRow, el.textOutlineWidthRow, el.textOpacityRow, el.textScaleXRow, el.textScaleYRow, el.textStrokeFactorRow, el.textWeightRow, el.textAlignRow, el.textFlagsRow, el.textAnchorFlagsRow, el.textRenderFlagsRow].forEach((n)=>n.classList.toggle("hidden", !hasText));
+  [el.textInputRow, el.textFontRow, el.textSizeRow, el.textColorRow, el.textOutlineColorRow, el.textOutlineWidthRow, el.textOpacityRow, el.textScaleXRow, el.textScaleYRow, el.textStrokeFactorRow, el.textWeightRow, el.textAlignRow, el.textFlagsRow, el.textAnchorFlagsRow, el.textRenderFlagsRow, el.btnCancelTextEdit].forEach((n)=>n.classList.toggle("hidden", !hasText));
 }
 function syncFaceSelectFromState() {
   const select = el.faceFaceSelect;
   select.innerHTML = "";
+  select.size = Math.max(2, Math.min(10, faceEditor.faces.length || 1));
 
   faceEditor.faces.forEach((face, idx) => {
     const opt = document.createElement("option");
@@ -5592,6 +5620,7 @@ function openFaceEditor(imageItem) {
   updateFaceCanvasTransform();
   faceEditor.textOverlays = (imageItem.textOverlays || []).map((t) => ({ ...t }));
   faceEditor.activeTextIdx = -1;
+  faceEditor.pendingNewTextIdx = -1;
   faceEditor.pickingFinetuneNeutral = false;
   el.btnFaceFinetunePickNeutral.textContent = "Pick neutral";
   syncFaceSelectFromState();
@@ -5700,6 +5729,7 @@ function closeFaceEditor() {
   faceEditor.textDragging = false;
   faceEditor.textDragMode = "move";
   faceEditor.activeTextIdx = -1;
+  faceEditor.pendingNewTextIdx = -1;
   faceEditor.pickingFinetuneNeutral = false;
   faceEditor.finetuneNeutralColor = null;
   faceEditor.activeFaceIdx = -1;
@@ -7288,14 +7318,15 @@ el.btnPick.onclick = async () => {
       setStatus(`Indexing directories… ${count} folders${suffix}`, "warn");
     });
     state.picasaByFolder.clear();
-    const hasPmp = !!state.pmpRoot;
-    if (hasPmp) {
-      el.btnReload.disabled = false;
-      setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
-      state.picasaByFolder.clear();
-      state.pmpColumnsCache = [];
-      await loadAlbumsFromPMP();
-      setStatus("Select an item on the left.", "ok");
+	    const hasPmp = !!state.pmpRoot;
+	    if (hasPmp) {
+	      el.btnReload.disabled = false;
+	      setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
+	      state.picasaByFolder.clear();
+	      state.pmpColumnsCache = [];
+	      await loadAlbumsFromPMP();
+	      setPmpState("Picasa DB: loaded", "ok");
+	      setStatus("Select an item on the left.", "ok");
     } else {
       setStatus(`Indexed ${state.dirIndex.size} folders. Now choose “Open PMP Import Folder”.`, "warn");
     }
@@ -7307,23 +7338,26 @@ el.btnPick.onclick = async () => {
 el.btnPickPmp.onclick = async () => {
   try {
     // Secure context required (https or localhost)
-    const dir = await window.showDirectoryPicker({ mode: "read" });
-    state.pmpRoot = dir;
-    state.activeListIndex = -1;
+	    const dir = await window.showDirectoryPicker({ mode: "read" });
+	    state.pmpRoot = dir;
+	    setPmpState("Picasa DB: connected", "warn");
+	    state.activeListIndex = -1;
     state.picasaByFolder.clear();
     state.pmpColumnsCache = [];
     if (!state.libraryRoot || !state.dirIndex) {
-      setStatus("Importing PMP thumbnails and columns…", "warn");
-      await loadPmpCachesAndColumns();
-      setAsideState("PMP folder selected", "ok");
-      setStatus("PMP thumbnails/columns loaded. You can inspect raw thumbnails now; choose “Open Library Folder” later to resolve originals.", "ok");
+	      setStatus("Importing PMP thumbnails and columns…", "warn");
+	      await loadPmpCachesAndColumns();
+	      setAsideState("PMP folder selected", "ok");
+	      setPmpState("Picasa DB: loaded", "ok");
+	      setStatus("PMP thumbnails/columns loaded. You can inspect raw thumbnails now; choose “Open Library Folder” later to resolve originals.", "ok");
       return;
     }
     el.btnReload.disabled = false;
     clearGrid();
-    setStatus("Loading PMP from selected import folder…", "warn");
-    await loadAlbumsFromPMP();
-    setStatus("Select an item on the left.", "ok");
+	    setStatus("Loading PMP from selected import folder…", "warn");
+	    await loadAlbumsFromPMP();
+	    setPmpState("Picasa DB: loaded", "ok");
+	    setStatus("Select an item on the left.", "ok");
   } catch (e) {
     setStatus(String(e?.message || e), "err");
   }
@@ -7342,10 +7376,11 @@ el.btnReload.onclick = async () => {
       setStatus(`Rebuilding directory index… ${count} folders${suffix}`, "warn");
     });
     state.picasaByFolder.clear();
-    state.pmpColumnsCache = [];
-    setStatus("Reloading PMP…", "warn");
-    await loadAlbumsFromPMP();
-    setStatus("Reloaded. Select an item.", "ok");
+	    state.pmpColumnsCache = [];
+	    setStatus("Reloading PMP…", "warn");
+	    await loadAlbumsFromPMP();
+	    setPmpState("Picasa DB: loaded", "ok");
+	    setStatus("Reloaded. Select an item.", "ok");
   } catch (e) {
     setStatus(String(e?.message || e), "err");
   }
@@ -7488,6 +7523,11 @@ el.btnApplyFillLightFilter.onclick = () => {
   el.fillLightControls.classList.add("hidden");
   el.btnFillLightMode.textContent = "Fill Light";
   el.faceEditorStatus.textContent = `Applied filter: filllight (${faceEditor.filters.length})`;
+};
+el.btnCancelFillLightFilter.onclick = () => {
+  el.fillLightControls.classList.add("hidden");
+  el.btnFillLightMode.textContent = "Fill Light";
+  refreshEditorPreview();
 };
 
 const applyNoParamFilter = (filterToken) => {
@@ -7846,6 +7886,12 @@ el.btnApplyRedeyeFilter.onclick = () => {
   el.btnRedeyeMode.textContent = "Red-eye";
   faceEditor.awaitingNewRedeyeDraw = false;
 };
+el.btnCancelRedeyeFilter.onclick = () => {
+  el.redeyeControls.classList.add("hidden");
+  el.btnRedeyeMode.textContent = "Red-eye";
+  faceEditor.awaitingNewRedeyeDraw = false;
+  refreshEditorPreview();
+};
 
 const refreshFinetune2Draft = () => {
   const fill = Math.max(0, Math.min(1, Number(el.faceFinetuneFillSlider.value || "0")));
@@ -7891,6 +7937,13 @@ el.btnApplyFinetune2Filter.onclick = () => {
   el.finetune2Controls.classList.add("hidden");
   el.btnFinetune2Mode.textContent = "Fine Tune 2";
   el.faceEditorStatus.textContent = `Applied filter: finetune2 (${faceEditor.filters.length})`;
+};
+el.btnCancelFinetune2Filter.onclick = () => {
+  el.finetune2Controls.classList.add("hidden");
+  el.btnFinetune2Mode.textContent = "Fine Tune 2";
+  faceEditor.pickingFinetuneNeutral = false;
+  el.btnFaceFinetunePickNeutral.textContent = "Pick neutral";
+  refreshEditorPreview();
 };
 el.btnSettings.onclick = () => {
   el.selReadCaptionPref.value = state.prefs.readCaption || "ini";
@@ -8284,6 +8337,15 @@ el.btnApplyCropFilter.onclick = () => {
   renderFaceRects();
   el.faceEditorStatus.textContent = `Applied filter: crop64 (${faceEditor.filters.length})`;
 };
+el.btnCancelCropFilter.onclick = () => {
+  faceEditor.cropUiVisible = false;
+  el.faceCropRow.classList.add("hidden");
+  el.btnApplyCropFilter.classList.add("hidden");
+  el.cropControls.classList.add("hidden");
+  el.btnCropMode.textContent = "Crop";
+  renderFaceRects();
+  refreshEditorPreview();
+};
 el.btnApplyTiltFilter.onclick = () => {
   const t = Number(el.faceTiltSlider.value || "0");
   if (!Number.isFinite(t)) return;
@@ -8299,6 +8361,13 @@ el.btnApplyTiltFilter.onclick = () => {
   el.btnFillLightMode.textContent = "Fill Light";
   el.btnFinetune2Mode.textContent = "Fine Tune 2";
   el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
+};
+el.btnCancelTiltFilter.onclick = () => {
+  resetTiltDraftUI();
+  faceEditor.tiltUiVisible = false;
+  el.tiltControls.classList.add("hidden");
+  el.btnTiltMode.textContent = "Tilt";
+  refreshEditorPreview();
 };
 el.faceTiltSlider.oninput = () => {
   const t = Number(el.faceTiltSlider.value || "0");
@@ -8410,8 +8479,19 @@ el.btnFaceAdd.onclick = () => {
 el.btnTextAdd.onclick = () => {
   faceEditor.textOverlays.push({ enabled: true, caption: "New text", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, fillARGB: 4294967295, strokeARGB: 4278190080, opacity255: 128, scaleXUnknown: 1, strokeWidthFactor: 0, scaleYUnknown: 1, fontWeight: 400, renderFlags: 0, textStyleAnchorFlags: 49152, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 1 });
   faceEditor.activeTextIdx = faceEditor.textOverlays.length - 1;
+  faceEditor.pendingNewTextIdx = faceEditor.activeTextIdx;
   syncTextInputsFromState();
   renderFaceRects();
+};
+el.btnCancelTextEdit.onclick = () => {
+  if (faceEditor.activeTextIdx >= 0 && faceEditor.pendingNewTextIdx === faceEditor.activeTextIdx) {
+    faceEditor.textOverlays.splice(faceEditor.activeTextIdx, 1);
+  }
+  faceEditor.pendingNewTextIdx = -1;
+  faceEditor.activeTextIdx = -1;
+  syncTextInputsFromState();
+  renderFaceRects();
+  refreshEditorPreview();
 };
 document.querySelectorAll(".btnAspect").forEach((btn) => {
   btn.onclick = () => {
