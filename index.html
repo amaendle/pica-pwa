@@ -271,14 +271,15 @@
           </div>
           <div id="faceGeoMap" class="geoMapBox"></div>
         </div>
-        <label class="hidden" id="faceFaceSelectWrap">Available faces<select id="faceFaceSelect" multiple size="6"></select></label>
-        <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="btnFaceAdd" class="hidden">Add face rectangle</button>
-          <button id="btnRenameFace" class="hidden">Rename face</button>
-          <button id="btnRemoveFace" class="hidden">Remove face</button>
-          <button id="btnFacesMode">Faces</button>
-          <button id="btnTextAdd">Add text</button>
+        <div class="geoMapPanel">
+          <div><b>Available faces</b></div>
+          <label id="faceFaceSelectWrap">Faces<select id="faceFaceSelect" multiple size="6"></select></label>
+          <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
+          <div class="geoMapRow">
+            <button id="btnFaceAdd">Add face rectangle</button>
+            <button id="btnRenameFace" class="hidden">Rename face</button>
+            <button id="btnRemoveFace" class="hidden">Remove face</button>
+          </div>
         </div>
         <label id="textInputRow" class="hidden">Text overlay<input id="faceTextInput" type="text"></label>
         <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
@@ -298,12 +299,17 @@
         </div>
         <div id="faceFiltersTab" class="faceEditorTabPanel hidden" role="tabpanel">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="btnCropMode">Crop</button>
-          <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
-          <button id="btnTiltMode">Tilt</button>
-          <button id="btnFillLightMode">Fill Light</button>
           <button id="btnFinetune2Mode">Fine Tune 2</button>
-          <button id="btnRedeyeMode">Red-eye</button>
+        </div>
+        <div class="geoMapPanel filterCategoryPanel">
+          <div><b>Basic Fixes</b></div>
+          <div class="geoMapRow">
+            <button id="btnCropMode">Crop</button>
+            <button id="btnTiltMode">Tilt</button>
+            <button id="btnFillLightMode">Fill Light</button>
+            <button id="btnRedeyeMode">Red-eye</button>
+            <button id="btnTextAdd">Add text</button>
+          </div>
         </div>
         <div class="geoMapPanel filterCategoryPanel">
           <div><b>Color &amp; Tone Adjustments</b></div>
@@ -346,6 +352,7 @@
             <button class="btnAspect" data-ratio="4:3">4:3</button>
             <button class="btnAspect" data-ratio="16:9">16:9</button>
           </div>
+          <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
         </div>
         <div id="tiltControls" class="hidden">
           <label>Tilt value <span id="faceTiltValue" class="mono">0.00</span><input id="faceTiltSlider" type="range" min="-1" max="1" step="0.01" value="0"></label>
@@ -4631,8 +4638,8 @@ function updateSelectionRows() {
   const hasFace = faceEditor.activeFaceIdx >= 0 && !!faceEditor.faces[faceEditor.activeFaceIdx];
   el.faceLabelRow.classList.toggle("hidden", !faceEditor.faceRenameMode);
   if (!faceEditor.faceRenameMode) el.faceFaceLabelInput.value = "";
-  if (el.btnRenameFace) el.btnRenameFace.classList.toggle("hidden", !faceEditor.facesModeActive || !hasFace);
-  if (el.btnRemoveFace) el.btnRemoveFace.classList.toggle("hidden", !faceEditor.facesModeActive || !hasFace);
+  if (el.btnRenameFace) el.btnRenameFace.classList.toggle("hidden", !hasFace);
+  if (el.btnRemoveFace) el.btnRemoveFace.classList.toggle("hidden", !hasFace);
   const hasText = faceEditor.activeTextIdx >= 0 && !!faceEditor.textOverlays[faceEditor.activeTextIdx];
   [el.textInputRow, el.textFontRow, el.textSizeRow, el.textColorRow, el.textOutlineColorRow, el.textOutlineWidthRow, el.textOpacityRow, el.textScaleXRow, el.textScaleYRow, el.textStrokeFactorRow, el.textWeightRow, el.textAlignRow, el.textFlagsRow, el.textAnchorFlagsRow, el.textRenderFlagsRow].forEach((n)=>n.classList.toggle("hidden", !hasText));
 }
@@ -5402,15 +5409,15 @@ async function detectFacesForEditor() {
   }
 }
 
-function setFacesMode(active) {
+function setFacesMode(active, detect = false) {
   faceEditor.facesModeActive = !!active;
-  el.faceFaceSelectWrap.classList.toggle('hidden', !faceEditor.facesModeActive);
-  el.btnFaceAdd.classList.toggle('hidden', !faceEditor.facesModeActive);
-  if (el.btnRenameFace) el.btnRenameFace.classList.toggle('hidden', !faceEditor.facesModeActive || faceEditor.activeFaceIdx < 0);
-  if (el.btnRemoveFace) el.btnRemoveFace.classList.toggle('hidden', !faceEditor.facesModeActive || faceEditor.activeFaceIdx < 0);
+  el.faceFaceSelectWrap.classList.remove('hidden');
+  el.btnFaceAdd.classList.remove('hidden');
+  if (el.btnRenameFace) el.btnRenameFace.classList.toggle('hidden', faceEditor.activeFaceIdx < 0);
+  if (el.btnRemoveFace) el.btnRemoveFace.classList.toggle('hidden', faceEditor.activeFaceIdx < 0);
   faceEditor.faceRenameMode = false;
   el.faceLabelRow.classList.add('hidden');
-  el.btnFacesMode.textContent = faceEditor.facesModeActive ? 'Hide faces' : 'Faces';
+  if (el.btnFacesMode) el.btnFacesMode.textContent = faceEditor.facesModeActive ? 'Hide faces' : 'Faces';
   if (!faceEditor.facesModeActive) {
     faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.pendingNewFaceIdx = -1;
@@ -5419,7 +5426,7 @@ function setFacesMode(active) {
     faceEditor.detectedFaces = [];
   }
   renderFaceRects();
-  if (faceEditor.facesModeActive) detectFacesForEditor();
+  if (faceEditor.facesModeActive && detect) detectFacesForEditor();
 }
 
 function showFaceEditorTab(tab) {
@@ -5437,7 +5444,7 @@ function openFaceEditor(imageItem) {
   faceEditor.imageItem = imageItem;
   faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
   faceEditor.activeFaceIdx = -1;
-  faceEditor.facesModeActive = false;
+  faceEditor.facesModeActive = true;
   faceEditor.detectedFaces = [];
   faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.pendingNewFaceIdx = -1;
@@ -5589,7 +5596,7 @@ function openFaceEditor(imageItem) {
   el.btnFaceFinetunePickNeutral.textContent = "Pick neutral";
   syncFaceSelectFromState();
   syncTextInputsFromState();
-  setFacesMode(false);
+  setFacesMode(true);
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   faceEditor.albumNameToToken = new Map();
@@ -7031,6 +7038,10 @@ function closeSlideshow() {
   stopPlaying();
   state.slideshow.open = false;
   state.slideshow.panning = false;
+  if (typeof slidePinch !== "undefined") {
+    slidePinch.pointers.clear();
+    slidePinch.startDistance = 0;
+  }
   if (state.slideshow.controlsTimer) clearTimeout(state.slideshow.controlsTimer);
   state.slideshow.controlsTimer = null;
   el.overlay.classList.remove("controlsHidden");
@@ -8042,23 +8053,59 @@ el.btnSlideZoomReset.onclick = () => {
   const it = state.currentImages[state.slideshow.index];
   if (it) { renderSlideFaceRects(it); renderSlideTextOverlays(it); }
 };
+const slidePinch = { pointers: new Map(), startDistance: 0, startZoom: 1 };
+const refreshSlideOverlayPositions = () => {
+  const it = state.currentImages[state.slideshow.index];
+  if (it) { renderSlideFaceRects(it); renderSlideTextOverlays(it); }
+};
+const slidePointerDistance = () => {
+  const pts = Array.from(slidePinch.pointers.values());
+  if (pts.length < 2) return 0;
+  return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+};
 el.slideImg.addEventListener("pointerdown", (ev) => {
-  if (!state.slideshow.open || state.slideshow.zoom <= 1) return;
+  if (!state.slideshow.open) return;
+  slidePinch.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  try { el.slideImg.setPointerCapture(ev.pointerId); } catch {}
+  if (slidePinch.pointers.size >= 2) {
+    state.slideshow.panning = false;
+    slidePinch.startDistance = slidePointerDistance();
+    slidePinch.startZoom = Math.max(1, Math.min(6, Number(state.slideshow.zoom) || 1));
+    ev.preventDefault();
+    return;
+  }
+  if (state.slideshow.zoom <= 1) return;
   state.slideshow.panning = true;
   state.slideshow.panStartX = ev.clientX - (state.slideshow.panX || 0);
   state.slideshow.panStartY = ev.clientY - (state.slideshow.panY || 0);
-  try { el.slideImg.setPointerCapture(ev.pointerId); } catch {}
   ev.preventDefault();
 });
 el.slideImg.addEventListener("pointermove", (ev) => {
+  if (!state.slideshow.open || !slidePinch.pointers.has(ev.pointerId)) return;
+  slidePinch.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+  if (slidePinch.pointers.size >= 2 && slidePinch.startDistance > 0) {
+    const ratio = slidePointerDistance() / slidePinch.startDistance;
+    setSlideZoomCentered(Math.max(1, Math.min(6, slidePinch.startZoom * ratio)));
+    if (state.slideshow.zoom <= 1.001) {
+      state.slideshow.panX = 0;
+      state.slideshow.panY = 0;
+    }
+    applySlideTransform();
+    refreshSlideOverlayPositions();
+    ev.preventDefault();
+    return;
+  }
   if (!state.slideshow.panning) return;
   state.slideshow.panX = ev.clientX - state.slideshow.panStartX;
   state.slideshow.panY = ev.clientY - state.slideshow.panStartY;
   applySlideTransform();
-  const it = state.currentImages[state.slideshow.index];
-  if (it) { renderSlideFaceRects(it); renderSlideTextOverlays(it); }
+  refreshSlideOverlayPositions();
 });
-const stopSlidePan = () => { state.slideshow.panning = false; };
+const stopSlidePan = (ev) => {
+  if (ev?.pointerId != null) slidePinch.pointers.delete(ev.pointerId);
+  state.slideshow.panning = false;
+  if (slidePinch.pointers.size < 2) slidePinch.startDistance = 0;
+};
 el.slideImg.addEventListener("pointerup", stopSlidePan);
 el.slideImg.addEventListener("pointercancel", stopSlidePan);
 el.slideImg.addEventListener("wheel", (ev) => {
@@ -8185,9 +8232,11 @@ el.btnRedeyeMode.onclick = () => {
 };
 el.btnFaceTabBasic.onclick = () => showFaceEditorTab("basic");
 el.btnFaceTabFilters.onclick = () => showFaceEditorTab("filters");
-el.btnFacesMode.onclick = () => {
-  setFacesMode(!faceEditor.facesModeActive);
-};
+if (el.btnFacesMode) {
+  el.btnFacesMode.onclick = () => {
+    setFacesMode(!faceEditor.facesModeActive, true);
+  };
+}
 el.btnAddRedeyeArea.onclick = () => {
   faceEditor.awaitingNewRedeyeDraw = true;
   faceEditor.pendingNewRedeyeIdx = -1;
