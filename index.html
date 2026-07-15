@@ -2932,14 +2932,14 @@ function normalizeSixtiesBackgroundToken(color = "#ffffff") {
   return `00${argb.slice(2)}`;
 }
 function parseSixtiesFilter(filterString = "") {
-  const m = String(filterString || "").trim().match(/^sixties=1(?:,([^,;]+)(?:,([0-9a-f#]+))?)?$/i);
+  const m = String(filterString || "").trim().match(/^sixties=1(?:,([^,;]+)(?:,([0-9a-f#]+)(?:,([^,;]+))?)?)?$/i);
   if (!m) return null;
   const fade = Math.max(0, Math.min(100, Number(m[1] ?? 0) || 0));
   const backgroundColor = normalizeSixtiesBackgroundToken(m[2] || "00ffffff");
   return {
     fade,
     backgroundColor,
-    roundedCorners: !!m[2]
+    roundedCorners: Number(m[3] ?? 0) === 1
   };
 }
 function parseAnselFilter(filterString = "") {
@@ -7812,10 +7812,9 @@ function writeSixtiesControls(params = {}) {
 function sixtiesToken(params = null) {
   const normalized = params || readSixtiesParamsFromControls();
   const fade = Math.max(0, Math.min(100, Number(normalized.fade ?? 0) || 0));
-  if (normalized.roundedCorners) {
-    return `Sixties=1,${fade.toFixed(6)},${normalizeSixtiesBackgroundToken(normalized.backgroundColor || "#ffffff")}`;
-  }
-  return `Sixties=1,${fade.toFixed(6)}`;
+  const backgroundColor = normalizeSixtiesBackgroundToken(normalized.backgroundColor || "#ffffff");
+  const rounded = normalized.roundedCorners ? 1 : 0;
+  return `Sixties=1,${fade.toFixed(6)},${backgroundColor},${rounded}`;
 }
 function refreshSixtiesDraft() {
   const params = readSixtiesParamsFromControls();
