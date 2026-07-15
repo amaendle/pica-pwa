@@ -105,6 +105,44 @@
     return output;
   }
 
+
+  function parseFilteredBwColor(input = "#ffffff") {
+    const text = String(input || "").trim();
+    let hex = "";
+    const css = text.match(/^#?([0-9a-f]{6})$/i);
+    const argb = text.match(/^#?([0-9a-f]{8})$/i);
+    if (argb) hex = argb[1].slice(2);
+    else if (css) hex = css[1];
+    else hex = "ffffff";
+    const r = parseInt(hex.slice(0, 2), 16);
+    const g = parseInt(hex.slice(2, 4), 16);
+    const b = parseInt(hex.slice(4, 6), 16);
+    return { r, g, b, css: `#${hex.toLowerCase()}`, argb: `ff${hex.toLowerCase()}` };
+  }
+
+  function filteredBwWeights(input = "#ffffff") {
+    const { r, g, b } = parseFilteredBwColor(input);
+    const sum = r + g + b;
+    if (sum <= 0) return { weightR: 1 / 3, weightG: 1 / 3, weightB: 1 / 3 };
+    return { weightR: r / sum, weightG: g / sum, weightB: b / sum };
+  }
+
+  function applyFilteredBwToBuffer(source, width, height, params = {}) {
+    const { pixelCount } = assertBuffer(source, width, height);
+    const output = new Uint8ClampedArray(pixelCount * 4);
+    const color = typeof params === "string" ? params : (params.pickColor || params.color || "#ffffff");
+    const { weightR, weightG, weightB } = filteredBwWeights(color);
+    for (let pixel = 0, i = 0; pixel < pixelCount; pixel++, i += 4) {
+      const gray = source[i] * weightR + source[i + 1] * weightG + source[i + 2] * weightB;
+      const value = Math.round(Math.min(255, Math.max(0, gray)));
+      output[i] = value;
+      output[i + 1] = value;
+      output[i + 2] = value;
+      output[i + 3] = source[i + 3];
+    }
+    return output;
+  }
+
   function applyBufferFilterToImageData(imageData, fn) {
     return new ImageData(fn(imageData.data, imageData.width, imageData.height), imageData.width, imageData.height);
   }
@@ -128,5 +166,10 @@
     applyCrossProcessToBuffer,
     applyCrossProcessToImageData: (imageData) => applyBufferFilterToImageData(imageData, applyCrossProcessToBuffer),
     applyCrossProcessToCanvas: (sourceCanvas, destinationCanvas = sourceCanvas) => applyBufferFilterToCanvas(sourceCanvas, destinationCanvas, applyCrossProcessToBuffer),
+    parseFilteredBwColor,
+    filteredBwWeights,
+    applyFilteredBwToBuffer,
+    applyFilteredBwToImageData: (imageData, params = {}) => new ImageData(applyFilteredBwToBuffer(imageData.data, imageData.width, imageData.height, params), imageData.width, imageData.height),
+    applyFilteredBwToCanvas: (sourceCanvas, destinationCanvas = sourceCanvas, params = {}) => applyBufferFilterToCanvas(sourceCanvas, destinationCanvas, (data, width, height) => applyFilteredBwToBuffer(data, width, height, params)),
   };
 })();

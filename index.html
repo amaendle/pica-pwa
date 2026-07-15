@@ -296,6 +296,7 @@
             <button id="btnFillLightMode">Fill Light</button>
             <button id="btnRedeyeMode">Red-eye</button>
             <button id="btnTextAdd">Add text</button>
+            <button id="btnFilteredBwMode">Filtered B&amp;W</button>
           </div>
         </div>
         <div class="geoMapPanel filterCategoryPanel">
@@ -343,6 +344,13 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplyCropFilter" class="hidden">Apply crop filter</button>
             <button id="btnCancelCropFilter" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="filteredBwControls" class="hidden">
+          <label>Pick Color<input id="filteredBwColorInput" type="color" value="#ffffff"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyFilteredBwFilter">Apply Filtered B&amp;W</button>
+            <button id="btnCancelFilteredBwFilter" type="button">Cancel</button>
           </div>
         </div>
         <div id="tiltControls" class="hidden">
@@ -2903,6 +2911,11 @@ function parseSoftenFilter(filterString = "") {
   };
 }
 
+function parseFilteredBwFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^filtered-bw=1,([0-9a-f#]+)$/i);
+  if (!m) return null;
+  return { color: normalizeFilterHexColor(m[1], "ffffffff") };
+}
 function parseAnselFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^ansel=1,([0-9a-f#]+)$/i);
   if (!m) return null;
@@ -3581,6 +3594,14 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Cross-process filter unavailable");
       continue;
     }
+    m = parseFilteredBwFilter(f);
+    if (m) {
+      if (useWebglPreview) notifyFallback("filtered-bw");
+      const fn = window.CreativeFilters?.applyFilteredBwToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, { pickColor: m.color });
+      else notifyWebglFallback("Filtered B&W filter unavailable");
+      continue;
+    }
     m = parseBoostFilter(f);
     if (m) {
       if (m.percent <= 0) continue;
@@ -3903,6 +3924,8 @@ const el = {
   cropControls: document.getElementById("cropControls"),
   tiltControls: document.getElementById("tiltControls"),
   fillLightControls: document.getElementById("fillLightControls"),
+  filteredBwControls: document.getElementById("filteredBwControls"),
+  filteredBwColorInput: document.getElementById("filteredBwColorInput"),
   finetune2Controls: document.getElementById("finetune2Controls"),
   tintControls: document.getElementById("tintControls"),
   satControls: document.getElementById("satControls"),
@@ -4042,6 +4065,7 @@ const el = {
   btnCropMode: document.getElementById("btnCropMode"),
   btnTiltMode: document.getElementById("btnTiltMode"),
   btnFillLightMode: document.getElementById("btnFillLightMode"),
+  btnFilteredBwMode: document.getElementById("btnFilteredBwMode"),
   btnFinetune2Mode: document.getElementById("btnFinetune2Mode"),
   btnTintMode: document.getElementById("btnTintMode"),
   btnSatMode: document.getElementById("btnSatMode"),
@@ -4077,6 +4101,8 @@ const el = {
   btnApplyTiltFilter: document.getElementById("btnApplyTiltFilter"),
   btnCancelTiltFilter: document.getElementById("btnCancelTiltFilter"),
   btnApplyFillLightFilter: document.getElementById("btnApplyFillLightFilter"),
+  btnApplyFilteredBwFilter: document.getElementById("btnApplyFilteredBwFilter"),
+  btnCancelFilteredBwFilter: document.getElementById("btnCancelFilteredBwFilter"),
   btnCancelFillLightFilter: document.getElementById("btnCancelFillLightFilter"),
   btnApplyFinetune2Filter: document.getElementById("btnApplyFinetune2Filter"),
   btnCancelFinetune2Filter: document.getElementById("btnCancelFinetune2Filter"),
@@ -4120,6 +4146,7 @@ const filterControlPanels = [
   el.cropControls,
   el.tiltControls,
   el.fillLightControls,
+  el.filteredBwControls,
   el.finetune2Controls,
   el.tintControls,
   el.satControls,
@@ -4318,6 +4345,13 @@ function lastSoftenFromFilters(filters) {
     if (p) return p;
   }
   return { softness: 50, fade: 50 };
+}
+function lastFilteredBwFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseFilteredBwFilter(filters[i]);
+    if (p) return p;
+  }
+  return { color: "ffffffff" };
 }
 function lastAnselFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
@@ -5572,6 +5606,7 @@ function openFaceEditor(imageItem) {
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
   el.fillLightControls.classList.add("hidden");
+  el.filteredBwControls.classList.add("hidden");
   el.finetune2Controls.classList.add("hidden");
   el.tintControls.classList.add("hidden");
   el.satControls.classList.add("hidden");
@@ -5587,6 +5622,7 @@ function openFaceEditor(imageItem) {
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
+  el.btnFilteredBwMode.textContent = "Filtered B&W";
   el.btnFinetune2Mode.textContent = "Fine Tune 2";
   el.btnTintMode.textContent = "Tint";
   el.btnSatMode.textContent = "Saturation";
@@ -5612,6 +5648,7 @@ function openFaceEditor(imageItem) {
   const fillVal = Math.max(0, Math.min(1, Number(lastFillLightFromFilters(faceEditor.filters)) || 0));
   el.faceFillLightSlider.value = fillVal.toFixed(2);
   el.faceFillLightValue.textContent = fillVal.toFixed(2);
+  writeFilteredBwControls(lastFilteredBwFromFilters(faceEditor.filters));
   const finetune = lastFinetune2FromFilters(faceEditor.filters) || { fillLight: 0, highlights: 0, shadows: 0, colorTemperature: 0, neutralColor: { hasNeutral: false, a: 0, r: 0, g: 0, b: 0 } };
   el.faceFinetuneFillSlider.value = Number(finetune.fillLight || 0).toFixed(3);
   el.faceFinetuneHighlightsSlider.value = Number(finetune.highlights || 0).toFixed(3);
@@ -5793,6 +5830,7 @@ function closeFaceEditor() {
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
   el.fillLightControls.classList.add("hidden");
+  el.filteredBwControls.classList.add("hidden");
   el.finetune2Controls.classList.add("hidden");
   el.tintControls.classList.add("hidden");
   el.satControls.classList.add("hidden");
@@ -5803,6 +5841,7 @@ function closeFaceEditor() {
   el.dirTintControls.classList.add("hidden");
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
+  el.btnFilteredBwMode.textContent = "Filtered B&W";
   el.btnFinetune2Mode.textContent = "Fine Tune 2";
   el.btnTintMode.textContent = "Tint";
   el.btnSatMode.textContent = "Saturation";
@@ -7591,6 +7630,7 @@ el.faceTintColorPicker.oninput = () => { updateArgbTextFromPicker(el.faceTintCol
 el.faceTintAlphaInput.oninput = () => { updateArgbTextFromPicker(el.faceTintColorInput, el.faceTintColorPicker, el.faceTintAlphaInput, el.faceTintAlphaValue); refreshTintDraft(); };
 el.faceTintColorInput.onchange = () => { refreshTintDraft(); };
 el.faceSatSlider.oninput = () => { refreshSatDraft(); };
+el.filteredBwColorInput.oninput = () => { refreshFilteredBwDraft(); };
 el.faceAnselColorPicker.oninput = () => { updateArgbTextFromPicker(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue); refreshAnselDraft(); };
 el.faceAnselAlphaInput.oninput = () => { updateArgbTextFromPicker(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue); refreshAnselDraft(); };
 el.faceAnselColorInput.onchange = () => { refreshAnselDraft(); };
@@ -7613,6 +7653,16 @@ el.btnApplyFillLightFilter.onclick = () => {
 el.btnCancelFillLightFilter.onclick = () => {
   el.fillLightControls.classList.add("hidden");
   el.btnFillLightMode.textContent = "Fill Light";
+  refreshEditorPreview();
+};
+el.btnApplyFilteredBwFilter.onclick = () => {
+  applyNoParamFilter(refreshFilteredBwDraft());
+  el.filteredBwControls.classList.add("hidden");
+  el.btnFilteredBwMode.textContent = "Filtered B&W";
+};
+el.btnCancelFilteredBwFilter.onclick = () => {
+  el.filteredBwControls.classList.add("hidden");
+  el.btnFilteredBwMode.textContent = "Filtered B&W";
   refreshEditorPreview();
 };
 
@@ -7649,6 +7699,20 @@ function refreshHeatmapDraft() {
 }
 function readBoostPercentFromControl() {
   return Math.max(0, Math.min(100, Math.round(Number(el.boostInput?.value || 50) || 0)));
+}
+function filteredBwToken(color = "#ffffff") {
+  const parsed = window.CreativeFilters?.parseFilteredBwColor ? window.CreativeFilters.parseFilteredBwColor(color) : { argb: normalizeFilterHexColor(color, "ffffffff") };
+  return `filtered-bw=1,${parsed.argb || normalizeFilterHexColor(color, "ffffffff")}`;
+}
+function writeFilteredBwControls(params = {}) {
+  const parsed = window.CreativeFilters?.parseFilteredBwColor ? window.CreativeFilters.parseFilteredBwColor(params.color || params.pickColor || "#ffffff") : { css: "#ffffff" };
+  if (el.filteredBwColorInput) el.filteredBwColorInput.value = parsed.css || "#ffffff";
+}
+function refreshFilteredBwDraft() {
+  const color = el.filteredBwColorInput?.value || "#ffffff";
+  const draft = filteredBwToken(color);
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
 }
 function refreshBoostDraft() {
   const percent = readBoostPercentFromControl();
@@ -8368,6 +8432,12 @@ el.btnFillLightMode.onclick = () => {
   el.fillLightControls.classList.toggle("hidden", !show);
   el.btnFillLightMode.textContent = show ? "Hide Fill Light" : "Fill Light";
 };
+el.btnFilteredBwMode.onclick = () => {
+  const show = el.filteredBwControls.classList.contains("hidden");
+  el.filteredBwControls.classList.toggle("hidden", !show);
+  el.btnFilteredBwMode.textContent = show ? "Hide Filtered B&W" : "Filtered B&W";
+  if (show) refreshFilteredBwDraft();
+};
 el.btnFinetune2Mode.onclick = () => {
   const show = el.finetune2Controls.classList.contains("hidden");
   el.finetune2Controls.classList.toggle("hidden", !show);
@@ -8511,9 +8581,11 @@ el.btnApplyTiltFilter.onclick = () => {
   faceEditor.tiltUiVisible = false;
   el.tiltControls.classList.add("hidden");
   el.fillLightControls.classList.add("hidden");
+  el.filteredBwControls.classList.add("hidden");
   el.finetune2Controls.classList.add("hidden");
   el.btnTiltMode.textContent = "Tilt";
   el.btnFillLightMode.textContent = "Fill Light";
+  el.btnFilteredBwMode.textContent = "Filtered B&W";
   el.btnFinetune2Mode.textContent = "Fine Tune 2";
   el.faceEditorStatus.textContent = `Applied filter: tilt (${faceEditor.filters.length})`;
 };
