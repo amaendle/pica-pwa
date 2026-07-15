@@ -452,6 +452,16 @@
             <button id="btnCancelHeatmapFilter" type="button">Cancel</button>
           </div>
         </div>
+        <div id="sixtiesControls" class="hidden">
+          <div><b>1960s filter</b></div>
+          <label>Fade <span id="sixtiesFadeValue" class="mono">0.000000</span><input id="sixtiesFadeInput" type="range" min="0" max="100" step="0.000001" value="0"></label>
+          <label style="display:flex; gap:8px; align-items:center;">Background color <input id="sixtiesBackgroundInput" type="color" value="#ffffff"></label>
+          <label><input id="sixtiesRoundedInput" type="checkbox"> Rounded corners</label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplySixtiesControls">Apply 1960s</button>
+            <button id="btnCancelSixtiesFilter" type="button">Cancel</button>
+          </div>
+        </div>
         <div id="boostControls" class="hidden">
           <label>Boost <span id="boostValue" class="mono">50</span><input id="boostInput" type="range" min="0" max="100" step="1" value="50"></label>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -2917,6 +2927,21 @@ function parseFilteredBwFilter(filterString = "") {
   if (!m) return null;
   return { color: normalizeFilterHexColor(m[1], "ffffffff") };
 }
+function normalizeSixtiesBackgroundToken(color = "#ffffff") {
+  const argb = normalizeFilterHexColor(color, "00ffffff");
+  return `00${argb.slice(2)}`;
+}
+function parseSixtiesFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^sixties=1(?:,([^,;]+)(?:,([0-9a-f#]+))?)?$/i);
+  if (!m) return null;
+  const fade = Math.max(0, Math.min(100, Number(m[1] ?? 0) || 0));
+  const backgroundColor = normalizeSixtiesBackgroundToken(m[2] || "00ffffff");
+  return {
+    fade,
+    backgroundColor,
+    roundedCorners: !!m[2]
+  };
+}
 function parseAnselFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^ansel=1,([0-9a-f#]+)$/i);
   if (!m) return null;
@@ -3567,10 +3592,11 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       if (!(useWebglPreview && applyAdvancedColorFilterWebGL(canvas, "grain2"))) { notifyFallback("grain2"); applyAdvancedColorFilterOnCanvas(canvas, "grain2"); }
       continue;
     }
-    if (/^sixties=1$/i.test(String(f).trim())) {
+    const sixties = parseSixtiesFilter(f);
+    if (sixties) {
       if (useWebglPreview) notifyFallback("1960s filter");
       const fn = window.SixtiesFilter?.applySixtiesFilterToCanvas;
-      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas));
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, sixties);
       else notifyWebglFallback("1960s filter unavailable");
       continue;
     }
@@ -3940,6 +3966,13 @@ const el = {
   heatmapHueShiftValue: document.getElementById("heatmapHueShiftValue"),
   heatmapFadeInput: document.getElementById("heatmapFadeInput"),
   heatmapFadeValue: document.getElementById("heatmapFadeValue"),
+  sixtiesControls: document.getElementById("sixtiesControls"),
+  sixtiesFadeInput: document.getElementById("sixtiesFadeInput"),
+  sixtiesFadeValue: document.getElementById("sixtiesFadeValue"),
+  sixtiesBackgroundInput: document.getElementById("sixtiesBackgroundInput"),
+  sixtiesRoundedInput: document.getElementById("sixtiesRoundedInput"),
+  btnApplySixtiesControls: document.getElementById("btnApplySixtiesControls"),
+  btnCancelSixtiesFilter: document.getElementById("btnCancelSixtiesFilter"),
   boostControls: document.getElementById("boostControls"),
   softenControls: document.getElementById("softenControls"),
   softenSoftnessInput: document.getElementById("softenSoftnessInput"),
@@ -4158,6 +4191,7 @@ const filterControlPanels = [
   el.radsatControls,
   el.dirTintControls,
   el.heatmapControls,
+  el.sixtiesControls,
   el.boostControls,
   el.softenControls,
   el.textControls,
@@ -4354,6 +4388,13 @@ function lastFilteredBwFromFilters(filters) {
     if (p) return p;
   }
   return { color: "ffffffff" };
+}
+function lastSixtiesFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseSixtiesFilter(filters[i]);
+    if (p) return p;
+  }
+  return { fade: 0, backgroundColor: "00ffffff", roundedCorners: false };
 }
 function lastAnselFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
@@ -5639,6 +5680,7 @@ function openFaceEditor(imageItem) {
   el.radsatControls.classList.add("hidden");
   el.dirTintControls.classList.add("hidden");
   el.heatmapControls.classList.add("hidden");
+  el.sixtiesControls.classList.add("hidden");
   el.boostControls.classList.add("hidden");
   el.softenControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
@@ -5655,6 +5697,7 @@ function openFaceEditor(imageItem) {
   el.btnRadsatMode.textContent = "Radial Sat";
   el.btnDirTintMode.textContent = "Dir Tint";
   el.btnHeatmapMode.textContent = "Heatmap";
+  el.btnApplySixtiesFilter.textContent = "1960s";
   el.btnBoostMode.textContent = "Boost";
   el.btnSoftenMode.textContent = "Soften";
   el.btnRedeyeMode.textContent = "Red-eye";
@@ -5673,6 +5716,7 @@ function openFaceEditor(imageItem) {
   el.faceFillLightSlider.value = fillVal.toFixed(2);
   el.faceFillLightValue.textContent = fillVal.toFixed(2);
   writeFilteredBwControls(lastFilteredBwFromFilters(faceEditor.filters));
+  writeSixtiesControls(lastSixtiesFromFilters(faceEditor.filters));
   const finetune = lastFinetune2FromFilters(faceEditor.filters) || { fillLight: 0, highlights: 0, shadows: 0, colorTemperature: 0, neutralColor: { hasNeutral: false, a: 0, r: 0, g: 0, b: 0 } };
   el.faceFinetuneFillSlider.value = Number(finetune.fillLight || 0).toFixed(3);
   el.faceFinetuneHighlightsSlider.value = Number(finetune.highlights || 0).toFixed(3);
@@ -7747,6 +7791,39 @@ function refreshFilteredBwDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readSixtiesParamsFromControls() {
+  const fade = Math.max(0, Math.min(100, Number(el.sixtiesFadeInput?.value || 0) || 0));
+  const backgroundColor = normalizeSixtiesBackgroundToken(el.sixtiesBackgroundInput?.value || "#ffffff");
+  const roundedCorners = !!el.sixtiesRoundedInput?.checked;
+  return { fade, backgroundColor, roundedCorners };
+}
+function writeSixtiesControls(params = {}) {
+  const normalized = window.SixtiesFilter?.normalizeSixtiesParams ? window.SixtiesFilter.normalizeSixtiesParams(params) : {
+    fade: Math.max(0, Math.min(100, Number(params.fade ?? 0) || 0)),
+    backgroundColor: normalizeSixtiesBackgroundToken(params.backgroundColor || "#ffffff"),
+    roundedCorners: !!params.roundedCorners
+  };
+  const bg = normalizeSixtiesBackgroundToken(normalized.backgroundColor || "00ffffff");
+  if (el.sixtiesFadeInput) el.sixtiesFadeInput.value = String(normalized.fade);
+  if (el.sixtiesFadeValue) el.sixtiesFadeValue.textContent = Number(normalized.fade).toFixed(6);
+  if (el.sixtiesBackgroundInput) el.sixtiesBackgroundInput.value = `#${bg.slice(2)}`;
+  if (el.sixtiesRoundedInput) el.sixtiesRoundedInput.checked = !!normalized.roundedCorners;
+}
+function sixtiesToken(params = null) {
+  const normalized = params || readSixtiesParamsFromControls();
+  const fade = Math.max(0, Math.min(100, Number(normalized.fade ?? 0) || 0));
+  if (normalized.roundedCorners) {
+    return `Sixties=1,${fade.toFixed(6)},${normalizeSixtiesBackgroundToken(normalized.backgroundColor || "#ffffff")}`;
+  }
+  return `Sixties=1,${fade.toFixed(6)}`;
+}
+function refreshSixtiesDraft() {
+  const params = readSixtiesParamsFromControls();
+  writeSixtiesControls(params);
+  const draft = sixtiesToken(params);
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+}
 function refreshBoostDraft() {
   const percent = readBoostPercentFromControl();
   if (el.boostValue) el.boostValue.textContent = String(percent);
@@ -8013,7 +8090,12 @@ el.btnApplySepiaFilter.onclick = () => applyNoParamFilter("sepia=1");
 el.btnApplyBwFilter.onclick = () => applyNoParamFilter("bw=1");
 el.btnApplyWarmFilter.onclick = () => applyNoParamFilter("warm=1");
 el.btnApplyGrain2Filter.onclick = () => applyNoParamFilter("grain2=1");
-el.btnApplySixtiesFilter.onclick = () => applyNoParamFilter("sixties=1");
+el.btnApplySixtiesFilter.onclick = () => {
+  const show = el.sixtiesControls.classList.contains("hidden");
+  el.sixtiesControls.classList.toggle("hidden", !show);
+  el.btnApplySixtiesFilter.textContent = show ? "Hide 1960s" : "1960s";
+  if (show) refreshSixtiesDraft();
+};
 el.btnApplyInfraredMonoFilter.onclick = () => applyNoParamFilter("infraredmono=1");
 el.btnApplyInvertColorsFilter.onclick = () => applyNoParamFilter("invert=1");
 el.btnApplyCrossProcessFilter.onclick = () => applyNoParamFilter("crossprocess=1");
@@ -8040,6 +8122,15 @@ el.btnApplySoftenFilter.onclick = () => {
   el.btnSoftenMode.textContent = "Soften";
 };
 el.btnCancelSoftenFilter.onclick = () => cancelDraftFilterControls(el.softenControls, el.btnSoftenMode, "Soften");
+el.btnApplySixtiesControls.onclick = () => {
+  applyNoParamFilter(refreshSixtiesDraft());
+  el.sixtiesControls.classList.add("hidden");
+  el.btnApplySixtiesFilter.textContent = "1960s";
+};
+el.btnCancelSixtiesFilter.onclick = () => cancelDraftFilterControls(el.sixtiesControls, el.btnApplySixtiesFilter, "1960s");
+el.sixtiesFadeInput.oninput = () => refreshSixtiesDraft();
+el.sixtiesBackgroundInput.oninput = () => refreshSixtiesDraft();
+el.sixtiesRoundedInput.onchange = () => refreshSixtiesDraft();
 el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
 el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
 el.boostInput.oninput = () => refreshBoostDraft();
