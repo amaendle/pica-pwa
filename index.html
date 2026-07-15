@@ -5039,7 +5039,7 @@ function renderFaceRects() {
 
   faceEditor.faces.forEach((face, idx) => {
     if (idx !== faceEditor.activeFaceIdx) return;
-    const b = mapRectThroughFilterChain(rect64ToBox(face.rect64), faceEditor.naturalW, faceEditor.naturalH, faceEditor.filters || [], faceEditor.cropRect64 || "");
+    const b = mapRectThroughFilterChain(rect64ToBox(face.rect64), faceEditor.naturalW, faceEditor.naturalH, faceEditor.filters || [], "");
     const div = document.createElement('div');
     div.className = 'faceRect active';
     div.style.left = `${offsetX + b.x * r.width}px`;
