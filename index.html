@@ -515,6 +515,7 @@
           <select id="faceFilterList" class="mono" multiple size="2" style="width:100%;"></select>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnUndoFilter">Undo filter</button>
+            <button id="btnRedoFilter" disabled>Redo</button>
             <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
           </div>
         </div>
@@ -4121,6 +4122,7 @@ const el = {
   btnApplyRedeyeFilter: document.getElementById("btnApplyRedeyeFilter"),
   btnCancelRedeyeFilter: document.getElementById("btnCancelRedeyeFilter"),
   btnUndoFilter: document.getElementById("btnUndoFilter"),
+  btnRedoFilter: document.getElementById("btnRedoFilter"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
   settingsOverlay: document.getElementById("settingsOverlay"),
@@ -4427,6 +4429,22 @@ function cssColorToU32(color, fallback = 4294967295) {
 function normalizeFilterOrder(filters) {
   return Array.isArray(filters) ? filters.map((f) => String(f || "")) : [];
 }
+
+function filterDisplayType(filterToken = "") {
+  const key = String(filterToken || "").split("=")[0].toLowerCase();
+  const names = {
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", heatmap: "Heatmap", sixties: "1960s", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+  };
+  return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
+}
+function updateRedoFilterButton() {
+  if (!el.btnRedoFilter) return;
+  const redo = Array.isArray(faceEditor.redoFilters) ? faceEditor.redoFilters : [];
+  const next = redo.length ? redo[redo.length - 1] : "";
+  el.btnRedoFilter.disabled = !next;
+  el.btnRedoFilter.textContent = next ? `Redo ${filterDisplayType(next)}` : "Redo";
+}
+
 function renderFilterList() {
   if (!el.faceFilterList) return;
   el.faceFilterList.innerHTML = "";
@@ -4437,6 +4455,7 @@ function renderFilterList() {
     opt.value = "";
     opt.textContent = "(none)";
     el.faceFilterList.appendChild(opt);
+    updateRedoFilterButton();
     return;
   }
   faceEditor.filters.forEach((flt, idx) => {
@@ -4445,6 +4464,7 @@ function renderFilterList() {
     opt.textContent = `${idx + 1}. ${flt}`;
     el.faceFilterList.appendChild(opt);
   });
+  updateRedoFilterButton();
 }
 
 function resetTiltDraftUI() {
@@ -4547,6 +4567,7 @@ function serializePicasaInfo(picasa) {
     } else if (meta.caption) lines.push(`text=1;128;8;${meta.caption};${meta.textOverlay?.fontFamily || "Arial"};${meta.textOverlay ? `${meta.textOverlay.x},${meta.textOverlay.y},${meta.textOverlay.sizeRel},${meta.textOverlay.rotation}` : ""};v1,4294967295,4278190080,128.000000,1.000000,0.000000,1.000000,400,0,49152;;`);
     if (meta.star) lines.push(`star=yes`);
     if ((meta.filters || []).length) lines.push(`filters=${meta.filters.join(";")};`);
+    if ((meta.redoFilters || []).length) lines.push(`redo=${meta.redoFilters.join(";")};`);
     if (meta.cropRect64) lines.push(`crop=rect64(${meta.cropRect64})`);
     if ((meta.keywords || []).length) lines.push(`keywords=${meta.keywords.join(",")}`);
     if (meta.geotag && Number.isFinite(meta.geotag.lat) && Number.isFinite(meta.geotag.lng)) lines.push(`geotag=${Number(meta.geotag.lat).toFixed(6)},${Number(meta.geotag.lng).toFixed(6)}`);
@@ -4574,7 +4595,7 @@ function serializePicasaInfo(picasa) {
   }
   return lines.join("\n");
 }
-async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = [], textOverlays = null, albumNameByToken = null, geotag = null) {
+async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumTokens, cropRect64 = "", keywords = [], star = false, filters = [], textOverlays = null, albumNameByToken = null, geotag = null, redoFilters = null) {
   const relDir = folderOfRelPath(imageItem.relPath);
   const dirHandle = state.dirIndex?.get(relDir);
   if (!dirHandle) throw new Error("Missing directory handle for metadata save");
@@ -4590,7 +4611,8 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
   const normalizedTextOverlays = Array.isArray(textOverlays)
     ? textOverlays.filter((x) => x && String(x.caption || "").trim())
     : (oldMeta.textOverlays || []);
-  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: (Array.isArray(filters) ? filters.slice() : []), geotag: (geotag && Number.isFinite(geotag.lat) && Number.isFinite(geotag.lng)) ? { lat: geotag.lat, lng: geotag.lng } : null });
+  const normalizedRedoFilters = Array.isArray(redoFilters) ? redoFilters.map((f) => String(f || "")).filter(Boolean) : (Array.isArray(oldMeta.redoFilters) ? oldMeta.redoFilters.slice() : []);
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: (Array.isArray(filters) ? filters.slice() : []), redoFilters: normalizedRedoFilters, geotag: (geotag && Number.isFinite(geotag.lat) && Number.isFinite(geotag.lng)) ? { lat: geotag.lat, lng: geotag.lng } : null });
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
@@ -4646,6 +4668,7 @@ const faceEditor = {
   previewDraftUrl: "",
   previewRequestId: 0,
   filters: [],
+  redoFilters: [],
   pickingFinetuneNeutral: false,
   finetuneNeutralColor: null,
   facesModeActive: false,
@@ -5640,6 +5663,7 @@ function openFaceEditor(imageItem) {
   el.btnFaceStarToggle.classList.toggle("starActive", faceEditor.star);
   el.btnFaceStarToggle.textContent = faceEditor.star ? "★ Star" : "☆ Star";
   faceEditor.filters = Array.isArray(imageItem.filters) ? imageItem.filters.slice() : [];
+  faceEditor.redoFilters = Array.isArray(imageItem.redoFilters) ? imageItem.redoFilters.slice() : [];
   renderFilterList();
   const tiltVal = lastTiltFromFilters(faceEditor.filters);
   const safeTilt = Number.isFinite(tiltVal) ? Math.max(-1, Math.min(1, tiltVal)) : 0;
@@ -5869,6 +5893,8 @@ function closeFaceEditor() {
   faceEditor.awaitingNewRedeyeDraw = false;
   faceEditor.pendingNewRedeyeIdx = -1;
   faceEditor.redeyeDetectionDebug = [];
+  faceEditor.redoFilters = [];
+  updateRedoFilterButton();
   faceEditor.geotag = null;
   faceEditor.pmpLookAt = null;
   applyFaceGeotagToInputs(null);
@@ -6100,7 +6126,7 @@ function parsePicasaIni(content) {
       if (token) albumNamesByToken.set(token, name || token);
       continue;
     }
-    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [], geotag: null };
+    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [], redoFilters: [], geotag: null };
     for (const line of lines) {
       const idx = line.indexOf("=");
       if (idx <= 0) continue;
@@ -6119,6 +6145,8 @@ function parsePicasaIni(content) {
         if (overlays.length) { meta.caption = overlays[0].caption; meta.textOverlay = overlays[0]; }
       } else if (key === "filters") {
         meta.filters = parseFiltersValue(val);
+      } else if (key === "redo") {
+        meta.redoFilters = parseFiltersValue(val);
       } else if (key === "star") {
         meta.star = /^yes|1|true$/i.test(val);
       } else if (key === "crop") {
@@ -6296,7 +6324,7 @@ async function listImagesForAlbumRefs(imageRefs = []) {
         textOverlay: meta.textOverlay || null,
         textOverlays: meta.textOverlays || (meta.textOverlay ? [meta.textOverlay] : []),
         albumTokens: Array.from(picasa.membersByToken.keys()).filter((tok) => (picasa.membersByToken.get(tok) || new Set()).has(name)),
-        albumNames: [], keywords: mergedKeywords, iniKeywords, iptcKeywords, star: !!meta.star, filters: meta.filters || [], geotag: meta.geotag || exifGps || null, exifGps: exifGps || null
+        albumNames: [], keywords: mergedKeywords, iniKeywords, iptcKeywords, star: !!meta.star, filters: meta.filters || [], redoFilters: meta.redoFilters || [], geotag: meta.geotag || exifGps || null, exifGps: exifGps || null
       });
     }
   }
@@ -6998,6 +7026,7 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
         iptcKeywords,
         star: !!meta.star,
         filters: meta.filters || [],
+        redoFilters: meta.redoFilters || [],
         geotag: meta.geotag || exifGps || null,
         exifGps: exifGps || null
       });
@@ -7642,7 +7671,7 @@ el.faceDirTintAlphaInput.oninput = () => { updateArgbTextFromPicker(el.faceDirTi
 el.faceDirTintColorInput.onchange = () => { refreshDirTintDraft(); };
 el.btnApplyFillLightFilter.onclick = () => {
   const fl = Math.max(0, Math.min(1, Number(el.faceFillLightSlider.value || "0")));
-  faceEditor.filters.push(`filllight=1,${fl.toFixed(6)}`);
+  pushEditorFilter(`filllight=1,${fl.toFixed(6)}`);
   renderFilterList();
   refreshEditorPreview();
   el.fillLightControls.classList.add("hidden");
@@ -7665,8 +7694,13 @@ el.btnCancelFilteredBwFilter.onclick = () => {
   refreshEditorPreview();
 };
 
-const applyNoParamFilter = (filterToken) => {
+const pushEditorFilter = (filterToken) => {
   faceEditor.filters.push(filterToken);
+  faceEditor.redoFilters = [];
+  updateRedoFilterButton();
+};
+const applyNoParamFilter = (filterToken) => {
+  pushEditorFilter(filterToken);
   renderFilterList();
   refreshEditorPreview();
   el.faceEditorStatus.textContent = `Applied filter: ${filterToken} (${faceEditor.filters.length})`;
@@ -8058,12 +8092,12 @@ el.btnFaceGeoClear.onclick = () => {
   syncFaceGeoMarker();
 };
 el.btnFaceRotateLeft.onclick = () => {
-  faceEditor.filters.push("rotate=1,-90");
+  pushEditorFilter("rotate=1,-90");
   renderFilterList();
   void refreshEditorPreview();
 };
 el.btnFaceRotateRight.onclick = () => {
-  faceEditor.filters.push("rotate=1,90");
+  pushEditorFilter("rotate=1,90");
   renderFilterList();
   void refreshEditorPreview();
 };
@@ -8071,6 +8105,8 @@ el.btnApplyRedeyeFilter.onclick = () => {
   const draft = refreshRedeyeDraft();
   if (!draft) return;
   faceEditor.filters = filtersWithoutRedeye(faceEditor.filters).concat([draft]);
+  faceEditor.redoFilters = [];
+  updateRedoFilterButton();
   renderFilterList();
   void refreshEditorPreview();
   clearRedeyeDraftAreas();
@@ -8122,7 +8158,7 @@ el.facePreviewUseWebgl.onchange = () => {
 };
 el.btnApplyFinetune2Filter.onclick = () => {
   const finetune2 = refreshFinetune2Draft();
-  faceEditor.filters.push(finetune2);
+  pushEditorFilter(finetune2);
   renderFilterList();
   refreshEditorPreview();
   el.finetune2Controls.classList.add("hidden");
@@ -8550,7 +8586,7 @@ el.btnRemoveFace.onclick = () => {
 el.btnApplyCropFilter.onclick = () => {
   const c = String(faceEditor.cropRect64 || "").trim();
   if (!c) return;
-  faceEditor.filters.push(`crop64=1,${c}`);
+  pushEditorFilter(`crop64=1,${c}`);
   faceEditor.cropUiVisible = false;
   el.faceCropRow.classList.add("hidden");
   el.btnApplyCropFilter.classList.add("hidden");
@@ -8573,7 +8609,7 @@ el.btnCancelCropFilter.onclick = () => {
 el.btnApplyTiltFilter.onclick = () => {
   const t = Number(el.faceTiltSlider.value || "0");
   if (!Number.isFinite(t)) return;
-  faceEditor.filters.push(`tilt=1,${t.toFixed(6)},0.000000`);
+  pushEditorFilter(`tilt=1,${t.toFixed(6)},0.000000`);
   renderFilterList();
   resetTiltDraftUI();
   refreshEditorPreview();
@@ -8683,14 +8719,33 @@ el.faceFaceLabelInput.oninput = () => {
 el.btnRemoveSelectedFilters.onclick = () => {
   const selected = Array.from(el.faceFilterList.selectedOptions || []).map((o)=>Number(o.value)).filter((n)=>Number.isFinite(n)).sort((a,b)=>b-a);
   for (const idx of selected) { if (idx >= 0 && idx < faceEditor.filters.length) faceEditor.filters.splice(idx, 1); }
+  if (selected.length) {
+    faceEditor.redoFilters = [];
+    updateRedoFilterButton();
+  }
   renderFilterList();
   refreshEditorPreview();
 };
 el.btnUndoFilter.onclick = () => {
   const removed = faceEditor.filters.pop();
+  if (removed) {
+    if (!Array.isArray(faceEditor.redoFilters)) faceEditor.redoFilters = [];
+    faceEditor.redoFilters.push(removed);
+  }
   renderFilterList();
   refreshEditorPreview();
-  el.faceEditorStatus.textContent = removed ? `Undo filter: ${removed}` : 'No filter to undo';
+  el.faceEditorStatus.textContent = removed ? `Undo filter: ${removed}` : "No filter to undo";
+};
+el.btnRedoFilter.onclick = () => {
+  const redo = Array.isArray(faceEditor.redoFilters) ? faceEditor.redoFilters : [];
+  const restored = redo.pop();
+  if (restored) {
+    faceEditor.filters.push(restored);
+    faceEditor.redoFilters = redo;
+  }
+  renderFilterList();
+  refreshEditorPreview();
+  el.faceEditorStatus.textContent = restored ? `Redo filter: ${restored}` : "No filter to redo";
 };
 
 el.btnFaceAdd.onclick = () => {
@@ -8930,7 +8985,7 @@ el.btnFaceSave.onclick = async () => {
     const faceEntries = faceEditor.faces.slice();
     const textOverlays = faceEditor.textOverlays.filter((t) => t && String(t.caption || "").trim());
     const albumNameByToken = Object.fromEntries(Array.from(faceEditor.albumTokenToName.entries()));
-    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays, albumNameByToken, faceEditor.geotag);
+    await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays, albumNameByToken, faceEditor.geotag, faceEditor.redoFilters);
     faceEditor.imageItem.geotag = faceEditor.geotag ? { ...faceEditor.geotag } : null;
     if (faceEditor.geoMap) {
       const c = faceEditor.geoMap.getCenter();
