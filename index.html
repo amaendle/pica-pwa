@@ -282,22 +282,6 @@
             <button id="btnRemoveFace" class="hidden">Remove face</button>
           </div>
         </div>
-        <label id="textInputRow" class="hidden">Text overlay<input id="faceTextInput" type="text"></label>
-        <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
-        <label id="textSizeRow" class="hidden">Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
-        <label id="textColorRow" class="hidden">Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
-        <label id="textOutlineColorRow" class="hidden">Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
-        <label id="textOutlineWidthRow" class="hidden">Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="0.1" value="1"></label>
-        <label id="textOpacityRow" class="hidden">Opacity (0-255)<input id="faceTextOpacityInput" type="range" min="0" max="255" step="1" value="128"></label>
-        <label id="textScaleXRow" class="hidden">ScaleX (raw)<input id="faceTextScaleXInput" type="number" min="0" max="5" step="0.01" value="1"></label>
-        <label id="textScaleYRow" class="hidden">ScaleY (raw)<input id="faceTextScaleYInput" type="number" min="0" max="5" step="0.01" value="1"></label>
-        <label id="textStrokeFactorRow" class="hidden">Stroke width factor (0..1)<input id="faceTextStrokeFactorInput" type="range" min="0" max="1" step="0.01" value="0"></label>
-        <label id="textWeightRow" class="hidden">Font weight<input id="faceTextWeightInput" type="number" min="100" max="900" step="100" value="400"></label>
-        <label id="textAlignRow" class="hidden">Paragraph align<select id="faceTextAlignInput"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
-        <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
-        <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
-        <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
-        <button id="btnCancelTextEdit" class="hidden" type="button">Cancel text</button>
         </div>
         <div id="faceFiltersTab" class="faceEditorTabPanel hidden" role="tabpanel">
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -467,6 +451,25 @@
             <button id="btnCancelBoostFilter" type="button">Cancel</button>
           </div>
         </div>
+        <div id="textControls" class="hidden">
+          <div><b>Text overlay</b></div>
+          <label id="textInputRow" class="hidden">Text overlay<input id="faceTextInput" type="text"></label>
+          <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
+          <label id="textSizeRow" class="hidden">Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
+          <label id="textColorRow" class="hidden">Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
+          <label id="textOutlineColorRow" class="hidden">Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
+          <label id="textOutlineWidthRow" class="hidden">Outline width(px)<input id="faceTextOutlineWidthInput" type="number" min="0" max="12" step="0.1" value="1"></label>
+          <label id="textOpacityRow" class="hidden">Opacity (0-255)<input id="faceTextOpacityInput" type="range" min="0" max="255" step="1" value="128"></label>
+          <label id="textScaleXRow" class="hidden">ScaleX (raw)<input id="faceTextScaleXInput" type="number" min="0" max="5" step="0.01" value="1"></label>
+          <label id="textScaleYRow" class="hidden">ScaleY (raw)<input id="faceTextScaleYInput" type="number" min="0" max="5" step="0.01" value="1"></label>
+          <label id="textStrokeFactorRow" class="hidden">Stroke width factor (0..1)<input id="faceTextStrokeFactorInput" type="range" min="0" max="1" step="0.01" value="0"></label>
+          <label id="textWeightRow" class="hidden">Font weight<input id="faceTextWeightInput" type="number" min="100" max="900" step="100" value="400"></label>
+          <label id="textAlignRow" class="hidden">Paragraph align<select id="faceTextAlignInput"><option value="left">Left</option><option value="center">Center</option><option value="right">Right</option></select></label>
+          <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
+          <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
+          <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
+          <button id="btnCancelTextEdit" class="hidden" type="button">Cancel text</button>
+        </div>
         <div id="redeyeControls" class="hidden">
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnAutoFindRedeyeAreas">Auto-find areas</button>
@@ -478,11 +481,13 @@
           <div class="status">Auto-detect uses MediaPipe iris landmarks + pixel analysis. You can still add/adjust areas manually.</div>
           <div class="mono">Areas: <span id="faceRedeyeCount">0</span></div>
         </div>
-        <div><b>Applied filters</b></div>
-        <select id="faceFilterList" class="mono" multiple size="2" style="width:100%;"></select>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button id="btnUndoFilter">Undo filter</button>
-          <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
+        <div id="appliedFiltersPanel">
+          <div><b>Applied filters</b></div>
+          <select id="faceFilterList" class="mono" multiple size="2" style="width:100%;"></select>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnUndoFilter">Undo filter</button>
+            <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
+          </div>
         </div>
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -3872,6 +3877,8 @@ const el = {
   heatmapFadeInput: document.getElementById("heatmapFadeInput"),
   heatmapFadeValue: document.getElementById("heatmapFadeValue"),
   boostControls: document.getElementById("boostControls"),
+  textControls: document.getElementById("textControls"),
+  appliedFiltersPanel: document.getElementById("appliedFiltersPanel"),
   boostInput: document.getElementById("boostInput"),
   boostValue: document.getElementById("boostValue"),
   redeyeControls: document.getElementById("redeyeControls"),
@@ -4073,12 +4080,14 @@ const filterControlPanels = [
   el.dirTintControls,
   el.heatmapControls,
   el.boostControls,
+  el.textControls,
   el.redeyeControls
 ].filter(Boolean);
 const filterCategoryPanels = Array.from(document.querySelectorAll(".filterCategoryPanel"));
 function updateFilterCategoryPanelVisibility() {
   const hasActiveControl = filterControlPanels.some((panel) => !panel.classList.contains("hidden"));
   filterCategoryPanels.forEach((panel) => panel.classList.toggle("hidden", hasActiveControl));
+  if (el.appliedFiltersPanel) el.appliedFiltersPanel.classList.toggle("hidden", hasActiveControl);
 }
 filterControlPanels.forEach((panel) => {
   new MutationObserver(updateFilterCategoryPanelVisibility).observe(panel, { attributes: true, attributeFilter: ["class"] });
@@ -4668,6 +4677,7 @@ function updateSelectionRows() {
   if (el.btnRenameFace) el.btnRenameFace.classList.toggle("hidden", !hasFace);
   if (el.btnRemoveFace) el.btnRemoveFace.classList.toggle("hidden", !hasFace);
   const hasText = faceEditor.activeTextIdx >= 0 && !!faceEditor.textOverlays[faceEditor.activeTextIdx];
+  if (el.textControls) el.textControls.classList.toggle("hidden", !hasText);
   [el.textInputRow, el.textFontRow, el.textSizeRow, el.textColorRow, el.textOutlineColorRow, el.textOutlineWidthRow, el.textOpacityRow, el.textScaleXRow, el.textScaleYRow, el.textStrokeFactorRow, el.textWeightRow, el.textAlignRow, el.textFlagsRow, el.textAnchorFlagsRow, el.textRenderFlagsRow, el.btnCancelTextEdit].forEach((n)=>n.classList.toggle("hidden", !hasText));
 }
 function syncFaceSelectFromState() {
@@ -7318,15 +7328,15 @@ el.btnPick.onclick = async () => {
       setStatus(`Indexing directories… ${count} folders${suffix}`, "warn");
     });
     state.picasaByFolder.clear();
-	    const hasPmp = !!state.pmpRoot;
-	    if (hasPmp) {
-	      el.btnReload.disabled = false;
-	      setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
-	      state.picasaByFolder.clear();
-	      state.pmpColumnsCache = [];
-	      await loadAlbumsFromPMP();
-	      setPmpState("Picasa DB: loaded", "ok");
-	      setStatus("Select an item on the left.", "ok");
+    const hasPmp = !!state.pmpRoot;
+    if (hasPmp) {
+      el.btnReload.disabled = false;
+      setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
+      state.picasaByFolder.clear();
+      state.pmpColumnsCache = [];
+      await loadAlbumsFromPMP();
+      setPmpState("Picasa DB: loaded", "ok");
+      setStatus("Select an item on the left.", "ok");
     } else {
       setStatus(`Indexed ${state.dirIndex.size} folders. Now choose “Open PMP Import Folder”.`, "warn");
     }
@@ -7338,26 +7348,26 @@ el.btnPick.onclick = async () => {
 el.btnPickPmp.onclick = async () => {
   try {
     // Secure context required (https or localhost)
-	    const dir = await window.showDirectoryPicker({ mode: "read" });
-	    state.pmpRoot = dir;
-	    setPmpState("Picasa DB: connected", "warn");
-	    state.activeListIndex = -1;
+    const dir = await window.showDirectoryPicker({ mode: "read" });
+    state.pmpRoot = dir;
+    setPmpState("Picasa DB: connected", "warn");
+    state.activeListIndex = -1;
     state.picasaByFolder.clear();
     state.pmpColumnsCache = [];
     if (!state.libraryRoot || !state.dirIndex) {
-	      setStatus("Importing PMP thumbnails and columns…", "warn");
-	      await loadPmpCachesAndColumns();
-	      setAsideState("PMP folder selected", "ok");
-	      setPmpState("Picasa DB: loaded", "ok");
-	      setStatus("PMP thumbnails/columns loaded. You can inspect raw thumbnails now; choose “Open Library Folder” later to resolve originals.", "ok");
+      setStatus("Importing PMP thumbnails and columns…", "warn");
+      await loadPmpCachesAndColumns();
+      setAsideState("PMP folder selected", "ok");
+      setPmpState("Picasa DB: loaded", "ok");
+      setStatus("PMP thumbnails/columns loaded. You can inspect raw thumbnails now; choose “Open Library Folder” later to resolve originals.", "ok");
       return;
     }
     el.btnReload.disabled = false;
     clearGrid();
-	    setStatus("Loading PMP from selected import folder…", "warn");
-	    await loadAlbumsFromPMP();
-	    setPmpState("Picasa DB: loaded", "ok");
-	    setStatus("Select an item on the left.", "ok");
+    setStatus("Loading PMP from selected import folder…", "warn");
+    await loadAlbumsFromPMP();
+    setPmpState("Picasa DB: loaded", "ok");
+    setStatus("Select an item on the left.", "ok");
   } catch (e) {
     setStatus(String(e?.message || e), "err");
   }
@@ -7647,6 +7657,15 @@ const refreshDirTintDraft = () => {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 };
+const clearRedeyeDraftAreas = () => {
+  faceEditor.redeyeAreas = [];
+  faceEditor.redeyeDetectionDebug = [];
+  faceEditor.activeRedeyeIdx = -1;
+  faceEditor.pendingNewRedeyeIdx = -1;
+  faceEditor.awaitingNewRedeyeDraw = false;
+  if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = "0";
+  renderFaceRects();
+};
 const refreshRedeyeDraft = () => {
   const areas = (faceEditor.redeyeAreas || [])
     .map((a) => boxToRect64(rect64ToBox(a.rect64)))
@@ -7882,14 +7901,14 @@ el.btnApplyRedeyeFilter.onclick = () => {
   const draft = refreshRedeyeDraft();
   if (!draft) return;
   applyNoParamFilter(draft);
+  clearRedeyeDraftAreas();
   el.redeyeControls.classList.add("hidden");
   el.btnRedeyeMode.textContent = "Red-eye";
-  faceEditor.awaitingNewRedeyeDraw = false;
 };
 el.btnCancelRedeyeFilter.onclick = () => {
+  clearRedeyeDraftAreas();
   el.redeyeControls.classList.add("hidden");
   el.btnRedeyeMode.textContent = "Red-eye";
-  faceEditor.awaitingNewRedeyeDraw = false;
   refreshEditorPreview();
 };
 
