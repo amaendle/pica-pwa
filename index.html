@@ -11,6 +11,7 @@
   <script src="./creative-filters.js"></script>
   <script src="./heatmap-filter.js"></script>
   <script src="./boost-filter.js"></script>
+  <script src="./soften-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -327,6 +328,7 @@
           <div><b>Effects &amp; Finishes</b></div>
           <div class="geoMapRow">
             <button id="btnBoostMode">Boost</button>
+            <button id="btnSoftenMode">Soften</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -449,6 +451,14 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplyBoostFilter">Apply Boost</button>
             <button id="btnCancelBoostFilter" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="softenControls" class="hidden">
+          <label>Softness <span id="softenSoftnessValue" class="mono">50</span><input id="softenSoftnessInput" type="range" min="0" max="100" step="1" value="50"></label>
+          <label>Fade <span id="softenFadeValue" class="mono">50</span><input id="softenFadeInput" type="range" min="0" max="100" step="1" value="50"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplySoftenFilter">Apply Soften</button>
+            <button id="btnCancelSoftenFilter" type="button">Cancel</button>
           </div>
         </div>
         <div id="textControls" class="hidden">
@@ -2871,6 +2881,14 @@ function parseBoostFilter(filterString = "") {
   if (!m) return null;
   return { percent: Math.max(0, Math.min(100, Math.round(Number(m[1]) || 0))) };
 }
+function parseSoftenFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^soften=1,([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  return {
+    softness: Math.max(0, Math.min(100, Math.round(Number(m[1]) || 0))),
+    fade: Math.max(0, Math.min(100, Math.round(Number(m[2]) || 0))),
+  };
+}
 
 function parseAnselFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^ansel=1,([0-9a-f#]+)$/i);
@@ -3562,6 +3580,15 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       }
       continue;
     }
+    m = parseSoftenFilter(f);
+    if (m) {
+      if (m.softness <= 0 || m.fade >= 100) continue;
+      if (useWebglPreview) notifyFallback("soften");
+      const fn = window.SoftenFilter?.applySoftenToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, m);
+      else notifyWebglFallback("Soften filter unavailable");
+      continue;
+    }
     m = String(f).match(/^heatmap=1,(.+)$/i);
     if (m) {
       if (useWebglPreview) notifyFallback("heatmap");
@@ -3877,6 +3904,11 @@ const el = {
   heatmapFadeInput: document.getElementById("heatmapFadeInput"),
   heatmapFadeValue: document.getElementById("heatmapFadeValue"),
   boostControls: document.getElementById("boostControls"),
+  softenControls: document.getElementById("softenControls"),
+  softenSoftnessInput: document.getElementById("softenSoftnessInput"),
+  softenSoftnessValue: document.getElementById("softenSoftnessValue"),
+  softenFadeInput: document.getElementById("softenFadeInput"),
+  softenFadeValue: document.getElementById("softenFadeValue"),
   textControls: document.getElementById("textControls"),
   appliedFiltersPanel: document.getElementById("appliedFiltersPanel"),
   boostInput: document.getElementById("boostInput"),
@@ -4005,6 +4037,7 @@ const el = {
   btnDirTintMode: document.getElementById("btnDirTintMode"),
   btnHeatmapMode: document.getElementById("btnHeatmapMode"),
   btnBoostMode: document.getElementById("btnBoostMode"),
+  btnSoftenMode: document.getElementById("btnSoftenMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4018,6 +4051,8 @@ const el = {
   btnCancelHeatmapFilter: document.getElementById("btnCancelHeatmapFilter"),
   btnApplyBoostFilter: document.getElementById("btnApplyBoostFilter"),
   btnCancelBoostFilter: document.getElementById("btnCancelBoostFilter"),
+  btnApplySoftenFilter: document.getElementById("btnApplySoftenFilter"),
+  btnCancelSoftenFilter: document.getElementById("btnCancelSoftenFilter"),
   btnFacesMode: document.getElementById("btnFacesMode"),
   btnFaceAdd: document.getElementById("btnFaceAdd"),
   btnRenameFace: document.getElementById("btnRenameFace"),
@@ -4080,6 +4115,7 @@ const filterControlPanels = [
   el.dirTintControls,
   el.heatmapControls,
   el.boostControls,
+  el.softenControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -4259,6 +4295,13 @@ function lastBoostFromFilters(filters) {
     if (p) return p.percent;
   }
   return 50;
+}
+function lastSoftenFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseSoftenFilter(filters[i]);
+    if (p) return p;
+  }
+  return { softness: 50, fade: 50 };
 }
 function lastAnselFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
@@ -5510,6 +5553,7 @@ function openFaceEditor(imageItem) {
   el.dirTintControls.classList.add("hidden");
   el.heatmapControls.classList.add("hidden");
   el.boostControls.classList.add("hidden");
+  el.softenControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -5524,6 +5568,7 @@ function openFaceEditor(imageItem) {
   el.btnDirTintMode.textContent = "Dir Tint";
   el.btnHeatmapMode.textContent = "Heatmap";
   el.btnBoostMode.textContent = "Boost";
+  el.btnSoftenMode.textContent = "Soften";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -5570,6 +5615,7 @@ function openFaceEditor(imageItem) {
   const boostPercent = lastBoostFromFilters(faceEditor.filters);
   if (el.boostInput) el.boostInput.value = String(boostPercent);
   if (el.boostValue) el.boostValue.textContent = String(boostPercent);
+  writeSoftenControls(lastSoftenFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -7581,6 +7627,29 @@ function refreshBoostDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readSoftenParamsFromControls() {
+  const softness = Math.max(0, Math.min(100, Math.round(Number(el.softenSoftnessInput?.value || 50) || 0)));
+  const fade = Math.max(0, Math.min(100, Math.round(Number(el.softenFadeInput?.value || 50) || 0)));
+  return { softness, fade };
+}
+function writeSoftenControls(params = {}) {
+  const normalized = window.SoftenFilter?.normalizeSoftenParams ? window.SoftenFilter.normalizeSoftenParams(params) : { softness: Math.max(0, Math.min(100, Math.round(Number(params.softness ?? 50) || 0))), fade: Math.max(0, Math.min(100, Math.round(Number(params.fade ?? 50) || 0))) };
+  if (el.softenSoftnessInput) el.softenSoftnessInput.value = String(normalized.softness);
+  if (el.softenSoftnessValue) el.softenSoftnessValue.textContent = String(normalized.softness);
+  if (el.softenFadeInput) el.softenFadeInput.value = String(normalized.fade);
+  if (el.softenFadeValue) el.softenFadeValue.textContent = String(normalized.fade);
+}
+function softenToken(params = null) {
+  const normalized = window.SoftenFilter?.normalizeSoftenParams ? window.SoftenFilter.normalizeSoftenParams(params || readSoftenParamsFromControls()) : (params || readSoftenParamsFromControls());
+  return `soften=1,${normalized.softness},${normalized.fade}`;
+}
+function refreshSoftenDraft() {
+  const params = readSoftenParamsFromControls();
+  writeSoftenControls(params);
+  const draft = softenToken(params);
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+}
 const refreshTintDraft = () => {
   const preserve = Number(el.faceTintPreserveInput.value || "0") || 0;
   const color = normalizeFilterHexColor(el.faceTintColorInput.value, "ffffffff");
@@ -7838,9 +7907,17 @@ el.btnApplyBoostFilter.onclick = () => {
   el.btnBoostMode.textContent = "Boost";
 };
 el.btnCancelBoostFilter.onclick = () => cancelDraftFilterControls(el.boostControls, el.btnBoostMode, "Boost");
+el.btnApplySoftenFilter.onclick = () => {
+  applyNoParamFilter(refreshSoftenDraft());
+  el.softenControls.classList.add("hidden");
+  el.btnSoftenMode.textContent = "Soften";
+};
+el.btnCancelSoftenFilter.onclick = () => cancelDraftFilterControls(el.softenControls, el.btnSoftenMode, "Soften");
 el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
 el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
 el.boostInput.oninput = () => refreshBoostDraft();
+el.softenSoftnessInput.oninput = () => refreshSoftenDraft();
+el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.btnApplyTintFilter.onclick = () => {
   applyNoParamFilter(refreshTintDraft());
   el.tintControls.classList.add("hidden");
@@ -8294,6 +8371,12 @@ el.btnBoostMode.onclick = () => {
   el.boostControls.classList.toggle("hidden", !show);
   el.btnBoostMode.textContent = show ? "Hide Boost" : "Boost";
   if (show) refreshBoostDraft();
+};
+el.btnSoftenMode.onclick = () => {
+  const show = el.softenControls.classList.contains("hidden");
+  el.softenControls.classList.toggle("hidden", !show);
+  el.btnSoftenMode.textContent = show ? "Hide Soften" : "Soften";
+  if (show) refreshSoftenDraft();
 };
 el.btnRedeyeMode.onclick = () => {
   const show = el.redeyeControls.classList.contains("hidden");
