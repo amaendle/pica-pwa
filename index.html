@@ -273,7 +273,7 @@
           </div>
           <div id="faceGeoMap" class="geoMapBox"></div>
         </div>
-        <div class="geoMapPanel">
+        <div id="faceFacesPanel" class="geoMapPanel">
           <div><b>Faces</b></div>
           <label id="faceFaceSelectWrap">Faces<select id="faceFaceSelect" multiple size="2"></select></label>
           <label id="faceLabelRow" class="hidden">Selected face label<input id="faceFaceLabelInput" type="text"></label>
@@ -478,7 +478,7 @@
           <label id="textFlagsRow" class="hidden"><input id="faceTextItalicInput" type="checkbox"> Italic &nbsp; <input id="faceTextUnderlineInput" type="checkbox"> Underline &nbsp; <input id="faceTextNoSolidFillInput" type="checkbox"> No solid fill &nbsp; <input id="faceTextSolidFillModeInput" type="checkbox"> Solid+outline mode</label>
           <label id="textAnchorFlagsRow" class="hidden">Text style/anchor flags (raw)<input id="faceTextAnchorFlagsInput" type="number" min="0" step="1" value="49152"></label>
           <label id="textRenderFlagsRow" class="hidden">Render flags (raw)<input id="faceTextRenderFlagsInput" type="number" min="0" step="1" value="0"></label>
-          <button id="btnCancelTextEdit" class="hidden" type="button">Cancel text</button>
+          <button id="btnCancelTextEdit" class="hidden" type="button">Cancel</button>
         </div>
         <div id="redeyeControls" class="hidden">
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -4023,6 +4023,7 @@ const el = {
   btnFaceTabFilters: document.getElementById("btnFaceTabFilters"),
   faceBasicTab: document.getElementById("faceBasicTab"),
   faceFiltersTab: document.getElementById("faceFiltersTab"),
+  faceFacesPanel: document.getElementById("faceFacesPanel"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
   btnCropMode: document.getElementById("btnCropMode"),
   btnTiltMode: document.getElementById("btnTiltMode"),
@@ -4338,12 +4339,20 @@ function lastDirTintFromFilters(filters) {
   }
   return { x: 0.306743, y: 0.401515, gradient: 0.25, shadow: 0.25, color: "ff5bfff3" };
 }
-function lastRedeyeFromFilters(filters) {
-  for (let i = (filters || []).length - 1; i >= 0; i--) {
-    const p = parseRedeyeFilter(filters[i]);
-    if (p?.areas?.length) return p.areas.map((a) => ({ x: a.x, y: a.y, w: a.w, h: a.h }));
+function redEyeAreasFromFilters(filters) {
+  const areas = [];
+  for (const filter of (filters || [])) {
+    const p = parseRedeyeFilter(filter);
+    if (p?.areas?.length) areas.push(...p.areas.map((a) => ({ x: a.x, y: a.y, w: a.w, h: a.h })));
   }
-  return [];
+  return areas;
+}
+function lastRedeyeFromFilters(filters) {
+  const areas = redEyeAreasFromFilters(filters);
+  return areas.length ? areas : [];
+}
+function filtersWithoutRedeye(filters) {
+  return (Array.isArray(filters) ? filters : []).filter((filter) => !parseRedeyeFilter(filter));
 }
 function cssColorToU32(color, fallback = 4294967295) {
   const s = String(color || "").trim();
@@ -4591,6 +4600,7 @@ const faceEditor = {
   pickingFinetuneNeutral: false,
   finetuneNeutralColor: null,
   facesModeActive: false,
+  facesPanelActive: false,
   detectedFaces: [],
   pendingDetectedFaceIdx: -1,
   faceRenameMode: false,
@@ -4744,6 +4754,7 @@ function syncTextInputsFromState() {
   const t = faceEditor.textOverlays[faceEditor.activeTextIdx];
   if (!t) {
     el.faceTextInput.value = "";
+    updateSelectionRows();
     return;
   }
   el.faceTextInput.value = t.caption || "";
@@ -4947,7 +4958,7 @@ function renderFaceRects() {
   }
 
 
-  if (faceEditor.facesModeActive && Array.isArray(faceEditor.detectedFaces) && faceEditor.detectedFaces.length) {
+  if (faceEditor.facesModeActive && faceEditor.facesPanelActive && Array.isArray(faceEditor.detectedFaces) && faceEditor.detectedFaces.length) {
     faceEditor.detectedFaces.forEach((box, idx) => {
       const g = document.createElement('div');
       g.className = 'ghostFaceRect';
@@ -5017,6 +5028,7 @@ function renderFaceRects() {
     box.onpointerdown = (ev) => {
       ev.preventDefault();
       faceEditor.activeTextIdx = idx;
+      showFaceEditorTab("filters");
       syncTextInputsFromState();
       faceEditor.textDragging = true;
       faceEditor.textDragMode = "move";
@@ -5526,6 +5538,7 @@ function openFaceEditor(imageItem) {
   faceEditor.faces = (imageItem.faces || []).map((f) => ({ label: f.label || '', rect64: f.rect64 || 'gui:0.1|0.1|0.2|0.2' }));
   faceEditor.activeFaceIdx = -1;
   faceEditor.facesModeActive = true;
+  faceEditor.facesPanelActive = false;
   faceEditor.detectedFaces = [];
   faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.pendingNewFaceIdx = -1;
@@ -5790,6 +5803,7 @@ function closeFaceEditor() {
   faceEditor.finetuneNeutralColor = null;
   faceEditor.activeFaceIdx = -1;
   faceEditor.facesModeActive = false;
+  faceEditor.facesPanelActive = false;
   faceEditor.detectedFaces = [];
   faceEditor.pendingDetectedFaceIdx = -1;
   faceEditor.pendingNewFaceIdx = -1;
@@ -7745,7 +7759,7 @@ const refreshRedeyeDraft = () => {
     return "";
   }
   const draft = `redeye2=1,${areas.join(";")}`;
-  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  refreshEditorPreview(filtersWithoutRedeye(faceEditor.filters).concat([draft]));
   return draft;
 };
 const pointInPolygon = (x, y, poly) => {
@@ -7977,7 +7991,9 @@ el.btnFaceRotateRight.onclick = () => {
 el.btnApplyRedeyeFilter.onclick = () => {
   const draft = refreshRedeyeDraft();
   if (!draft) return;
-  applyNoParamFilter(draft);
+  faceEditor.filters = filtersWithoutRedeye(faceEditor.filters).concat([draft]);
+  syncFaceFilterList();
+  void refreshEditorPreview();
   clearRedeyeDraftAreas();
   el.redeyeControls.classList.add("hidden");
   el.btnRedeyeMode.textContent = "Red-eye";
@@ -8382,11 +8398,32 @@ el.btnRedeyeMode.onclick = () => {
   const show = el.redeyeControls.classList.contains("hidden");
   el.redeyeControls.classList.toggle("hidden", !show);
   el.btnRedeyeMode.textContent = show ? "Hide Red-eye" : "Red-eye";
-  if (show) refreshRedeyeDraft();
+  if (show) {
+    faceEditor.redeyeAreas = redEyeAreasFromFilters(faceEditor.filters).map((b) => ({ rect64: boxToRect64(b) }));
+    faceEditor.activeRedeyeIdx = -1;
+    faceEditor.pendingNewRedeyeIdx = -1;
+    if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
+    renderFaceRects();
+    refreshRedeyeDraft();
+  }
   if (!show) faceEditor.awaitingNewRedeyeDraw = false;
 };
-el.btnFaceTabBasic.onclick = () => showFaceEditorTab("basic");
-el.btnFaceTabFilters.onclick = () => showFaceEditorTab("filters");
+function setFacesPanelActive(active) {
+  faceEditor.facesPanelActive = !!active;
+  renderFaceRects();
+}
+el.faceFacesPanel.addEventListener("pointerdown", () => setFacesPanelActive(true));
+el.faceFacesPanel.addEventListener("touchstart", () => setFacesPanelActive(true), { passive: true });
+[el.faceBasicTab, el.faceFiltersTab].forEach((panel) => {
+  panel.addEventListener("pointerdown", (ev) => {
+    if (!el.faceFacesPanel.contains(ev.target)) setFacesPanelActive(false);
+  }, true);
+  panel.addEventListener("touchstart", (ev) => {
+    if (!el.faceFacesPanel.contains(ev.target)) setFacesPanelActive(false);
+  }, { passive: true, capture: true });
+});
+el.btnFaceTabBasic.onclick = () => { setFacesPanelActive(false); showFaceEditorTab("basic"); };
+el.btnFaceTabFilters.onclick = () => { setFacesPanelActive(false); showFaceEditorTab("filters"); };
 if (el.btnFacesMode) {
   el.btnFacesMode.onclick = () => {
     setFacesMode(!faceEditor.facesModeActive, true);
@@ -8582,6 +8619,7 @@ el.btnTextAdd.onclick = () => {
   faceEditor.textOverlays.push({ enabled: true, caption: "New text", fontFamily: "Arial", x: 0.08, y: 0.08, sizeRel: 0.04, rotation: 0, sizeCode: 128, styleCode: 8, fillARGB: 4294967295, strokeARGB: 4278190080, opacity255: 128, scaleXUnknown: 1, strokeWidthFactor: 0, scaleYUnknown: 1, fontWeight: 400, renderFlags: 0, textStyleAnchorFlags: 49152, colorPrimary: "#ffffff", colorSecondary: "#000000", outlineWidth: 1 });
   faceEditor.activeTextIdx = faceEditor.textOverlays.length - 1;
   faceEditor.pendingNewTextIdx = faceEditor.activeTextIdx;
+  showFaceEditorTab("filters");
   syncTextInputsFromState();
   renderFaceRects();
 };
@@ -8591,6 +8629,7 @@ el.btnCancelTextEdit.onclick = () => {
   }
   faceEditor.pendingNewTextIdx = -1;
   faceEditor.activeTextIdx = -1;
+  showFaceEditorTab("filters");
   syncTextInputsFromState();
   renderFaceRects();
   refreshEditorPreview();
