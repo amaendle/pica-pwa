@@ -464,7 +464,20 @@
         <div id="textControls" class="hidden">
           <div><b>Text overlay</b></div>
           <label id="textInputRow" class="hidden">Text overlay<input id="faceTextInput" type="text"></label>
-          <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial"></label>
+          <label id="textFontRow" class="hidden">Font family<input id="faceTextFontInput" type="text" value="Arial" list="faceTextFontOptions"></label>
+          <datalist id="faceTextFontOptions">
+            <option value="Arial"></option>
+            <option value="Arial Black"></option>
+            <option value="Comic Sans MS"></option>
+            <option value="Courier New"></option>
+            <option value="Georgia"></option>
+            <option value="Helvetica"></option>
+            <option value="Impact"></option>
+            <option value="Tahoma"></option>
+            <option value="Times New Roman"></option>
+            <option value="Trebuchet MS"></option>
+            <option value="Verdana"></option>
+          </datalist>
           <label id="textSizeRow" class="hidden">Font size(px)<input id="faceTextSizeInput" type="number" min="8" max="240" step="1" value="36"></label>
           <label id="textColorRow" class="hidden">Text color<input id="faceTextColorInput" type="color" value="#ffffff"></label>
           <label id="textOutlineColorRow" class="hidden">Outline color<input id="faceTextOutlineColorInput" type="color" value="#000000"></label>
@@ -500,7 +513,7 @@
           </div>
         </div>
         </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+        <div id="faceActionButtons" style="display:flex; gap:8px; flex-wrap:wrap;">
           <button id="btnFaceSave">Save</button>
           <button id="btnFaceCancel">Cancel</button>
         </div>
@@ -4025,6 +4038,7 @@ const el = {
   faceFiltersTab: document.getElementById("faceFiltersTab"),
   faceFacesPanel: document.getElementById("faceFacesPanel"),
   faceEditorStatus: document.getElementById("faceEditorStatus"),
+  faceActionButtons: document.getElementById("faceActionButtons"),
   btnCropMode: document.getElementById("btnCropMode"),
   btnTiltMode: document.getElementById("btnTiltMode"),
   btnFillLightMode: document.getElementById("btnFillLightMode"),
@@ -4125,6 +4139,7 @@ function updateFilterCategoryPanelVisibility() {
   const hasActiveControl = filterControlPanels.some((panel) => !panel.classList.contains("hidden"));
   filterCategoryPanels.forEach((panel) => panel.classList.toggle("hidden", hasActiveControl));
   if (el.appliedFiltersPanel) el.appliedFiltersPanel.classList.toggle("hidden", hasActiveControl);
+  if (el.faceActionButtons) el.faceActionButtons.classList.toggle("hidden", hasActiveControl);
 }
 filterControlPanels.forEach((panel) => {
   new MutationObserver(updateFilterCategoryPanelVisibility).observe(panel, { attributes: true, attributeFilter: ["class"] });
@@ -4911,7 +4926,8 @@ function renderFaceRects() {
     el.faceCropInput.value = faceEditor.cropRect64;
   }
 
-  if (Array.isArray(faceEditor.redeyeAreas) && faceEditor.redeyeAreas.length) {
+  const showRedeyeMarkers = !!el.redeyeControls && !el.redeyeControls.classList.contains("hidden");
+  if (showRedeyeMarkers && Array.isArray(faceEditor.redeyeAreas) && faceEditor.redeyeAreas.length) {
     faceEditor.redeyeAreas.forEach((area, idx) => {
       const b = rect64ToBox(area.rect64);
       const div = document.createElement('div');
