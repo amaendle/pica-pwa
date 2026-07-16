@@ -12,6 +12,7 @@
   <script src="./heatmap-filter.js"></script>
   <script src="./boost-filter.js"></script>
   <script src="./soften-filter.js"></script>
+  <script src="./lomo-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -320,6 +321,7 @@
             <button id="btnApplyInfraredMonoFilter">Infrared Mono</button>
             <button id="btnApplyInvertColorsFilter">Invert colors</button>
             <button id="btnHeatmapMode">Heatmap</button>
+            <button id="btnLomoMode">Lomo-ish</button>
             <button id="btnApplyCrossProcessFilter">Cross-process</button>
           </div>
         </div>
@@ -467,6 +469,15 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplyBoostFilter">Apply Boost</button>
             <button id="btnCancelBoostFilter" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="lomoControls" class="hidden">
+          <div><b>Lomo-ish filter</b></div>
+          <label>Blur <span id="lomoBlurValue" class="mono">100</span><input id="lomoBlurInput" type="range" min="0" max="100" step="1" value="100"></label>
+          <label>Fade <span id="lomoFadeValue" class="mono">0</span><input id="lomoFadeInput" type="range" min="0" max="100" step="1" value="0"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyLomoFilter">Apply Lomo-ish</button>
+            <button id="btnCancelLomoFilter" type="button">Cancel</button>
           </div>
         </div>
         <div id="softenControls" class="hidden">
@@ -2921,6 +2932,14 @@ function parseSoftenFilter(filterString = "") {
     fade: Math.max(0, Math.min(100, Math.round(Number(m[2]) || 0))),
   };
 }
+function parseLomoFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^lomoish=1,([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  return {
+    blur: Math.max(0, Math.min(100, Math.round(Number(m[1]) || 0))),
+    fade: Math.max(0, Math.min(100, Math.round(Number(m[2]) || 0))),
+  };
+}
 
 function parseFilteredBwFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^filtered-bw=1,([0-9a-f#]+)$/i);
@@ -3621,6 +3640,14 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Cross-process filter unavailable");
       continue;
     }
+    m = parseLomoFilter(f);
+    if (m) {
+      if (useWebglPreview) notifyFallback("Lomo-ish");
+      const fn = window.LomoFilter?.applyLomoIshToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, m);
+      else notifyWebglFallback("Lomo-ish filter unavailable");
+      continue;
+    }
     m = parseFilteredBwFilter(f);
     if (m) {
       if (useWebglPreview) notifyFallback("filtered-bw");
@@ -3974,6 +4001,14 @@ const el = {
   btnApplySixtiesControls: document.getElementById("btnApplySixtiesControls"),
   btnCancelSixtiesFilter: document.getElementById("btnCancelSixtiesFilter"),
   boostControls: document.getElementById("boostControls"),
+  lomoControls: document.getElementById("lomoControls"),
+  lomoBlurInput: document.getElementById("lomoBlurInput"),
+  lomoBlurValue: document.getElementById("lomoBlurValue"),
+  lomoFadeInput: document.getElementById("lomoFadeInput"),
+  lomoFadeValue: document.getElementById("lomoFadeValue"),
+  btnLomoMode: document.getElementById("btnLomoMode"),
+  btnApplyLomoFilter: document.getElementById("btnApplyLomoFilter"),
+  btnCancelLomoFilter: document.getElementById("btnCancelLomoFilter"),
   softenControls: document.getElementById("softenControls"),
   softenSoftnessInput: document.getElementById("softenSoftnessInput"),
   softenSoftnessValue: document.getElementById("softenSoftnessValue"),
@@ -4193,6 +4228,7 @@ const filterControlPanels = [
   el.heatmapControls,
   el.sixtiesControls,
   el.boostControls,
+  el.lomoControls,
   el.softenControls,
   el.textControls,
   el.redeyeControls
@@ -4382,6 +4418,13 @@ function lastSoftenFromFilters(filters) {
   }
   return { softness: 50, fade: 50 };
 }
+function lastLomoFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseLomoFilter(filters[i]);
+    if (p) return p;
+  }
+  return { blur: 100, fade: 0 };
+}
 function lastFilteredBwFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
     const p = parseFilteredBwFilter(filters[i]);
@@ -4474,7 +4517,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", heatmap: "Heatmap", sixties: "1960s", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -5682,6 +5725,7 @@ function openFaceEditor(imageItem) {
   el.heatmapControls.classList.add("hidden");
   el.sixtiesControls.classList.add("hidden");
   el.boostControls.classList.add("hidden");
+  el.lomoControls.classList.add("hidden");
   el.softenControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
@@ -5699,6 +5743,7 @@ function openFaceEditor(imageItem) {
   el.btnHeatmapMode.textContent = "Heatmap";
   el.btnApplySixtiesFilter.textContent = "1960s";
   el.btnBoostMode.textContent = "Boost";
+  el.btnLomoMode.textContent = "Lomo-ish";
   el.btnSoftenMode.textContent = "Soften";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
@@ -5749,6 +5794,7 @@ function openFaceEditor(imageItem) {
   const boostPercent = lastBoostFromFilters(faceEditor.filters);
   if (el.boostInput) el.boostInput.value = String(boostPercent);
   if (el.boostValue) el.boostValue.textContent = String(boostPercent);
+  writeLomoControls(lastLomoFromFilters(faceEditor.filters));
   writeSoftenControls(lastSoftenFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
@@ -7830,6 +7876,32 @@ function refreshBoostDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readLomoParamsFromControls() {
+  const blur = Math.max(0, Math.min(100, Math.round(Number(el.lomoBlurInput?.value || 100) || 0)));
+  const fade = Math.max(0, Math.min(100, Math.round(Number(el.lomoFadeInput?.value || 0) || 0)));
+  return { blur, fade };
+}
+function writeLomoControls(params = {}) {
+  const normalized = window.LomoFilter?.normalizeLomoParams ? window.LomoFilter.normalizeLomoParams(params) : {
+    blur: Math.max(0, Math.min(100, Math.round(Number(params.blur ?? 100) || 0))),
+    fade: Math.max(0, Math.min(100, Math.round(Number(params.fade ?? 0) || 0)))
+  };
+  if (el.lomoBlurInput) el.lomoBlurInput.value = String(Math.round(normalized.blur));
+  if (el.lomoBlurValue) el.lomoBlurValue.textContent = String(Math.round(normalized.blur));
+  if (el.lomoFadeInput) el.lomoFadeInput.value = String(Math.round(normalized.fade));
+  if (el.lomoFadeValue) el.lomoFadeValue.textContent = String(Math.round(normalized.fade));
+}
+function lomoToken(params = null) {
+  const normalized = window.LomoFilter?.normalizeLomoParams ? window.LomoFilter.normalizeLomoParams(params || readLomoParamsFromControls()) : (params || readLomoParamsFromControls());
+  return `lomoish=1,${Math.round(normalized.blur)},${Math.round(normalized.fade)}`;
+}
+function refreshLomoDraft() {
+  const params = readLomoParamsFromControls();
+  writeLomoControls(params);
+  const draft = lomoToken(params);
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+}
 function readSoftenParamsFromControls() {
   const softness = Math.max(0, Math.min(100, Math.round(Number(el.softenSoftnessInput?.value || 50) || 0)));
   const fade = Math.max(0, Math.min(100, Math.round(Number(el.softenFadeInput?.value || 50) || 0)));
@@ -8098,6 +8170,12 @@ el.btnApplySixtiesFilter.onclick = () => {
 el.btnApplyInfraredMonoFilter.onclick = () => applyNoParamFilter("infraredmono=1");
 el.btnApplyInvertColorsFilter.onclick = () => applyNoParamFilter("invert=1");
 el.btnApplyCrossProcessFilter.onclick = () => applyNoParamFilter("crossprocess=1");
+el.btnLomoMode.onclick = () => {
+  const show = el.lomoControls.classList.contains("hidden");
+  el.lomoControls.classList.toggle("hidden", !show);
+  el.btnLomoMode.textContent = show ? "Hide Lomo-ish" : "Lomo-ish";
+  if (show) refreshLomoDraft();
+};
 const cancelDraftFilterControls = (controlsEl, modeButton, modeLabel) => {
   controlsEl.classList.add("hidden");
   modeButton.textContent = modeLabel;
@@ -8115,6 +8193,12 @@ el.btnApplyBoostFilter.onclick = () => {
   el.btnBoostMode.textContent = "Boost";
 };
 el.btnCancelBoostFilter.onclick = () => cancelDraftFilterControls(el.boostControls, el.btnBoostMode, "Boost");
+el.btnApplyLomoFilter.onclick = () => {
+  applyNoParamFilter(refreshLomoDraft());
+  el.lomoControls.classList.add("hidden");
+  el.btnLomoMode.textContent = "Lomo-ish";
+};
+el.btnCancelLomoFilter.onclick = () => cancelDraftFilterControls(el.lomoControls, el.btnLomoMode, "Lomo-ish");
 el.btnApplySoftenFilter.onclick = () => {
   applyNoParamFilter(refreshSoftenDraft());
   el.softenControls.classList.add("hidden");
@@ -8130,6 +8214,8 @@ el.btnCancelSixtiesFilter.onclick = () => cancelDraftFilterControls(el.sixtiesCo
 el.sixtiesFadeInput.oninput = () => refreshSixtiesDraft();
 el.sixtiesBackgroundInput.oninput = () => refreshSixtiesDraft();
 el.sixtiesRoundedInput.onchange = () => refreshSixtiesDraft();
+el.lomoBlurInput.oninput = () => refreshLomoDraft();
+el.lomoFadeInput.oninput = () => refreshLomoDraft();
 el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
 el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
 el.boostInput.oninput = () => refreshBoostDraft();
