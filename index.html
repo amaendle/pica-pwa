@@ -72,6 +72,12 @@
     .caption { padding: 8px 10px; font-size: 12px; color: #bbb; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .tileMetaRow { display:flex; gap:8px; align-items:center; padding: 0 8px 8px; }
     .miniBtn { font-size: 11px; padding: 4px 8px; border-radius: 6px; }
+    @media (max-width: 720px) {
+      .layout { grid-template-columns: 1fr; }
+      body.mobilePaneAside main { display:none; }
+      body.mobilePaneMain aside { display:none; }
+      aside { border-right:0; }
+    }
     .faceEditorBox { background:#1a1a1a; border:1px solid #333; border-radius:10px; padding:10px; width:min(90vw,1000px); height:min(90vh,760px); max-height:calc(100vh - 36px); display:grid; grid-template-columns: minmax(0,1fr) 320px; gap:10px; }
     #faceEditorOverlay .faceEditorBox { width:calc(100vw - 16px); height:calc(100vh - 16px); max-width:none; max-height:none; }
     .faceCanvasPane { min-height:0; display:flex; flex-direction:column; gap:8px; height:100%; }
@@ -116,6 +122,8 @@
     .starActive { color:#ffd43b; border-color:#ffd43b; }
     .hidden { display:none !important; }
     .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
+    .status.busy::before { content:""; display:inline-block; width:.8em; height:.8em; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:-.12em; animation:spin .8s linear infinite; }
+    @keyframes spin { to { transform:rotate(360deg); } }
     .warn { color: #ffda9e; }
     .ok { color: #a9f7c5; }
     .err { color: #ffb4b4; }
@@ -3553,6 +3561,11 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   URL.revokeObjectURL(src);
 
   const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
+  const filterStart = performance.now();
+  if (chain.length) {
+    const label = String(file?.name || "image");
+    setStatus(`Computing ${chain.length} filter${chain.length === 1 ? "" : "s"} for ${label}…`, "busy");
+  }
   let canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth || 1;
   canvas.height = img.naturalHeight || 1;
@@ -3826,6 +3839,12 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     canvas = out;
   }
   const blob = await new Promise((res) => canvas.toBlob(res, "image/jpeg", 0.9));
+  if (chain.length) {
+    const elapsed = performance.now() - filterStart;
+    const label = String(file?.name || "image");
+    setStatus(`Computed ${chain.length} filter${chain.length === 1 ? "" : "s"} for ${label} in ${elapsed.toFixed(0)} ms.`, "ok");
+    console.log(`[filters] ${label}: ${chain.length} filter(s) in ${elapsed.toFixed(1)} ms`, chain);
+  }
   return URL.createObjectURL(blob);
 }
 
@@ -4249,6 +4268,15 @@ function setStatus(msg, cls = "") {
   el.mainStatus.className = "status " + cls;
   el.mainStatus.textContent = msg || "";
 }
+function setMobilePane(pane) {
+  const main = pane === "main";
+  document.body.classList.toggle("mobilePaneMain", main);
+  document.body.classList.toggle("mobilePaneAside", !main);
+}
+function isNarrowLayout() {
+  return window.matchMedia?.("(max-width: 720px)")?.matches || window.innerWidth <= 720;
+}
+setMobilePane("aside");
 function notifyWebglFallback(action) {
   const key = String(action || "filter");
   if (state.webglFallbackNotices?.has(key)) return;
@@ -7062,6 +7090,7 @@ async function showImagesForResolvedPath(pathRel, pillText, options = {}, navReq
   if (!isNavRequestActive(navRequestId)) return;
   setPicasaLog(formatPicasaLog(pathRel, picasa, options.album?.token ? String(options.album.token) : ""));
   await renderTiles(images, navRequestId);
+  if (isNarrowLayout()) setMobilePane("main");
   if (!isNavRequestActive(navRequestId)) return;
   ensureSpecialAlbums();
   await saveLibrarySnapshot({
@@ -8433,6 +8462,11 @@ window.addEventListener("beforeunload", () => {
   releaseThumbResourcesOnVisibility();
 });
 window.addEventListener("resize", () => {
+  if (!isNarrowLayout()) {
+    document.body.classList.remove("mobilePaneAside", "mobilePaneMain");
+  } else if (!document.body.classList.contains("mobilePaneAside") && !document.body.classList.contains("mobilePaneMain")) {
+    setMobilePane("aside");
+  }
   if (faceEditor.imageItem && getEditorPreviewPreference() === "fit") {
     faceEditor.previewKey = "";
     void refreshEditorPreview();
@@ -8442,6 +8476,27 @@ window.addEventListener("resize", () => {
     updateFaceCanvasTransform();
   }
 });
+const layoutSwipe = { startX: 0, startY: 0, active: false };
+document.querySelector(".layout")?.addEventListener("touchstart", (ev) => {
+  if (!isNarrowLayout() || ev.touches.length !== 1 || state.slideshow.open || el.faceEditorOverlay.classList.contains("show") || el.settingsOverlay.classList.contains("show")) return;
+  layoutSwipe.startX = ev.touches[0].clientX;
+  layoutSwipe.startY = ev.touches[0].clientY;
+  layoutSwipe.active = true;
+}, { passive: true });
+document.querySelector(".layout")?.addEventListener("touchend", (ev) => {
+  if (!layoutSwipe.active || !isNarrowLayout()) {
+    layoutSwipe.active = false;
+    return;
+  }
+  const t = ev.changedTouches?.[0];
+  layoutSwipe.active = false;
+  if (!t) return;
+  const dx = t.clientX - layoutSwipe.startX;
+  const dy = t.clientY - layoutSwipe.startY;
+  if (Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.4) {
+    setMobilePane(dx < 0 ? "main" : "aside");
+  }
+}, { passive: true });
 el.btnShowAllThumbs.onclick = () => {
   if (state.galleryMode === "thumbs") {
     releaseAllBoundThumbImages();
@@ -8479,6 +8534,30 @@ el.btnClose.onclick = closeSlideshow;
 el.overlay.addEventListener("mousemove", showSlideControlsTemporarily);
 el.overlay.addEventListener("touchstart", showSlideControlsTemporarily, { passive: true });
 el.overlay.addEventListener("click", showSlideControlsTemporarily);
+const slideSwipe = { startX: 0, startY: 0, startTime: 0, active: false };
+el.overlay.addEventListener("touchstart", (ev) => {
+  if (!state.slideshow.open || ev.touches.length !== 1) return;
+  slideSwipe.startX = ev.touches[0].clientX;
+  slideSwipe.startY = ev.touches[0].clientY;
+  slideSwipe.startTime = performance.now();
+  slideSwipe.active = true;
+}, { passive: true });
+el.overlay.addEventListener("touchend", (ev) => {
+  if (!slideSwipe.active || !state.slideshow.open || Math.max(1, Number(state.slideshow.zoom) || 1) > 1.05) {
+    slideSwipe.active = false;
+    return;
+  }
+  const t = ev.changedTouches?.[0];
+  if (!t) return;
+  const dx = t.clientX - slideSwipe.startX;
+  const dy = t.clientY - slideSwipe.startY;
+  const elapsed = performance.now() - slideSwipe.startTime;
+  slideSwipe.active = false;
+  if (elapsed < 900 && Math.abs(dx) > 60 && Math.abs(dx) > Math.abs(dy) * 1.5) {
+    if (dx < 0) nextSlide(); else prevSlide();
+    showSlideControlsTemporarily();
+  }
+}, { passive: true });
 el.btnPrev.onclick = prevSlide;
 el.btnNext.onclick = nextSlide;
 el.btnPlay.onclick = togglePlay;
@@ -8959,7 +9038,39 @@ document.querySelectorAll(".btnAspect").forEach((btn) => {
     btn.classList.add("active");
   };
 });
+const facePinch = { pointers: new Map(), startDistance: 0, startZoom: 1 };
+const facePointerDistance = () => {
+  const pts = Array.from(facePinch.pointers.values());
+  if (pts.length < 2) return 0;
+  return Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y);
+};
+function setFaceZoomCentered(nextZoom) {
+  const minZoom = Math.max(0.05, Number(faceEditor.zoomMin) || 1);
+  const maxZoom = Math.max(minZoom, minZoom * getEditorMaxZoomMultiplier());
+  const prevZoom = Math.max(minZoom, Math.min(maxZoom, Number(faceEditor.zoom) || minZoom));
+  const zoom = Math.max(minZoom, Math.min(maxZoom, Number(nextZoom) || minZoom));
+  if (Math.abs(zoom - prevZoom) < 0.0001) {
+    faceEditor.zoom = zoom;
+    return;
+  }
+  const ratio = zoom / prevZoom;
+  faceEditor.zoom = zoom;
+  faceEditor.panX = (Number(faceEditor.panX) || 0) * ratio;
+  faceEditor.panY = (Number(faceEditor.panY) || 0) * ratio;
+}
 el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
+  const viewportPointer = ev.target === el.faceCanvasImg || ev.target === el.faceCanvasWrap;
+  if (viewportPointer && faceEditor.imageItem) {
+    facePinch.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    try { el.faceCanvasWrap.setPointerCapture(ev.pointerId); } catch {}
+    if (facePinch.pointers.size >= 2) {
+      faceEditor.panning = false;
+      facePinch.startDistance = facePointerDistance();
+      facePinch.startZoom = Math.max(Math.max(0.05, Number(faceEditor.zoomMin) || 1), Number(faceEditor.zoom) || 1);
+      ev.preventDefault();
+      return;
+    }
+  }
   if (faceEditor.awaitingNewFaceDraw && (ev.target === el.faceCanvasImg || ev.target === el.faceCanvasWrap)) {
     const r = el.faceCanvasImg.getBoundingClientRect();
     const p = el.faceCanvasWrap.getBoundingClientRect();
@@ -9036,6 +9147,17 @@ el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
   }
 });
 el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
+  if (facePinch.pointers.has(ev.pointerId)) {
+    facePinch.pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
+    if (facePinch.pointers.size >= 2 && facePinch.startDistance > 0) {
+      const ratio = facePointerDistance() / facePinch.startDistance;
+      setFaceZoomCentered(facePinch.startZoom * ratio);
+      updateFaceCanvasTransform();
+      renderFaceRects();
+      ev.preventDefault();
+      return;
+    }
+  }
   if (faceEditor.panning) {
     faceEditor.panX = ev.clientX - faceEditor.panStartX;
     faceEditor.panY = ev.clientY - faceEditor.panStartY;
@@ -9123,7 +9245,9 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
   if (faceEditor.dragTarget === "redeye") refreshRedeyeDraft();
   renderFaceRects();
 });
-window.addEventListener('pointerup', () => {
+window.addEventListener('pointerup', (ev) => {
+  if (ev?.pointerId != null) facePinch.pointers.delete(ev.pointerId);
+  if (facePinch.pointers.size < 2) facePinch.startDistance = 0;
   const finishedNew = faceEditor.pendingNewFaceIdx >= 0 ? faceEditor.pendingNewFaceIdx : -1;
   const finishedNewRedeye = faceEditor.pendingNewRedeyeIdx >= 0 ? faceEditor.pendingNewRedeyeIdx : -1;
   faceEditor.draggingIdx = -1;
@@ -9149,6 +9273,10 @@ window.addEventListener('pointerup', () => {
     refreshRedeyeDraft();
     el.faceEditorStatus.textContent = "Red-eye area added.";
   }
+});
+window.addEventListener("pointercancel", (ev) => {
+  if (ev?.pointerId != null) facePinch.pointers.delete(ev.pointerId);
+  if (facePinch.pointers.size < 2) facePinch.startDistance = 0;
 });
 el.btnFaceSave.onclick = async () => {
   if (!faceEditor.imageItem) return;
