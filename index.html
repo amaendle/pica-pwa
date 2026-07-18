@@ -492,6 +492,8 @@
         </div>
         <div id="holgaControls" class="hidden">
           <div><b>Holga-ish filter</b></div>
+          <label>Blur edges <span id="holgaBlurValue" class="mono">100</span><input id="holgaBlurInput" type="range" min="0" max="100" step="1" value="100"></label>
+          <label>Grain <span id="holgaGrainValue" class="mono">100</span><input id="holgaGrainInput" type="range" min="0" max="100" step="1" value="100"></label>
           <label>Fade <span id="holgaFadeValue" class="mono">0</span><input id="holgaFadeInput" type="range" min="0" max="100" step="1" value="0"></label>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplyHolgaFilter">Apply Holga-ish</button>
@@ -2959,9 +2961,13 @@ function parseLomoFilter(filterString = "") {
   };
 }
 function parseHolgaFilter(filterString = "") {
-  const m = String(filterString || "").trim().match(/^holgaish=1,([^,]+)$/i);
+  const m = String(filterString || "").trim().match(/^holgaish=1,([^,]+)(?:,([^,]+),([^,]+))?$/i);
   if (!m) return null;
-  return { fade: Math.max(0, Math.min(100, Math.round(Number(m[1]) || 0))) };
+  return {
+    fade: Math.max(0, Math.min(100, Math.round(Number(m[1]) || 0))),
+    blur: Math.max(0, Math.min(100, Math.round(Number(m[2] ?? 0) || 0))),
+    grain: Math.max(0, Math.min(100, Math.round(Number(m[3] ?? 0) || 0)))
+  };
 }
 
 function parseFilteredBwFilter(filterString = "") {
@@ -4052,6 +4058,10 @@ const el = {
   btnApplyLomoFilter: document.getElementById("btnApplyLomoFilter"),
   btnCancelLomoFilter: document.getElementById("btnCancelLomoFilter"),
   holgaControls: document.getElementById("holgaControls"),
+  holgaBlurInput: document.getElementById("holgaBlurInput"),
+  holgaBlurValue: document.getElementById("holgaBlurValue"),
+  holgaGrainInput: document.getElementById("holgaGrainInput"),
+  holgaGrainValue: document.getElementById("holgaGrainValue"),
   holgaFadeInput: document.getElementById("holgaFadeInput"),
   holgaFadeValue: document.getElementById("holgaFadeValue"),
   btnHolgaMode: document.getElementById("btnHolgaMode"),
@@ -4488,7 +4498,7 @@ function lastHolgaFromFilters(filters) {
     const p = parseHolgaFilter(filters[i]);
     if (p) return p;
   }
-  return { fade: 0 };
+  return { fade: 0, blur: 100, grain: 100 };
 }
 function lastFilteredBwFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
@@ -7972,18 +7982,28 @@ function refreshLomoDraft() {
   return draft;
 }
 function readHolgaParamsFromControls() {
-  return { fade: Math.max(0, Math.min(100, Math.round(Number(el.holgaFadeInput?.value || 0) || 0))) };
+  return {
+    fade: Math.max(0, Math.min(100, Math.round(Number(el.holgaFadeInput?.value || 0) || 0))),
+    blur: Math.max(0, Math.min(100, Math.round(Number(el.holgaBlurInput?.value || 100) || 0))),
+    grain: Math.max(0, Math.min(100, Math.round(Number(el.holgaGrainInput?.value || 100) || 0)))
+  };
 }
 function writeHolgaControls(params = {}) {
   const normalized = window.HolgaFilter?.normalizeHolgaParams ? window.HolgaFilter.normalizeHolgaParams(params) : {
-    fade: Math.max(0, Math.min(100, Math.round(Number(params.fade ?? 0) || 0)))
+    fade: Math.max(0, Math.min(100, Math.round(Number(params.fade ?? 0) || 0))),
+    blur: Math.max(0, Math.min(100, Math.round(Number(params.blur ?? 100) || 0))),
+    grain: Math.max(0, Math.min(100, Math.round(Number(params.grain ?? 100) || 0)))
   };
+  if (el.holgaBlurInput) el.holgaBlurInput.value = String(Math.round(normalized.blur));
+  if (el.holgaBlurValue) el.holgaBlurValue.textContent = String(Math.round(normalized.blur));
+  if (el.holgaGrainInput) el.holgaGrainInput.value = String(Math.round(normalized.grain));
+  if (el.holgaGrainValue) el.holgaGrainValue.textContent = String(Math.round(normalized.grain));
   if (el.holgaFadeInput) el.holgaFadeInput.value = String(Math.round(normalized.fade));
   if (el.holgaFadeValue) el.holgaFadeValue.textContent = String(Math.round(normalized.fade));
 }
 function holgaToken(params = null) {
   const normalized = window.HolgaFilter?.normalizeHolgaParams ? window.HolgaFilter.normalizeHolgaParams(params || readHolgaParamsFromControls()) : (params || readHolgaParamsFromControls());
-  return `holgaish=1,${Math.round(normalized.fade)}`;
+  return `holgaish=1,${Math.round(normalized.fade)},${Math.round(normalized.blur)},${Math.round(normalized.grain)}`;
 }
 function refreshHolgaDraft() {
   const params = readHolgaParamsFromControls();
@@ -8318,6 +8338,8 @@ el.sixtiesBackgroundInput.oninput = () => refreshSixtiesDraft();
 el.sixtiesRoundedInput.onchange = () => refreshSixtiesDraft();
 el.lomoBlurInput.oninput = () => refreshLomoDraft();
 el.lomoFadeInput.oninput = () => refreshLomoDraft();
+el.holgaBlurInput.oninput = () => refreshHolgaDraft();
+el.holgaGrainInput.oninput = () => refreshHolgaDraft();
 el.holgaFadeInput.oninput = () => refreshHolgaDraft();
 el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
 el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
