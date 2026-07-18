@@ -2960,13 +2960,17 @@ function parseLomoFilter(filterString = "") {
     fade: Math.max(0, Math.min(100, Math.round(Number(m[2]) || 0))),
   };
 }
+function clampPercentValue(value, fallback = 0) {
+  const n = Number(value);
+  return Math.max(0, Math.min(100, Math.round(Number.isFinite(n) ? n : fallback)));
+}
 function parseHolgaFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^holgaish=1,([^,]+)(?:,([^,]+),([^,]+))?$/i);
   if (!m) return null;
   return {
-    fade: Math.max(0, Math.min(100, Math.round(Number(m[1]) || 0))),
-    blur: Math.max(0, Math.min(100, Math.round(Number(m[2] ?? 0) || 0))),
-    grain: Math.max(0, Math.min(100, Math.round(Number(m[3] ?? 0) || 0)))
+    fade: clampPercentValue(m[1], 0),
+    blur: clampPercentValue(m[2], 0),
+    grain: clampPercentValue(m[3], 0)
   };
 }
 
@@ -7983,33 +7987,42 @@ function refreshLomoDraft() {
 }
 function readHolgaParamsFromControls() {
   return {
-    fade: Math.max(0, Math.min(100, Math.round(Number(el.holgaFadeInput?.value || 0) || 0))),
-    blur: Math.max(0, Math.min(100, Math.round(Number(el.holgaBlurInput?.value || 100) || 0))),
-    grain: Math.max(0, Math.min(100, Math.round(Number(el.holgaGrainInput?.value || 100) || 0)))
+    fade: clampPercentValue(el.holgaFadeInput?.value, 0),
+    blur: clampPercentValue(el.holgaBlurInput?.value, 100),
+    grain: clampPercentValue(el.holgaGrainInput?.value, 100)
   };
 }
 function writeHolgaControls(params = {}) {
-  const normalized = window.HolgaFilter?.normalizeHolgaParams ? window.HolgaFilter.normalizeHolgaParams(params) : {
-    fade: Math.max(0, Math.min(100, Math.round(Number(params.fade ?? 0) || 0))),
-    blur: Math.max(0, Math.min(100, Math.round(Number(params.blur ?? 100) || 0))),
-    grain: Math.max(0, Math.min(100, Math.round(Number(params.grain ?? 100) || 0)))
+  const normalized = window.HolgaFilter?.normalizeHolgaParams ? window.HolgaFilter.normalizeHolgaParams(params || {}) : {
+    fade: clampPercentValue(params?.fade, 0),
+    blur: clampPercentValue(params?.blur, 100),
+    grain: clampPercentValue(params?.grain, 100)
   };
-  if (el.holgaBlurInput) el.holgaBlurInput.value = String(Math.round(normalized.blur));
-  if (el.holgaBlurValue) el.holgaBlurValue.textContent = String(Math.round(normalized.blur));
-  if (el.holgaGrainInput) el.holgaGrainInput.value = String(Math.round(normalized.grain));
-  if (el.holgaGrainValue) el.holgaGrainValue.textContent = String(Math.round(normalized.grain));
-  if (el.holgaFadeInput) el.holgaFadeInput.value = String(Math.round(normalized.fade));
-  if (el.holgaFadeValue) el.holgaFadeValue.textContent = String(Math.round(normalized.fade));
+  const blur = clampPercentValue(normalized.blur, 100);
+  const grain = clampPercentValue(normalized.grain, 100);
+  const fade = clampPercentValue(normalized.fade, 0);
+  if (el.holgaBlurInput) el.holgaBlurInput.value = String(blur);
+  if (el.holgaBlurValue) el.holgaBlurValue.textContent = String(blur);
+  if (el.holgaGrainInput) el.holgaGrainInput.value = String(grain);
+  if (el.holgaGrainValue) el.holgaGrainValue.textContent = String(grain);
+  if (el.holgaFadeInput) el.holgaFadeInput.value = String(fade);
+  if (el.holgaFadeValue) el.holgaFadeValue.textContent = String(fade);
 }
 function holgaToken(params = null) {
   const normalized = window.HolgaFilter?.normalizeHolgaParams ? window.HolgaFilter.normalizeHolgaParams(params || readHolgaParamsFromControls()) : (params || readHolgaParamsFromControls());
   return `holgaish=1,${Math.round(normalized.fade)},${Math.round(normalized.blur)},${Math.round(normalized.grain)}`;
 }
-function refreshHolgaDraft() {
+let holgaDraftTimer = 0;
+function refreshHolgaDraft(options = {}) {
   const params = readHolgaParamsFromControls();
   writeHolgaControls(params);
   const draft = holgaToken(params);
-  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  if (options.defer) {
+    clearTimeout(holgaDraftTimer);
+    holgaDraftTimer = setTimeout(() => refreshEditorPreview((faceEditor.filters || []).concat([draft])), 120);
+  } else {
+    refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  }
   return draft;
 }
 function readSoftenParamsFromControls() {
@@ -8338,9 +8351,9 @@ el.sixtiesBackgroundInput.oninput = () => refreshSixtiesDraft();
 el.sixtiesRoundedInput.onchange = () => refreshSixtiesDraft();
 el.lomoBlurInput.oninput = () => refreshLomoDraft();
 el.lomoFadeInput.oninput = () => refreshLomoDraft();
-el.holgaBlurInput.oninput = () => refreshHolgaDraft();
-el.holgaGrainInput.oninput = () => refreshHolgaDraft();
-el.holgaFadeInput.oninput = () => refreshHolgaDraft();
+el.holgaBlurInput.oninput = () => refreshHolgaDraft({ defer: true });
+el.holgaGrainInput.oninput = () => refreshHolgaDraft({ defer: true });
+el.holgaFadeInput.oninput = () => refreshHolgaDraft({ defer: true });
 el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
 el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
 el.boostInput.oninput = () => refreshBoostDraft();
