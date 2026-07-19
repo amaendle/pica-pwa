@@ -14,6 +14,7 @@
   <script src="./soften-filter.js"></script>
   <script src="./lomo-filter.js"></script>
   <script src="./holga-filter.js"></script>
+  <script src="./orton-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -332,6 +333,7 @@
             <button id="btnHeatmapMode">Heatmap</button>
             <button id="btnLomoMode">Lomo-ish</button>
             <button id="btnHolgaMode">Holga-ish</button>
+            <button id="btnOrtonMode">Orton-ish</button>
             <button id="btnApplyCrossProcessFilter">Cross-process</button>
           </div>
         </div>
@@ -498,6 +500,15 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplyHolgaFilter">Apply Holga-ish</button>
             <button id="btnCancelHolgaFilter" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="ortonControls" class="hidden">
+          <div><b>Orton-ish filter</b></div>
+          <label>Bloom <span id="ortonBloomValue" class="mono">25</span><input id="ortonBloomInput" type="range" min="0" max="100" step="1" value="25"></label>
+          <label>Fade <span id="ortonFadeValue" class="mono">0</span><input id="ortonFadeInput" type="range" min="0" max="100" step="1" value="0"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyOrtonFilter">Apply Orton-ish</button>
+            <button id="btnCancelOrtonFilter" type="button">Cancel</button>
           </div>
         </div>
         <div id="softenControls" class="hidden">
@@ -2973,6 +2984,14 @@ function parseHolgaFilter(filterString = "") {
     grain: clampPercentValue(m[3], 0)
   };
 }
+function parseOrtonFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^ortonish=1,([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  return {
+    bloom: clampPercentValue(m[1], 25),
+    fade: clampPercentValue(m[2], 0)
+  };
+}
 
 function parseFilteredBwFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^filtered-bw=1,([0-9a-f#]+)$/i);
@@ -3694,6 +3713,14 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Holga-ish filter unavailable");
       continue;
     }
+    m = parseOrtonFilter(f);
+    if (m) {
+      if (useWebglPreview) notifyFallback("Orton-ish");
+      const fn = window.OrtonFilter?.applyOrtonIshToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, m);
+      else notifyWebglFallback("Orton-ish filter unavailable");
+      continue;
+    }
     m = parseFilteredBwFilter(f);
     if (m) {
       if (useWebglPreview) notifyFallback("filtered-bw");
@@ -4071,6 +4098,14 @@ const el = {
   btnHolgaMode: document.getElementById("btnHolgaMode"),
   btnApplyHolgaFilter: document.getElementById("btnApplyHolgaFilter"),
   btnCancelHolgaFilter: document.getElementById("btnCancelHolgaFilter"),
+  ortonControls: document.getElementById("ortonControls"),
+  ortonBloomInput: document.getElementById("ortonBloomInput"),
+  ortonBloomValue: document.getElementById("ortonBloomValue"),
+  ortonFadeInput: document.getElementById("ortonFadeInput"),
+  ortonFadeValue: document.getElementById("ortonFadeValue"),
+  btnOrtonMode: document.getElementById("btnOrtonMode"),
+  btnApplyOrtonFilter: document.getElementById("btnApplyOrtonFilter"),
+  btnCancelOrtonFilter: document.getElementById("btnCancelOrtonFilter"),
   softenControls: document.getElementById("softenControls"),
   softenSoftnessInput: document.getElementById("softenSoftnessInput"),
   softenSoftnessValue: document.getElementById("softenSoftnessValue"),
@@ -4292,6 +4327,7 @@ const filterControlPanels = [
   el.boostControls,
   el.lomoControls,
   el.holgaControls,
+  el.ortonControls,
   el.softenControls,
   el.textControls,
   el.redeyeControls
@@ -4504,6 +4540,13 @@ function lastHolgaFromFilters(filters) {
   }
   return { fade: 0, blur: 100, grain: 100 };
 }
+function lastOrtonFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseOrtonFilter(filters[i]);
+    if (p) return p;
+  }
+  return { bloom: 25, fade: 0 };
+}
 function lastFilteredBwFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
     const p = parseFilteredBwFilter(filters[i]);
@@ -4596,7 +4639,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -5806,6 +5849,7 @@ function openFaceEditor(imageItem) {
   el.boostControls.classList.add("hidden");
   el.lomoControls.classList.add("hidden");
   el.holgaControls.classList.add("hidden");
+  el.ortonControls.classList.add("hidden");
   el.softenControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
@@ -5825,6 +5869,7 @@ function openFaceEditor(imageItem) {
   el.btnBoostMode.textContent = "Boost";
   el.btnLomoMode.textContent = "Lomo-ish";
   el.btnHolgaMode.textContent = "Holga-ish";
+  el.btnOrtonMode.textContent = "Orton-ish";
   el.btnSoftenMode.textContent = "Soften";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
@@ -5877,6 +5922,7 @@ function openFaceEditor(imageItem) {
   if (el.boostValue) el.boostValue.textContent = String(boostPercent);
   writeLomoControls(lastLomoFromFilters(faceEditor.filters));
   writeHolgaControls(lastHolgaFromFilters(faceEditor.filters));
+  writeOrtonControls(lastOrtonFromFilters(faceEditor.filters));
   writeSoftenControls(lastSoftenFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
@@ -8025,6 +8071,41 @@ function refreshHolgaDraft(options = {}) {
   }
   return draft;
 }
+function readOrtonParamsFromControls() {
+  return {
+    bloom: clampPercentValue(el.ortonBloomInput?.value, 25),
+    fade: clampPercentValue(el.ortonFadeInput?.value, 0)
+  };
+}
+function writeOrtonControls(params = {}) {
+  const normalized = window.OrtonFilter?.normalizeOrtonParams ? window.OrtonFilter.normalizeOrtonParams(params || {}) : {
+    bloom: clampPercentValue(params?.bloom, 25),
+    fade: clampPercentValue(params?.fade, 0)
+  };
+  const bloom = clampPercentValue(normalized.bloom, 25);
+  const fade = clampPercentValue(normalized.fade, 0);
+  if (el.ortonBloomInput) el.ortonBloomInput.value = String(bloom);
+  if (el.ortonBloomValue) el.ortonBloomValue.textContent = String(bloom);
+  if (el.ortonFadeInput) el.ortonFadeInput.value = String(fade);
+  if (el.ortonFadeValue) el.ortonFadeValue.textContent = String(fade);
+}
+function ortonToken(params = null) {
+  const normalized = window.OrtonFilter?.normalizeOrtonParams ? window.OrtonFilter.normalizeOrtonParams(params || readOrtonParamsFromControls()) : (params || readOrtonParamsFromControls());
+  return `ortonish=1,${Math.round(normalized.bloom)},${Math.round(normalized.fade)}`;
+}
+let ortonDraftTimer = 0;
+function refreshOrtonDraft(options = {}) {
+  const params = readOrtonParamsFromControls();
+  writeOrtonControls(params);
+  const draft = ortonToken(params);
+  if (options.defer) {
+    clearTimeout(ortonDraftTimer);
+    ortonDraftTimer = setTimeout(() => refreshEditorPreview((faceEditor.filters || []).concat([draft])), 120);
+  } else {
+    refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  }
+  return draft;
+}
 function readSoftenParamsFromControls() {
   const softness = Math.max(0, Math.min(100, Math.round(Number(el.softenSoftnessInput?.value || 50) || 0)));
   const fade = Math.max(0, Math.min(100, Math.round(Number(el.softenFadeInput?.value || 50) || 0)));
@@ -8305,6 +8386,12 @@ el.btnHolgaMode.onclick = () => {
   el.btnHolgaMode.textContent = show ? "Hide Holga-ish" : "Holga-ish";
   if (show) refreshHolgaDraft();
 };
+el.btnOrtonMode.onclick = () => {
+  const show = el.ortonControls.classList.contains("hidden");
+  el.ortonControls.classList.toggle("hidden", !show);
+  el.btnOrtonMode.textContent = show ? "Hide Orton-ish" : "Orton-ish";
+  if (show) refreshOrtonDraft();
+};
 const cancelDraftFilterControls = (controlsEl, modeButton, modeLabel) => {
   controlsEl.classList.add("hidden");
   modeButton.textContent = modeLabel;
@@ -8334,6 +8421,12 @@ el.btnApplyHolgaFilter.onclick = () => {
   el.btnHolgaMode.textContent = "Holga-ish";
 };
 el.btnCancelHolgaFilter.onclick = () => cancelDraftFilterControls(el.holgaControls, el.btnHolgaMode, "Holga-ish");
+el.btnApplyOrtonFilter.onclick = () => {
+  applyNoParamFilter(refreshOrtonDraft());
+  el.ortonControls.classList.add("hidden");
+  el.btnOrtonMode.textContent = "Orton-ish";
+};
+el.btnCancelOrtonFilter.onclick = () => cancelDraftFilterControls(el.ortonControls, el.btnOrtonMode, "Orton-ish");
 el.btnApplySoftenFilter.onclick = () => {
   applyNoParamFilter(refreshSoftenDraft());
   el.softenControls.classList.add("hidden");
@@ -8354,6 +8447,8 @@ el.lomoFadeInput.oninput = () => refreshLomoDraft();
 el.holgaBlurInput.oninput = () => refreshHolgaDraft({ defer: true });
 el.holgaGrainInput.oninput = () => refreshHolgaDraft({ defer: true });
 el.holgaFadeInput.oninput = () => refreshHolgaDraft({ defer: true });
+el.ortonBloomInput.oninput = () => refreshOrtonDraft({ defer: true });
+el.ortonFadeInput.oninput = () => refreshOrtonDraft({ defer: true });
 el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
 el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
 el.boostInput.oninput = () => refreshBoostDraft();
