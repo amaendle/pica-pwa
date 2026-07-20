@@ -125,6 +125,10 @@
     .hidden { display:none !important; }
     .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
     .status.busy::before { content:""; display:inline-block; width:.8em; height:.8em; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:-.12em; animation:spin .8s linear infinite; }
+    .pictureProcessingIndicator { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:1200; pointer-events:none; background:rgba(0,0,0,.18); }
+    .pictureProcessingIndicator.show { display:flex; }
+    .pictureProcessingBadge { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid rgba(255,255,255,.22); border-radius:999px; background:rgba(17,17,17,.88); color:#fff; box-shadow:0 8px 30px rgba(0,0,0,.35); font-size:13px; }
+    .pictureProcessingSpinner { width:18px; height:18px; border:3px solid rgba(255,255,255,.65); border-right-color:transparent; border-radius:50%; animation:spin .8s linear infinite; }
     @keyframes spin { to { transform:rotate(360deg); } }
     .warn { color: #ffda9e; }
     .ok { color: #a9f7c5; }
@@ -579,6 +583,10 @@
         <div class="mono" id="faceEditorStatus"></div>
       </div>
     </div>
+  </div>
+
+  <div id="pictureProcessingIndicator" class="pictureProcessingIndicator" aria-live="polite" aria-hidden="true">
+    <div class="pictureProcessingBadge"><span class="pictureProcessingSpinner" aria-hidden="true"></span><span id="pictureProcessingText">Updating picture…</span></div>
   </div>
 
   <div class="overlay" id="settingsOverlay" aria-hidden="true">
@@ -3608,7 +3616,10 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   const filterStart = performance.now();
   if (chain.length) {
     const label = String(file?.name || "image");
-    setStatus(`Computing ${chain.length} filter${chain.length === 1 ? "" : "s"} for ${label}…`, "busy");
+    const message = `Updating picture: computing ${chain.length} filter${chain.length === 1 ? "" : "s"} for ${label}…`;
+    setStatus(message, "busy");
+    setPictureProcessing(true, message);
+    await yieldToBrowser();
   }
   let canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth || 1;
@@ -3912,6 +3923,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   if (chain.length) {
     const elapsed = performance.now() - filterStart;
     const label = String(file?.name || "image");
+    setPictureProcessing(false);
     setStatus(`Computed ${chain.length} filter${chain.length === 1 ? "" : "s"} for ${label} in ${elapsed.toFixed(0)} ms.`, "ok");
     console.log(`[filters] ${label}: ${chain.length} filter(s) in ${elapsed.toFixed(1)} ms`, chain);
   }
@@ -4018,6 +4030,8 @@ const el = {
   galleryMapWrap: document.getElementById("galleryMapWrap"),
   galleryMap: document.getElementById("galleryMap"),
   mainStatus: document.getElementById("mainStatus"),
+  pictureProcessingIndicator: document.getElementById("pictureProcessingIndicator"),
+  pictureProcessingText: document.getElementById("pictureProcessingText"),
   picasaLogPanel: document.getElementById("picasaLogPanel"),
   picasaLog: document.getElementById("picasaLog"),
   overlay: document.getElementById("overlay"),
@@ -4354,6 +4368,15 @@ filterControlPanels.forEach((panel) => {
 });
 updateFilterCategoryPanelVisibility();
 
+let pictureProcessingDepth = 0;
+function setPictureProcessing(active, message = "Updating picture…") {
+  if (!el.pictureProcessingIndicator) return;
+  pictureProcessingDepth = Math.max(0, pictureProcessingDepth + (active ? 1 : -1));
+  const show = pictureProcessingDepth > 0;
+  el.pictureProcessingIndicator.classList.toggle("show", show);
+  el.pictureProcessingIndicator.setAttribute("aria-hidden", show ? "false" : "true");
+  if (el.pictureProcessingText) el.pictureProcessingText.textContent = message;
+}
 function setStatus(msg, cls = "") {
   el.mainStatus.className = "status " + cls;
   el.mainStatus.textContent = msg || "";
