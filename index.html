@@ -129,6 +129,8 @@
     .pictureProcessingIndicator.show { display:flex; }
     .pictureProcessingBadge { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid rgba(255,255,255,.22); border-radius:999px; background:rgba(17,17,17,.88); color:#fff; box-shadow:0 8px 30px rgba(0,0,0,.35); font-size:13px; }
     .pictureProcessingSpinner { width:18px; height:18px; border:3px solid rgba(255,255,255,.65); border-right-color:transparent; border-radius:50%; animation:spin .8s linear infinite; }
+    .pictureProcessingInline { position:absolute; inset:0; display:none; align-items:center; justify-content:center; z-index:20; pointer-events:none; background:rgba(0,0,0,.16); }
+    .pictureProcessingInline.show { display:flex; }
     @keyframes spin { to { transform:rotate(360deg); } }
     .warn { color: #ffda9e; }
     .ok { color: #a9f7c5; }
@@ -216,6 +218,9 @@
   <div class="overlay" id="overlay" aria-hidden="true">
     <div class="slideWrap">
       <img id="slideImg" class="slideImg" alt="">
+      <div id="slideProcessingIndicator" class="pictureProcessingInline pictureProcessingMirror" aria-hidden="true">
+        <div class="pictureProcessingBadge"><span class="pictureProcessingSpinner" aria-hidden="true"></span><span class="pictureProcessingMirrorText">Updating picture…</span></div>
+      </div>
       <div id="slideFaceLayer" class="slideFaceLayer"></div>
       <div id="slideTextOverlay" class="slideTextOverlay"></div>
       <div class="overlayTop">
@@ -247,6 +252,9 @@
       <div class="faceCanvasPane">
         <div class="faceCanvasWrap" id="faceCanvasWrap">
           <img id="faceCanvasImg" class="faceCanvasImg" alt="">
+          <div id="faceProcessingIndicator" class="pictureProcessingInline pictureProcessingMirror" aria-hidden="true">
+            <div class="pictureProcessingBadge"><span class="pictureProcessingSpinner" aria-hidden="true"></span><span class="pictureProcessingMirrorText">Updating picture…</span></div>
+          </div>
         </div>
         <div class="faceViewTools">
           <div><b>Adjust view</b></div>
@@ -4032,6 +4040,8 @@ const el = {
   mainStatus: document.getElementById("mainStatus"),
   pictureProcessingIndicator: document.getElementById("pictureProcessingIndicator"),
   pictureProcessingText: document.getElementById("pictureProcessingText"),
+  pictureProcessingMirrors: Array.from(document.querySelectorAll(".pictureProcessingMirror")),
+  pictureProcessingMirrorTexts: Array.from(document.querySelectorAll(".pictureProcessingMirrorText")),
   picasaLogPanel: document.getElementById("picasaLogPanel"),
   picasaLog: document.getElementById("picasaLog"),
   overlay: document.getElementById("overlay"),
@@ -4375,7 +4385,12 @@ function setPictureProcessing(active, message = "Updating picture…") {
   const show = pictureProcessingDepth > 0;
   el.pictureProcessingIndicator.classList.toggle("show", show);
   el.pictureProcessingIndicator.setAttribute("aria-hidden", show ? "false" : "true");
+  for (const mirror of (el.pictureProcessingMirrors || [])) {
+    mirror.classList.toggle("show", show);
+    mirror.setAttribute("aria-hidden", show ? "false" : "true");
+  }
   if (el.pictureProcessingText) el.pictureProcessingText.textContent = message;
+  for (const text of (el.pictureProcessingMirrorTexts || [])) text.textContent = message;
 }
 function setStatus(msg, cls = "") {
   el.mainStatus.className = "status " + cls;
