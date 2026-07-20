@@ -3684,17 +3684,23 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       continue;
     }
     if (/^invert=1$/i.test(String(f).trim())) {
-      if (useWebglPreview) notifyFallback("invert colors");
-      const fn = window.CreativeFilters?.applyInvertColorsToCanvas;
-      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas));
-      else notifyWebglFallback("Invert colors filter unavailable");
+      const glFn = window.CreativeFilters?.applyInvertColorsToCanvasWebGL;
+      const cpuFn = window.CreativeFilters?.applyInvertColorsToCanvas;
+      if (!(useWebglPreview && typeof glFn === "function" && glFn(canvas))) {
+        if (useWebglPreview) notifyFallback("invert colors");
+        if (typeof cpuFn === "function") canvas = cpuFn(ensureCanvas2D(canvas));
+        else notifyWebglFallback("Invert colors filter unavailable");
+      }
       continue;
     }
     if (/^crossprocess=1$/i.test(String(f).trim())) {
-      if (useWebglPreview) notifyFallback("cross-process");
-      const fn = window.CreativeFilters?.applyCrossProcessToCanvas;
-      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas));
-      else notifyWebglFallback("Cross-process filter unavailable");
+      const glFn = window.CreativeFilters?.applyCrossProcessToCanvasWebGL;
+      const cpuFn = window.CreativeFilters?.applyCrossProcessToCanvas;
+      if (!(useWebglPreview && typeof glFn === "function" && glFn(canvas))) {
+        if (useWebglPreview) notifyFallback("cross-process");
+        if (typeof cpuFn === "function") canvas = cpuFn(ensureCanvas2D(canvas));
+        else notifyWebglFallback("Cross-process filter unavailable");
+      }
       continue;
     }
     m = parseLomoFilter(f);
@@ -3723,10 +3729,14 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     }
     m = parseFilteredBwFilter(f);
     if (m) {
-      if (useWebglPreview) notifyFallback("filtered-bw");
-      const fn = window.CreativeFilters?.applyFilteredBwToCanvas;
-      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, { pickColor: m.color });
-      else notifyWebglFallback("Filtered B&W filter unavailable");
+      const params = { pickColor: m.color };
+      const glFn = window.CreativeFilters?.applyFilteredBwToCanvasWebGL;
+      const cpuFn = window.CreativeFilters?.applyFilteredBwToCanvas;
+      if (!(useWebglPreview && typeof glFn === "function" && glFn(canvas, undefined, params))) {
+        if (useWebglPreview) notifyFallback("filtered-bw");
+        if (typeof cpuFn === "function") canvas = cpuFn(ensureCanvas2D(canvas), undefined, params);
+        else notifyWebglFallback("Filtered B&W filter unavailable");
+      }
       continue;
     }
     m = parseBoostFilter(f);

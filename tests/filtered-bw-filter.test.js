@@ -71,5 +71,11 @@ const indexHtml = fs.readFileSync("index.html", "utf8");
 assert.match(indexHtml, /btnFilteredBwMode/, "Filtered B&W is registered in the editor UI");
 assert.match(indexHtml, /filtered-bw=1/, "Filtered B&W token serialization is present");
 assert.match(indexHtml, /parseFilteredBwFilter/, "Filtered B&W token parsing is present");
+assert.strictEqual(typeof CreativeFilters.applyInvertColorsToCanvasWebGL, "function", "invert has a WebGL helper");
+assert.strictEqual(typeof CreativeFilters.applyCrossProcessToCanvasWebGL, "function", "cross-process has a WebGL helper");
+assert.strictEqual(typeof CreativeFilters.applyFilteredBwToCanvasWebGL, "function", "Filtered B&W has a WebGL helper");
+assert.match(indexHtml, /applyInvertColorsToCanvasWebGL/, "invert WebGL helper is used by the preview pipeline");
+assert.match(indexHtml, /applyCrossProcessToCanvasWebGL/, "cross-process WebGL helper is used by the preview pipeline");
+assert.match(indexHtml, /applyFilteredBwToCanvasWebGL/, "Filtered B&W WebGL helper is used by the preview pipeline");
 
 console.log("filtered-bw tests passed");
