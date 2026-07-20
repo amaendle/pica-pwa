@@ -1721,6 +1721,12 @@ function releaseThumbResourcesOnVisibility() {
 function yieldToBrowser() {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
+function yieldToPaint() {
+  if (typeof requestAnimationFrame !== "function") return yieldToBrowser();
+  return new Promise((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(resolve));
+  });
+}
 
 async function renderAllThumbsGallery() {
   const selectedSource = String(state.prefs.thumbSource || "generated");
@@ -3627,7 +3633,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     const message = `Updating picture: computing ${chain.length} filter${chain.length === 1 ? "" : "s"} for ${label}…`;
     setStatus(message, "busy");
     setPictureProcessing(true, message);
-    await yieldToBrowser();
+    await yieldToPaint();
   }
   let canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth || 1;
