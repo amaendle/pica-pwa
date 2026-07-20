@@ -5224,7 +5224,9 @@ async function refreshEditorPreview(previewFilters = null) {
       effectiveFilters,
       previewOptions.size ?? 0,
       "",
-      { ...previewOptions, processingScope: "editor", isStale: () => requestId !== faceEditor.previewRequestId }
+      // Draft previews are triggered by slider movement. Keep those renders silent so
+      // indicator DOM updates/paint waits cannot compete with range input handling.
+      { ...previewOptions, processingScope: isDraft ? "none" : "editor", isStale: () => requestId !== faceEditor.previewRequestId }
     );
     if (requestId !== faceEditor.previewRequestId) {
       if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
