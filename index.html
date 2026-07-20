@@ -125,8 +125,6 @@
     .hidden { display:none !important; }
     .status { padding: 10px 12px; color: #aaa; font-size: 12px; border-top: 1px solid #222; }
     .status.busy::before { content:""; display:inline-block; width:.8em; height:.8em; margin-right:6px; border:2px solid currentColor; border-right-color:transparent; border-radius:50%; vertical-align:-.12em; animation:spin .8s linear infinite; }
-    .pictureProcessingIndicator { position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:1200; pointer-events:none; background:rgba(0,0,0,.18); }
-    .pictureProcessingIndicator.show { display:flex; }
     .pictureProcessingBadge { display:flex; align-items:center; gap:10px; padding:12px 16px; border:1px solid rgba(255,255,255,.22); border-radius:999px; background:rgba(17,17,17,.88); color:#fff; box-shadow:0 8px 30px rgba(0,0,0,.35); font-size:13px; }
     .pictureProcessingSpinner { width:18px; height:18px; border:3px solid rgba(255,255,255,.65); border-right-color:transparent; border-radius:50%; animation:spin .8s linear infinite; }
     .pictureProcessingInline { position:absolute; inset:0; display:none; align-items:center; justify-content:center; z-index:20; pointer-events:none; background:rgba(0,0,0,.16); }
@@ -593,9 +591,6 @@
     </div>
   </div>
 
-  <div id="pictureProcessingIndicator" class="pictureProcessingIndicator" aria-live="polite" aria-hidden="true">
-    <div class="pictureProcessingBadge"><span class="pictureProcessingSpinner" aria-hidden="true"></span><span id="pictureProcessingText">Updating picture…</span></div>
-  </div>
 
   <div class="overlay" id="settingsOverlay" aria-hidden="true">
     <div class="faceEditorBox" style="grid-template-columns:1fr; max-width:640px; height:auto;">
@@ -3628,12 +3623,24 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
 
   const chain = buildEffectiveFilterChain(filters, fallbackCropRect64);
   const filterStart = performance.now();
+  const processingScope = options.processingScope || "none";
+  const isStale = typeof options.isStale === "function" ? options.isStale : () => false;
+  const abortIfStale = () => {
+    if (isStale()) {
+      const err = new Error("Filtered preview request superseded by newer settings.");
+      err.name = "AbortError";
+      throw err;
+    }
+  };
+  let processingShown = false;
   if (chain.length) {
     const label = String(file?.name || "image");
     const message = `Updating picture: computing ${chain.length} filter${chain.length === 1 ? "" : "s"} for ${label}…`;
     setStatus(message, "busy");
-    setPictureProcessing(true, message);
+    setPictureProcessing(true, message, processingScope);
+    processingShown = true;
     await yieldToPaint();
+    abortIfStale();
   }
   let canvas = document.createElement("canvas");
   canvas.width = img.naturalWidth || 1;
@@ -3643,7 +3650,9 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   let view = { x: 0, y: 0, w: canvas.width, h: canvas.height };
   let hasAppliedTilt = false;
 
+  try {
   for (const f of chain) {
+    abortIfStale();
     let m = String(f).match(/^crop64=1,(.+)$/i);
     if (m) {
       const b = rect64ToBox(m[1].trim());
@@ -3937,11 +3946,13 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
   if (chain.length) {
     const elapsed = performance.now() - filterStart;
     const label = String(file?.name || "image");
-    setPictureProcessing(false);
     setStatus(`Computed ${chain.length} filter${chain.length === 1 ? "" : "s"} for ${label} in ${elapsed.toFixed(0)} ms.`, "ok");
     console.log(`[filters] ${label}: ${chain.length} filter(s) in ${elapsed.toFixed(1)} ms`, chain);
   }
   return URL.createObjectURL(blob);
+  } finally {
+    if (processingShown) setPictureProcessing(false, "", processingScope);
+  }
 }
 
 /** ===========================
@@ -4044,10 +4055,10 @@ const el = {
   galleryMapWrap: document.getElementById("galleryMapWrap"),
   galleryMap: document.getElementById("galleryMap"),
   mainStatus: document.getElementById("mainStatus"),
-  pictureProcessingIndicator: document.getElementById("pictureProcessingIndicator"),
-  pictureProcessingText: document.getElementById("pictureProcessingText"),
   pictureProcessingMirrors: Array.from(document.querySelectorAll(".pictureProcessingMirror")),
   pictureProcessingMirrorTexts: Array.from(document.querySelectorAll(".pictureProcessingMirrorText")),
+  faceProcessingIndicator: document.getElementById("faceProcessingIndicator"),
+  slideProcessingIndicator: document.getElementById("slideProcessingIndicator"),
   picasaLogPanel: document.getElementById("picasaLogPanel"),
   picasaLog: document.getElementById("picasaLog"),
   overlay: document.getElementById("overlay"),
@@ -4384,19 +4395,21 @@ filterControlPanels.forEach((panel) => {
 });
 updateFilterCategoryPanelVisibility();
 
-let pictureProcessingDepth = 0;
-function setPictureProcessing(active, message = "Updating picture…") {
-  if (!el.pictureProcessingIndicator) return;
-  pictureProcessingDepth = Math.max(0, pictureProcessingDepth + (active ? 1 : -1));
-  const show = pictureProcessingDepth > 0;
-  el.pictureProcessingIndicator.classList.toggle("show", show);
-  el.pictureProcessingIndicator.setAttribute("aria-hidden", show ? "false" : "true");
-  for (const mirror of (el.pictureProcessingMirrors || [])) {
-    mirror.classList.toggle("show", show);
-    mirror.setAttribute("aria-hidden", show ? "false" : "true");
+const pictureProcessingDepths = { editor: 0, slideshow: 0 };
+function setPictureProcessing(active, message = "Updating picture…", scope = "none") {
+  const key = ["editor", "slideshow"].includes(scope) ? scope : "none";
+  if (key !== "none") pictureProcessingDepths[key] = Math.max(0, (pictureProcessingDepths[key] || 0) + (active ? 1 : -1));
+  const faceShow = pictureProcessingDepths.editor > 0;
+  const slideShow = pictureProcessingDepths.slideshow > 0;
+  if (el.faceProcessingIndicator) {
+    el.faceProcessingIndicator.classList.toggle("show", faceShow);
+    el.faceProcessingIndicator.setAttribute("aria-hidden", faceShow ? "false" : "true");
   }
-  if (el.pictureProcessingText) el.pictureProcessingText.textContent = message;
-  for (const text of (el.pictureProcessingMirrorTexts || [])) text.textContent = message;
+  if (el.slideProcessingIndicator) {
+    el.slideProcessingIndicator.classList.toggle("show", slideShow);
+    el.slideProcessingIndicator.setAttribute("aria-hidden", slideShow ? "false" : "true");
+  }
+  if (message) for (const text of (el.pictureProcessingMirrorTexts || [])) text.textContent = message;
 }
 function setStatus(msg, cls = "") {
   el.mainStatus.className = "status " + cls;
@@ -5165,12 +5178,26 @@ function beginEditorDrag(ev, kind, idx = -1, mode = "move") {
 }
 
 
+let editorDraftSliderActive = false;
+let pendingEditorDraftFilters = null;
+function flushPendingEditorDraftPreview() {
+  editorDraftSliderActive = false;
+  const pending = pendingEditorDraftFilters;
+  pendingEditorDraftFilters = null;
+  if (pending) void refreshEditorPreview(pending);
+}
+
 async function refreshEditorPreview(previewFilters = null) {
   if (!faceEditor.imageItem) return;
   const effectiveFilters = Array.isArray(previewFilters)
     ? previewFilters.map((f) => String(f || "")).filter(Boolean)
     : (faceEditor.filters || []);
   const isDraft = Array.isArray(previewFilters);
+  if (isDraft && editorDraftSliderActive) {
+    pendingEditorDraftFilters = effectiveFilters.slice();
+    faceEditor.previewRequestId += 1;
+    return;
+  }
   const previewOptions = getEditorPreviewRenderOptions();
   const key = JSON.stringify({
     f: effectiveFilters,
@@ -5188,12 +5215,16 @@ async function refreshEditorPreview(previewFilters = null) {
   }
   const requestId = ++faceEditor.previewRequestId;
   try {
+    if (isDraft) {
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      if (requestId !== faceEditor.previewRequestId) return;
+    }
     const url = await makeFilteredPreviewURL(
       faceEditor.imageItem.file,
       effectiveFilters,
       previewOptions.size ?? 0,
       "",
-      previewOptions
+      { ...previewOptions, processingScope: "editor", isStale: () => requestId !== faceEditor.previewRequestId }
     );
     if (requestId !== faceEditor.previewRequestId) {
       if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
@@ -7650,7 +7681,7 @@ async function updateSlide() {
     const cacheKey = JSON.stringify({ filters: chain, crop: fallbackCrop, finetune2: state.slideshow.enableFinetune2, webgl: state.slideshow.useWebglPreview });
     if (!it.slidePreviewUrl || it.slidePreviewKey !== cacheKey) {
       if (it.slidePreviewUrl?.startsWith("blob:")) URL.revokeObjectURL(it.slidePreviewUrl);
-      it.slidePreviewUrl = await makeFilteredPreviewURL(it.file, chain, 2048, fallbackCrop, { useWebglPreview: !!state.slideshow.useWebglPreview });
+      it.slidePreviewUrl = await makeFilteredPreviewURL(it.file, chain, 2048, fallbackCrop, { useWebglPreview: !!state.slideshow.useWebglPreview, processingScope: "slideshow" });
       it.slidePreviewKey = cacheKey;
     }
     el.slideImg.src = it.slidePreviewUrl || it.url;
@@ -7920,6 +7951,18 @@ el.faceAlbumTokenInput.addEventListener("change", () => {
     el.faceAlbumTokenInput.value = "";
   }
 });
+document.addEventListener("pointerdown", (ev) => {
+  if (ev.target?.matches?.(".faceEditorSide input[type=range]")) {
+    editorDraftSliderActive = true;
+    faceEditor.previewRequestId += 1;
+  }
+});
+document.addEventListener("pointerup", flushPendingEditorDraftPreview);
+document.addEventListener("pointercancel", flushPendingEditorDraftPreview);
+document.addEventListener("change", (ev) => {
+  if (ev.target?.matches?.(".faceEditorSide input[type=range]")) flushPendingEditorDraftPreview();
+});
+
 el.faceFillLightSlider.oninput = () => {
   const fl = Math.max(0, Math.min(1, Number(el.faceFillLightSlider.value || "0")));
   el.faceFillLightValue.textContent = fl.toFixed(2);
