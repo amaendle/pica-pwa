@@ -15,6 +15,7 @@
   <script src="./lomo-filter.js"></script>
   <script src="./holga-filter.js"></script>
   <script src="./orton-filter.js"></script>
+  <script src="./duotone-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -344,6 +345,7 @@
             <button id="btnLomoMode">Lomo-ish</button>
             <button id="btnHolgaMode">Holga-ish</button>
             <button id="btnOrtonMode">Orton-ish</button>
+            <button id="btnDuoToneMode">Duo-tone</button>
             <button id="btnApplyCrossProcessFilter">Cross-process</button>
           </div>
         </div>
@@ -519,6 +521,18 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplyOrtonFilter">Apply Orton-ish</button>
             <button id="btnCancelOrtonFilter" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="duotoneControls" class="hidden">
+          <div><b>Duo-tone filter</b></div>
+          <label style="display:flex; gap:8px; align-items:center;">Color 1 <input id="duotoneColor1Input" type="color" value="#004488"></label>
+          <label style="display:flex; gap:8px; align-items:center;">Color 2 <input id="duotoneColor2Input" type="color" value="#ffff00"></label>
+          <label>Contrast <span id="duotoneContrastValue" class="mono">100</span><input id="duotoneContrastInput" type="range" min="0" max="100" step="1" value="100"></label>
+          <label>Brightness <span id="duotoneBrightnessValue" class="mono">0</span><input id="duotoneBrightnessInput" type="range" min="-100" max="100" step="1" value="0"></label>
+          <label>Fade <span id="duotoneFadeValue" class="mono">0</span><input id="duotoneFadeInput" type="range" min="0" max="100" step="1" value="0"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyDuoToneFilter">Apply Duo-tone</button>
+            <button id="btnCancelDuoToneFilter" type="button">Cancel</button>
           </div>
         </div>
         <div id="softenControls" class="hidden">
@@ -3009,6 +3023,27 @@ function parseOrtonFilter(filterString = "") {
     fade: clampPercentValue(m[2], 0)
   };
 }
+function normalizeDuoToneColorValue(value, fallback = "#ffffff") {
+  let s = String(value || "").trim().toLowerCase();
+  if (/^[0-9a-f]{8}$/i.test(s)) s = `#${s.slice(2)}`;
+  const m = s.match(/^#?([0-9a-f]{6})$/i);
+  return m ? `#${m[1].toLowerCase()}` : fallback;
+}
+function clampSignedPercentValue(value, fallback = 0) {
+  const n = Number(value);
+  return Math.max(-100, Math.min(100, Math.round(Number.isFinite(n) ? n : fallback)));
+}
+function parseDuoToneFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^duotone=1,([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  return {
+    color1: normalizeDuoToneColorValue(decodeURIComponent(m[1]), "#004488"),
+    color2: normalizeDuoToneColorValue(decodeURIComponent(m[2]), "#ffff00"),
+    contrast: clampPercentValue(m[3], 100),
+    brightness: clampSignedPercentValue(m[4], 0),
+    fade: clampPercentValue(m[5], 0)
+  };
+}
 
 function parseFilteredBwFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^filtered-bw=1,([0-9a-f#]+)$/i);
@@ -3761,6 +3796,14 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Orton-ish filter unavailable");
       continue;
     }
+    m = parseDuoToneFilter(f);
+    if (m) {
+      if (useWebglPreview) notifyFallback("Duo-tone");
+      const fn = window.DuoToneFilter?.applyDuoToneIshToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, m);
+      else notifyWebglFallback("Duo-tone filter unavailable");
+      continue;
+    }
     m = parseFilteredBwFilter(f);
     if (m) {
       const params = { pickColor: m.color };
@@ -4157,6 +4200,18 @@ const el = {
   btnOrtonMode: document.getElementById("btnOrtonMode"),
   btnApplyOrtonFilter: document.getElementById("btnApplyOrtonFilter"),
   btnCancelOrtonFilter: document.getElementById("btnCancelOrtonFilter"),
+  duotoneControls: document.getElementById("duotoneControls"),
+  duotoneColor1Input: document.getElementById("duotoneColor1Input"),
+  duotoneColor2Input: document.getElementById("duotoneColor2Input"),
+  duotoneContrastInput: document.getElementById("duotoneContrastInput"),
+  duotoneContrastValue: document.getElementById("duotoneContrastValue"),
+  duotoneBrightnessInput: document.getElementById("duotoneBrightnessInput"),
+  duotoneBrightnessValue: document.getElementById("duotoneBrightnessValue"),
+  duotoneFadeInput: document.getElementById("duotoneFadeInput"),
+  duotoneFadeValue: document.getElementById("duotoneFadeValue"),
+  btnDuoToneMode: document.getElementById("btnDuoToneMode"),
+  btnApplyDuoToneFilter: document.getElementById("btnApplyDuoToneFilter"),
+  btnCancelDuoToneFilter: document.getElementById("btnCancelDuoToneFilter"),
   softenControls: document.getElementById("softenControls"),
   softenSoftnessInput: document.getElementById("softenSoftnessInput"),
   softenSoftnessValue: document.getElementById("softenSoftnessValue"),
@@ -4379,6 +4434,7 @@ const filterControlPanels = [
   el.lomoControls,
   el.holgaControls,
   el.ortonControls,
+  el.duotoneControls,
   el.softenControls,
   el.textControls,
   el.redeyeControls
@@ -4614,6 +4670,13 @@ function lastOrtonFromFilters(filters) {
   }
   return { bloom: 25, fade: 0 };
 }
+function lastDuoToneFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseDuoToneFilter(filters[i]);
+    if (p) return p;
+  }
+  return { color1: "#004488", color2: "#ffff00", contrast: 100, brightness: 0, fade: 0 };
+}
 function lastFilteredBwFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
     const p = parseFilteredBwFilter(filters[i]);
@@ -4706,7 +4769,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -5937,6 +6000,7 @@ function openFaceEditor(imageItem) {
   el.lomoControls.classList.add("hidden");
   el.holgaControls.classList.add("hidden");
   el.ortonControls.classList.add("hidden");
+  el.duotoneControls.classList.add("hidden");
   el.softenControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
@@ -5957,6 +6021,7 @@ function openFaceEditor(imageItem) {
   el.btnLomoMode.textContent = "Lomo-ish";
   el.btnHolgaMode.textContent = "Holga-ish";
   el.btnOrtonMode.textContent = "Orton-ish";
+  el.btnDuoToneMode.textContent = "Duo-tone";
   el.btnSoftenMode.textContent = "Soften";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
@@ -6010,6 +6075,7 @@ function openFaceEditor(imageItem) {
   writeLomoControls(lastLomoFromFilters(faceEditor.filters));
   writeHolgaControls(lastHolgaFromFilters(faceEditor.filters));
   writeOrtonControls(lastOrtonFromFilters(faceEditor.filters));
+  writeDuoToneControls(lastDuoToneFromFilters(faceEditor.filters));
   writeSoftenControls(lastSoftenFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
@@ -8205,6 +8271,48 @@ function refreshOrtonDraft(options = {}) {
   }
   return draft;
 }
+function readDuoToneParamsFromControls() {
+  return {
+    color1: normalizeDuoToneColorValue(el.duotoneColor1Input?.value, "#004488"),
+    color2: normalizeDuoToneColorValue(el.duotoneColor2Input?.value, "#ffff00"),
+    contrast: clampPercentValue(el.duotoneContrastInput?.value, 100),
+    brightness: clampSignedPercentValue(el.duotoneBrightnessInput?.value, 0),
+    fade: clampPercentValue(el.duotoneFadeInput?.value, 0)
+  };
+}
+function writeDuoToneControls(params = {}) {
+  const normalized = window.DuoToneFilter?.normalizeDuoToneParams ? window.DuoToneFilter.normalizeDuoToneParams(params || {}) : (params || {});
+  const color1 = normalizeDuoToneColorValue(normalized.color1, "#004488");
+  const color2 = normalizeDuoToneColorValue(normalized.color2, "#ffff00");
+  const contrast = clampPercentValue(normalized.contrast, 100);
+  const brightness = clampSignedPercentValue(normalized.brightness, 0);
+  const fade = clampPercentValue(normalized.fade, 0);
+  if (el.duotoneColor1Input) el.duotoneColor1Input.value = color1;
+  if (el.duotoneColor2Input) el.duotoneColor2Input.value = color2;
+  if (el.duotoneContrastInput) el.duotoneContrastInput.value = String(contrast);
+  if (el.duotoneContrastValue) el.duotoneContrastValue.textContent = String(contrast);
+  if (el.duotoneBrightnessInput) el.duotoneBrightnessInput.value = String(brightness);
+  if (el.duotoneBrightnessValue) el.duotoneBrightnessValue.textContent = String(brightness);
+  if (el.duotoneFadeInput) el.duotoneFadeInput.value = String(fade);
+  if (el.duotoneFadeValue) el.duotoneFadeValue.textContent = String(fade);
+}
+function duotoneToken(params = null) {
+  const normalized = window.DuoToneFilter?.normalizeDuoToneParams ? window.DuoToneFilter.normalizeDuoToneParams(params || readDuoToneParamsFromControls()) : readDuoToneParamsFromControls();
+  return `duotone=1,${encodeURIComponent(normalized.color1)},${encodeURIComponent(normalized.color2)},${Math.round(normalized.contrast)},${Math.round(normalized.brightness)},${Math.round(normalized.fade)}`;
+}
+let duotoneDraftTimer = 0;
+function refreshDuoToneDraft(options = {}) {
+  const params = readDuoToneParamsFromControls();
+  writeDuoToneControls(params);
+  const draft = duotoneToken(params);
+  if (options.defer) {
+    clearTimeout(duotoneDraftTimer);
+    duotoneDraftTimer = setTimeout(() => refreshEditorPreview((faceEditor.filters || []).concat([draft])), 120);
+  } else {
+    refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  }
+  return draft;
+}
 function readSoftenParamsFromControls() {
   const softness = Math.max(0, Math.min(100, Math.round(Number(el.softenSoftnessInput?.value || 50) || 0)));
   const fade = Math.max(0, Math.min(100, Math.round(Number(el.softenFadeInput?.value || 50) || 0)));
@@ -8491,6 +8599,12 @@ el.btnOrtonMode.onclick = () => {
   el.btnOrtonMode.textContent = show ? "Hide Orton-ish" : "Orton-ish";
   if (show) refreshOrtonDraft();
 };
+el.btnDuoToneMode.onclick = () => {
+  const show = el.duotoneControls.classList.contains("hidden");
+  el.duotoneControls.classList.toggle("hidden", !show);
+  el.btnDuoToneMode.textContent = show ? "Hide Duo-tone" : "Duo-tone";
+  if (show) refreshDuoToneDraft();
+};
 const cancelDraftFilterControls = (controlsEl, modeButton, modeLabel) => {
   controlsEl.classList.add("hidden");
   modeButton.textContent = modeLabel;
@@ -8526,6 +8640,12 @@ el.btnApplyOrtonFilter.onclick = () => {
   el.btnOrtonMode.textContent = "Orton-ish";
 };
 el.btnCancelOrtonFilter.onclick = () => cancelDraftFilterControls(el.ortonControls, el.btnOrtonMode, "Orton-ish");
+el.btnApplyDuoToneFilter.onclick = () => {
+  applyNoParamFilter(refreshDuoToneDraft());
+  el.duotoneControls.classList.add("hidden");
+  el.btnDuoToneMode.textContent = "Duo-tone";
+};
+el.btnCancelDuoToneFilter.onclick = () => cancelDraftFilterControls(el.duotoneControls, el.btnDuoToneMode, "Duo-tone");
 el.btnApplySoftenFilter.onclick = () => {
   applyNoParamFilter(refreshSoftenDraft());
   el.softenControls.classList.add("hidden");
@@ -8548,6 +8668,11 @@ el.holgaGrainInput.oninput = () => refreshHolgaDraft({ defer: true });
 el.holgaFadeInput.oninput = () => refreshHolgaDraft({ defer: true });
 el.ortonBloomInput.oninput = () => refreshOrtonDraft({ defer: true });
 el.ortonFadeInput.oninput = () => refreshOrtonDraft({ defer: true });
+el.duotoneColor1Input.oninput = () => refreshDuoToneDraft({ defer: true });
+el.duotoneColor2Input.oninput = () => refreshDuoToneDraft({ defer: true });
+el.duotoneContrastInput.oninput = () => refreshDuoToneDraft({ defer: true });
+el.duotoneBrightnessInput.oninput = () => refreshDuoToneDraft({ defer: true });
+el.duotoneFadeInput.oninput = () => refreshDuoToneDraft({ defer: true });
 el.heatmapHueShiftInput.oninput = () => refreshHeatmapDraft();
 el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
 el.boostInput.oninput = () => refreshBoostDraft();

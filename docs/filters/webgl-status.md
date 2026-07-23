@@ -20,6 +20,7 @@ Picasanous uses the CPU implementation as the reference path for every filter. W
 | Lomo-ish | `lomoish` | `lomo-filter.js` | CPU only | Feasible but multi-pass when blur is enabled; the base look is single-pass, focal blur needs reusable blur/focus mask passes. |
 | Holga-ish | `holgaish` | `holga-filter.js` | CPU only | Feasible but multi-pass when edge blur is enabled, and deterministic grain requires a shader-compatible noise implementation matching the CPU hash. |
 | Orton-ish | `ortonish` | `orton-filter.js` | CPU only | Feasible but multi-pass: exact output requires tone pass, approximated bloom blur, hard-light layer, darkening, and final fade. |
+| Duo-tone | `duotone` | `duotone-filter.js` | CPU only | Feasible as a shader if the small edge-aware local-mean pass is provided as a prepass/texture; current implementation keeps the calibrated CPU model as the reference path. |
 | Red-eye | `redeye2` | Editor overlay/pixel path | CPU only | Feasible as a targeted shader pass, but current implementation is rectangle/area driven and not a general full-frame filter shader. |
 
 ## Implementation policy
