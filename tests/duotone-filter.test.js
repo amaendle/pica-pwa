@@ -7,6 +7,11 @@ vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync("duotone-filter.js", "utf8"), sandbox, { filename: "duotone-filter.js" });
 const { DuoToneFilter } = sandbox.window;
 
+assert.strictEqual(DuoToneFilter.DUOTONE_SETTINGS.model.architecture, "shared-tanh-heads-monotonic-spline-v1");
+assert.strictEqual(DuoToneFilter.DUOTONE_SETTINGS.model.network.inputCount, 13);
+assert.strictEqual(DuoToneFilter.DUOTONE_SETTINGS.model.network.hiddenCount, 12);
+assert.strictEqual(DuoToneFilter.DUOTONE_SETTINGS.model.network.w1.length, 156);
+assert.strictEqual(DuoToneFilter.DUOTONE_SETTINGS.model.c100.kind, "neural-spline");
 assert.strictEqual(JSON.stringify(DuoToneFilter.normalizeDuoToneParams({})), JSON.stringify({ color1: "#004488", color2: "#ffff00", brightness: 0, contrast: 100, fade: 0 }));
 assert.strictEqual(JSON.stringify(DuoToneFilter.normalizeDuoToneParams({ color1: "bad", color2: "ff00aa", brightness: -10, contrast: 150, fade: 101 })), JSON.stringify({ color1: "#004488", color2: "#ff00aa", brightness: -10, contrast: 100, fade: 100 }));
 
@@ -25,6 +30,10 @@ for (let i = 0; i < effect.length; i += 4) {
   assert.strictEqual(effect[i + 3], image[i + 3], "alpha is preserved");
 }
 assert.notDeepStrictEqual(Array.from(effect.slice(0, 3)), Array.from(image.slice(0, 3)), "duo-tone effect changes RGB when not faded");
+assert.deepStrictEqual(Array.from(effect), [255,255,255,255,0,0,0,128,0,0,0,64,255,255,255,32], "calibrated neural-spline output remains stable with a black/white palette");
+
+const calibrated = DuoToneFilter.applyDuoToneRGBA(image, 2, 2, 0, 100);
+assert.deepStrictEqual(Array.from(calibrated), [255,255,0,255,0,68,136,128,0,68,136,64,255,255,0,32], "100 contrast uses the calibrated neural-spline head without a hard cutoff");
 
 const half = DuoToneFilter.applyDuoToneIshToBuffer(image, 2, 2, { fade: 50, color1: "#000000", color2: "#ffffff", contrast: 100, brightness: 0 });
 for (let i = 0; i < half.length; i += 4) {
