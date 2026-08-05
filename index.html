@@ -155,8 +155,15 @@
       background: linear-gradient(to bottom, rgba(0,0,0,.75), rgba(0,0,0,0));
       color: #ddd; font-size: 12px;
     }
-    .overlayTop, .overlayBar { transition: opacity .25s ease; }
+    .overlayTop, .overlayBar, .slideCaptionPill { transition: opacity .25s ease; }
     .overlay.controlsHidden .overlayTop, .overlay.controlsHidden .overlayBar { opacity:0; pointer-events:none; }
+    .slideCaptionPill { position:absolute; left:50%; bottom:74px; transform:translateX(-50%); max-width:min(78vw, 920px); padding:6px 12px; border:1px solid #333; border-radius:999px; background:rgba(17,17,17,.82); color:#ddd; font-size:13px; text-align:center; white-space:normal; pointer-events:none; z-index:12; }
+    .slideCaptionPill.hidden { display:none; }
+    .slideImg { transition: opacity .22s ease; }
+    .slideImg.slideTransitionOut { opacity:0; }
+    .slideMapPanel { position:absolute; right:14px; top:72px; width:min(420px, calc(100vw - 28px)); height:min(320px, calc(100vh - 180px)); min-height:180px; border:1px solid #333; border-radius:12px; overflow:hidden; background:#111; box-shadow:0 10px 30px rgba(0,0,0,.55); z-index:30; }
+    .slideMapPanel.hidden { display:none; }
+    .slideMapBox { width:100%; height:100%; }
     .kbd { border: 1px solid #444; padding: 2px 6px; border-radius: 6px; font-size: 11px; color: #ccc; }
     @media (max-width: 980px) {
       .faceEditorBox { grid-template-columns: 1fr; height:auto; max-height:calc(100vh - 36px); }
@@ -222,6 +229,8 @@
       </div>
       <div id="slideFaceLayer" class="slideFaceLayer"></div>
       <div id="slideTextOverlay" class="slideTextOverlay"></div>
+      <div id="slideCaptionPill" class="slideCaptionPill pill hidden"></div>
+      <div id="slideMapPanel" class="slideMapPanel hidden" aria-hidden="true"><div id="slideMap" class="slideMapBox"></div></div>
       <div class="overlayTop">
         <div><div id="slideMeta" class="mono"></div><div id="slideAlbums" style="margin-top:4px"></div></div>
         <div style="display:flex; gap:8px;">
@@ -230,6 +239,7 @@
           <button id="btnToggleText">Text: On</button>
           <button id="btnToggleFinetune2">FineTune2: On</button>
           <button id="btnToggleSlideWebgl">WebGL: On</button>
+          <button id="btnToggleSlideMap" class="hidden">Map</button>
           <button id="btnSlideEdit">Edit</button>
           <label class="pill" style="display:flex; align-items:center; gap:6px;">Zoom <span id="slideZoomValue" class="mono">1.00×</span><input id="slideZoomSlider" type="range" min="1" max="6" step="0.01" value="1" style="width:120px;"></label>
           <button id="btnSlideZoomReset">Reset view</button>
@@ -4017,7 +4027,7 @@ const state = {
   currentViewMode: "albums",
   activeListIndex: -1,
   libraryId: "default",
-  slideshow: { open: false, index: 0, playing: false, timer: null, controlsTimer: null, intervalMs: 2500, showFaces: false, showCrop: true, showText: true, enableFinetune2: true, useWebglPreview: true, zoom: 1, panX: 0, panY: 0, panning: false, panStartX: 0, panStartY: 0 },
+  slideshow: { open: false, index: 0, playing: false, timer: null, controlsTimer: null, intervalMs: 2500, showFaces: false, showCrop: true, showText: true, enableFinetune2: true, useWebglPreview: true, zoom: 1, panX: 0, panY: 0, panning: false, panStartX: 0, panStartY: 0, mapVisible: false, map: null, mapMarker: null },
   prefs: { readCaption: "ini", readKeywords: "ini", writeCaption: "ini", writeKeywords: "ini", thumbSource: "bigthumbs", editorPreviewSize: DEFAULT_EDITOR_PREVIEW_SIZE, editorMaxZoomMultiplier: 4, thumbSize: 140, useWebglPreview: true, persistGeneratedThumbs: true },
   preview: { useWebglPreview: true },
   pmpColumnsCache: [],
@@ -4116,6 +4126,7 @@ const el = {
   btnToggleText: document.getElementById("btnToggleText"),
   btnToggleFinetune2: document.getElementById("btnToggleFinetune2"),
   btnToggleSlideWebgl: document.getElementById("btnToggleSlideWebgl"),
+  btnToggleSlideMap: document.getElementById("btnToggleSlideMap"),
   btnSlideEdit: document.getElementById("btnSlideEdit"),
   slideZoomSlider: document.getElementById("slideZoomSlider"),
   slideZoomValue: document.getElementById("slideZoomValue"),
@@ -4124,6 +4135,9 @@ const el = {
   btnToggleStar: document.getElementById("btnToggleStar"),
   slideFaceLayer: document.getElementById("slideFaceLayer"),
   slideTextOverlay: document.getElementById("slideTextOverlay"),
+  slideCaptionPill: document.getElementById("slideCaptionPill"),
+  slideMapPanel: document.getElementById("slideMapPanel"),
+  slideMap: document.getElementById("slideMap"),
   slideAlbums: document.getElementById("slideAlbums"),
   faceEditorOverlay: document.getElementById("faceEditorOverlay"),
   faceCanvasWrap: document.getElementById("faceCanvasWrap"),
@@ -7600,6 +7614,12 @@ function closeSlideshow() {
   if (state.slideshow.controlsTimer) clearTimeout(state.slideshow.controlsTimer);
   state.slideshow.controlsTimer = null;
   el.overlay.classList.remove("controlsHidden");
+  state.slideshow.mapVisible = false;
+  if (el.slideMapPanel) {
+    el.slideMapPanel.classList.add("hidden");
+    el.slideMapPanel.setAttribute("aria-hidden", "true");
+  }
+  if (el.slideCaptionPill) el.slideCaptionPill.classList.add("hidden");
   el.overlay.classList.remove("show");
   el.overlay.setAttribute("aria-hidden", "true");
   closeSlideImagedataOverlay();
@@ -7618,6 +7638,66 @@ function closeSlideImagedataOverlay() {
   el.slideImagedataOverlay.classList.remove("show");
   el.slideImagedataOverlay.setAttribute("aria-hidden", "true");
   showSlideControlsTemporarily();
+}
+
+function slideGeoForItem(it) {
+  const geo = it?.geotag || it?.exifGps || null;
+  if (geo && Number.isFinite(geo.lat) && Number.isFinite(geo.lng)) return { lat: Number(geo.lat), lng: Number(geo.lng) };
+  return null;
+}
+function updateSlideCaption(it) {
+  const caption = String(it?.caption || "").trim();
+  if (!el.slideCaptionPill) return;
+  if (!caption) {
+    el.slideCaptionPill.textContent = "";
+    el.slideCaptionPill.classList.add("hidden");
+    return;
+  }
+  el.slideCaptionPill.textContent = caption;
+  el.slideCaptionPill.classList.remove("hidden");
+}
+async function setSlideImageSourceWithTransition(src) {
+  if (!el.slideImg || el.slideImg.src === src) return;
+  el.slideImg.classList.add("slideTransitionOut");
+  await new Promise((resolve) => setTimeout(resolve, 120));
+  el.slideImg.src = src;
+  await (el.slideImg.decode ? el.slideImg.decode().catch(()=>{}) : Promise.resolve());
+  requestAnimationFrame(() => el.slideImg.classList.remove("slideTransitionOut"));
+}
+function ensureSlideMap() {
+  if (!window.maplibregl || !el.slideMap) return null;
+  if (state.slideshow.map) return state.slideshow.map;
+  state.slideshow.map = new maplibregl.Map({ container: el.slideMap, style: geoStyleFor("map"), center: [0, 0], zoom: 2.2, maxPitch: 70 });
+  attachMapDebugListeners(state.slideshow.map, "slide-map");
+  state.slideshow.map.addControl(new maplibregl.NavigationControl({ showCompass: true, showZoom: true, visualizePitch: true }), "top-right");
+  return state.slideshow.map;
+}
+function updateSlideMapForItem(it) {
+  const geo = slideGeoForItem(it);
+  if (el.btnToggleSlideMap) {
+    el.btnToggleSlideMap.classList.toggle("hidden", !geo);
+    el.btnToggleSlideMap.textContent = state.slideshow.mapVisible ? "Hide map" : "Map";
+    el.btnToggleSlideMap.disabled = !geo;
+  }
+  if (!geo) state.slideshow.mapVisible = false;
+  if (el.slideMapPanel) {
+    el.slideMapPanel.classList.toggle("hidden", !state.slideshow.mapVisible || !geo);
+    el.slideMapPanel.setAttribute("aria-hidden", state.slideshow.mapVisible && geo ? "false" : "true");
+  }
+  if (!state.slideshow.mapVisible || !geo) return;
+  const map = ensureSlideMap();
+  if (!map) {
+    setStatus("Map library is not available for slideshow GPS display.", "warn");
+    state.slideshow.mapVisible = false;
+    if (el.slideMapPanel) el.slideMapPanel.classList.add("hidden");
+    return;
+  }
+  setTimeout(() => {
+    map.resize();
+    if (!state.slideshow.mapMarker) state.slideshow.mapMarker = new maplibregl.Marker().setLngLat([geo.lng, geo.lat]).addTo(map);
+    else state.slideshow.mapMarker.setLngLat([geo.lng, geo.lat]);
+    map.easeTo({ center: [geo.lng, geo.lat], zoom: Math.max(map.getZoom(), 10), duration: 250 });
+  }, 0);
 }
 function applySlideTransform() {
   const zoom = Math.max(1, Math.min(6, Number(state.slideshow.zoom) || 1));
@@ -7752,12 +7832,14 @@ async function updateSlide() {
       it.slidePreviewUrl = await makeFilteredPreviewURL(it.file, chain, 2048, fallbackCrop, { useWebglPreview: !!state.slideshow.useWebglPreview, processingScope: "slideshow" });
       it.slidePreviewKey = cacheKey;
     }
-    el.slideImg.src = it.slidePreviewUrl || it.url;
+    await setSlideImageSourceWithTransition(it.slidePreviewUrl || it.url);
   } else {
-    el.slideImg.src = it.url;
+    await setSlideImageSourceWithTransition(it.url);
   }
-  await (el.slideImg.decode ? el.slideImg.decode().catch(()=>{}) : Promise.resolve());
   applySlideTransform();
+
+  updateSlideCaption(it);
+  updateSlideMapForItem(it);
 
   const faces = (it.faces || []).map((f) => f.label).filter(Boolean);
   const caption = it.caption ? ` | caption: ${escapeHtml(it.caption)}` : "";
@@ -8999,6 +9081,13 @@ el.btnToggleFinetune2.onclick = async () => {
 el.btnToggleSlideWebgl.onclick = async () => {
   state.slideshow.useWebglPreview = !state.slideshow.useWebglPreview;
   if (state.slideshow.open) await updateSlide();
+};
+el.btnToggleSlideMap.onclick = () => {
+  const it = state.currentImages[state.slideshow.index];
+  if (!slideGeoForItem(it)) return;
+  state.slideshow.mapVisible = !state.slideshow.mapVisible;
+  updateSlideMapForItem(it);
+  showSlideControlsTemporarily();
 };
 el.btnSlideEdit.onclick = () => {
   const it = state.currentImages[state.slideshow.index];
