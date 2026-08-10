@@ -16,6 +16,7 @@
   <script src="./holga-filter.js"></script>
   <script src="./orton-filter.js"></script>
   <script src="./duotone-filter.js"></script>
+  <script src="./pixelate-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -364,6 +365,7 @@
           <div class="geoMapRow">
             <button id="btnBoostMode">Boost</button>
             <button id="btnSoftenMode">Soften</button>
+            <button id="btnPixelateMode">Pixelate</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -551,6 +553,16 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplySoftenFilter">Apply Soften</button>
             <button id="btnCancelSoftenFilter" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="pixelateControls" class="hidden">
+          <div><b>Pixelate filter</b></div>
+          <label>Pixel size <span id="pixelateSizeValue" class="mono">20 px</span><input id="pixelateSizeInput" type="range" min="1" max="150" step="1" value="20"></label>
+          <label>Blend mode <span id="pixelateBlendValue" class="mono">9 — Normal</span><input id="pixelateBlendInput" type="range" min="0" max="9" step="1" value="9"></label>
+          <label>Fade <span id="pixelateFadeValue" class="mono">0</span><input id="pixelateFadeInput" type="range" min="0" max="100" step="1" value="0"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyPixelateFilter">Apply Pixelate</button>
+            <button id="btnCancelPixelateFilter" type="button">Cancel</button>
           </div>
         </div>
         <div id="textControls" class="hidden">
@@ -3004,6 +3016,17 @@ function parseSoftenFilter(filterString = "") {
     fade: Math.max(0, Math.min(100, Math.round(Number(m[2]) || 0))),
   };
 }
+function parsePixelateFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^pixelate=1,([^,]+),([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  const normalize = window.PixelateFilter?.normalizePixelateParams;
+  const params = { pixelSize: Number(m[1]), blendMode: Number(m[2]), fade: Number(m[3]) };
+  return typeof normalize === "function" ? normalize(params) : {
+    pixelSize: Math.max(1, Math.min(150, Math.round(Number(m[1]) || 20))),
+    blendMode: Math.max(0, Math.min(9, Math.round(Number(m[2]) || 0))),
+    fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
+  };
+}
 function parseLomoFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^lomoish=1,([^,]+),([^,]+)$/i);
   if (!m) return null;
@@ -3847,6 +3870,15 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Soften filter unavailable");
       continue;
     }
+    m = parsePixelateFilter(f);
+    if (m) {
+      if (m.fade >= 100) continue;
+      if (useWebglPreview) notifyFallback("pixelate");
+      const fn = window.PixelateFilter?.applyPixelateToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, m);
+      else notifyWebglFallback("Pixelate filter unavailable");
+      continue;
+    }
     m = String(f).match(/^heatmap=1,(.+)$/i);
     if (m) {
       if (useWebglPreview) notifyFallback("heatmap");
@@ -4231,6 +4263,15 @@ const el = {
   softenSoftnessValue: document.getElementById("softenSoftnessValue"),
   softenFadeInput: document.getElementById("softenFadeInput"),
   softenFadeValue: document.getElementById("softenFadeValue"),
+  pixelateControls: document.getElementById("pixelateControls"),
+  pixelateSizeInput: document.getElementById("pixelateSizeInput"),
+  pixelateSizeValue: document.getElementById("pixelateSizeValue"),
+  pixelateBlendInput: document.getElementById("pixelateBlendInput"),
+  pixelateBlendValue: document.getElementById("pixelateBlendValue"),
+  pixelateFadeInput: document.getElementById("pixelateFadeInput"),
+  pixelateFadeValue: document.getElementById("pixelateFadeValue"),
+  btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
+  btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
   textControls: document.getElementById("textControls"),
   appliedFiltersPanel: document.getElementById("appliedFiltersPanel"),
   boostInput: document.getElementById("boostInput"),
@@ -4363,6 +4404,7 @@ const el = {
   btnHeatmapMode: document.getElementById("btnHeatmapMode"),
   btnBoostMode: document.getElementById("btnBoostMode"),
   btnSoftenMode: document.getElementById("btnSoftenMode"),
+  btnPixelateMode: document.getElementById("btnPixelateMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4450,6 +4492,7 @@ const filterControlPanels = [
   el.ortonControls,
   el.duotoneControls,
   el.softenControls,
+  el.pixelateControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -4663,6 +4706,13 @@ function lastSoftenFromFilters(filters) {
   }
   return { softness: 50, fade: 50 };
 }
+function lastPixelateFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parsePixelateFilter(filters[i]);
+    if (p) return p;
+  }
+  return { pixelSize: 20, blendMode: 9, fade: 0 };
+}
 function lastLomoFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
     const p = parseLomoFilter(filters[i]);
@@ -4783,7 +4833,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6016,6 +6066,7 @@ function openFaceEditor(imageItem) {
   el.ortonControls.classList.add("hidden");
   el.duotoneControls.classList.add("hidden");
   el.softenControls.classList.add("hidden");
+  el.pixelateControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6037,6 +6088,7 @@ function openFaceEditor(imageItem) {
   el.btnOrtonMode.textContent = "Orton-ish";
   el.btnDuoToneMode.textContent = "Duo-tone";
   el.btnSoftenMode.textContent = "Soften";
+  el.btnPixelateMode.textContent = "Pixelate";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6091,6 +6143,7 @@ function openFaceEditor(imageItem) {
   writeOrtonControls(lastOrtonFromFilters(faceEditor.filters));
   writeDuoToneControls(lastDuoToneFromFilters(faceEditor.filters));
   writeSoftenControls(lastSoftenFromFilters(faceEditor.filters));
+  writePixelateControls(lastPixelateFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8418,6 +8471,33 @@ function refreshSoftenDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readPixelateParamsFromControls() {
+  return window.PixelateFilter.normalizePixelateParams({
+    pixelSize: el.pixelateSizeInput.value,
+    blendMode: el.pixelateBlendInput.value,
+    fade: el.pixelateFadeInput.value,
+  });
+}
+function writePixelateControls(params = {}) {
+  const normalized = window.PixelateFilter.normalizePixelateParams(params);
+  el.pixelateSizeInput.value = String(normalized.pixelSize);
+  el.pixelateSizeValue.textContent = `${normalized.pixelSize} px`;
+  el.pixelateBlendInput.value = String(normalized.blendMode);
+  el.pixelateBlendValue.textContent = `${normalized.blendMode} — ${window.PixelateFilter.BLEND_MODE_NAMES[normalized.blendMode]}`;
+  el.pixelateFadeInput.value = String(normalized.fade);
+  el.pixelateFadeValue.textContent = String(normalized.fade);
+  return normalized;
+}
+function pixelateToken(params = null) {
+  const normalized = window.PixelateFilter.normalizePixelateParams(params || readPixelateParamsFromControls());
+  return `pixelate=1,${normalized.pixelSize},${normalized.blendMode},${normalized.fade}`;
+}
+function refreshPixelateDraft() {
+  const params = writePixelateControls(readPixelateParamsFromControls());
+  const draft = pixelateToken(params);
+  refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+}
 const refreshTintDraft = () => {
   const preserve = Number(el.faceTintPreserveInput.value || "0") || 0;
   const color = normalizeFilterHexColor(el.faceTintColorInput.value, "ffffffff");
@@ -8734,6 +8814,12 @@ el.btnApplySoftenFilter.onclick = () => {
   el.btnSoftenMode.textContent = "Soften";
 };
 el.btnCancelSoftenFilter.onclick = () => cancelDraftFilterControls(el.softenControls, el.btnSoftenMode, "Soften");
+el.btnApplyPixelateFilter.onclick = () => {
+  applyNoParamFilter(refreshPixelateDraft());
+  el.pixelateControls.classList.add("hidden");
+  el.btnPixelateMode.textContent = "Pixelate";
+};
+el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
 el.btnApplySixtiesControls.onclick = () => {
   applyNoParamFilter(refreshSixtiesDraft());
   el.sixtiesControls.classList.add("hidden");
@@ -8760,6 +8846,9 @@ el.heatmapFadeInput.oninput = () => refreshHeatmapDraft();
 el.boostInput.oninput = () => refreshBoostDraft();
 el.softenSoftnessInput.oninput = () => refreshSoftenDraft();
 el.softenFadeInput.oninput = () => refreshSoftenDraft();
+el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
+el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
+el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
 el.btnApplyTintFilter.onclick = () => {
   applyNoParamFilter(refreshTintDraft());
   el.tintControls.classList.add("hidden");
@@ -9286,6 +9375,12 @@ el.btnSoftenMode.onclick = () => {
   el.softenControls.classList.toggle("hidden", !show);
   el.btnSoftenMode.textContent = show ? "Hide Soften" : "Soften";
   if (show) refreshSoftenDraft();
+};
+el.btnPixelateMode.onclick = () => {
+  const show = el.pixelateControls.classList.contains("hidden");
+  el.pixelateControls.classList.toggle("hidden", !show);
+  el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
+  if (show) refreshPixelateDraft();
 };
 el.btnRedeyeMode.onclick = () => {
   const show = el.redeyeControls.classList.contains("hidden");
