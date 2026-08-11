@@ -17,6 +17,7 @@
   <script src="./orton-filter.js"></script>
   <script src="./duotone-filter.js"></script>
   <script src="./pixelate-filter.js"></script>
+  <script src="./museum-matte-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -366,6 +367,7 @@
             <button id="btnBoostMode">Boost</button>
             <button id="btnSoftenMode">Soften</button>
             <button id="btnPixelateMode">Pixelate</button>
+            <button id="btnMuseumMatteMode">Museum Matte</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -563,6 +565,23 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplyPixelateFilter">Apply Pixelate</button>
             <button id="btnCancelPixelateFilter" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="museumMatteControls" class="hidden">
+          <div><b>Museum Matte</b></div>
+          <fieldset>
+            <legend>Outer border</legend>
+            <label>Thickness <span id="museumMatteOuterValue" class="mono">100 px</span><input id="museumMatteOuterInput" type="range" min="0" max="1000" step="1" value="100"></label>
+            <label style="display:flex; gap:8px; align-items:center;">Color <input id="museumMatteOuterColorInput" type="color" value="#79b3db"></label>
+          </fieldset>
+          <fieldset>
+            <legend>Inner border</legend>
+            <label>Thickness <span id="museumMatteInnerValue" class="mono">40 px</span><input id="museumMatteInnerInput" type="range" min="0" max="1000" step="1" value="40"></label>
+            <label style="display:flex; gap:8px; align-items:center;">Color <input id="museumMatteInnerColorInput" type="color" value="#fff47c"></label>
+          </fieldset>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyMuseumMatteFilter">Apply Museum Matte</button>
+            <button id="btnCancelMuseumMatteFilter" type="button">Cancel</button>
           </div>
         </div>
         <div id="textControls" class="hidden">
@@ -3027,6 +3046,17 @@ function parsePixelateFilter(filterString = "") {
     fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
   };
 }
+function parseMuseumMatteFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^museumMatte=1,([^,]+),([^,]+),([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  const params = {
+    outerThickness: Number(m[1]),
+    outerColor: `#${normalizeFilterHexColor(m[2], "ff79b3db").slice(-6)}`,
+    innerThickness: Number(m[3]),
+    innerColor: `#${normalizeFilterHexColor(m[4], "fffff47c").slice(-6)}`,
+  };
+  return window.MuseumMatteFilter?.normalizeMuseumMatteParams?.(params) || params;
+}
 function parseLomoFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^lomoish=1,([^,]+),([^,]+)$/i);
   if (!m) return null;
@@ -3879,6 +3909,34 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Pixelate filter unavailable");
       continue;
     }
+    m = parseMuseumMatteFilter(f);
+    if (m) {
+      if (useWebglPreview) notifyFallback("museum matte");
+      // Crop is normally deferred until the end of this pipeline. Materialize it
+      // before a dimension-expanding effect so the matte encloses the current photo.
+      const cropX = Math.max(0, Math.round(view.x));
+      const cropY = Math.max(0, Math.round(view.y));
+      const cropWidth = Math.max(1, Math.round(view.w));
+      const cropHeight = Math.max(1, Math.round(view.h));
+      if (cropX || cropY || cropWidth !== canvas.width || cropHeight !== canvas.height) {
+        const sourceCanvas = ensureCanvas2D(canvas);
+        const cropped = document.createElement("canvas");
+        cropped.width = cropWidth; cropped.height = cropHeight;
+        cropped.getContext("2d").drawImage(sourceCanvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+        canvas = cropped;
+      }
+      view = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+      const fn = window.MuseumMatteFilter?.applyMuseumMatteToCanvas;
+      if (typeof fn === "function") {
+        canvas = fn(ensureCanvas2D(canvas), undefined, m, {
+          sourceWidth: img.naturalWidth || canvas.width,
+          sourceHeight: img.naturalHeight || canvas.height,
+          previewScale: 1,
+        });
+        view = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+      } else notifyWebglFallback("Museum Matte filter unavailable");
+      continue;
+    }
     m = String(f).match(/^heatmap=1,(.+)$/i);
     if (m) {
       if (useWebglPreview) notifyFallback("heatmap");
@@ -4272,6 +4330,15 @@ const el = {
   pixelateFadeValue: document.getElementById("pixelateFadeValue"),
   btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
   btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
+  museumMatteControls: document.getElementById("museumMatteControls"),
+  museumMatteOuterInput: document.getElementById("museumMatteOuterInput"),
+  museumMatteOuterValue: document.getElementById("museumMatteOuterValue"),
+  museumMatteOuterColorInput: document.getElementById("museumMatteOuterColorInput"),
+  museumMatteInnerInput: document.getElementById("museumMatteInnerInput"),
+  museumMatteInnerValue: document.getElementById("museumMatteInnerValue"),
+  museumMatteInnerColorInput: document.getElementById("museumMatteInnerColorInput"),
+  btnApplyMuseumMatteFilter: document.getElementById("btnApplyMuseumMatteFilter"),
+  btnCancelMuseumMatteFilter: document.getElementById("btnCancelMuseumMatteFilter"),
   textControls: document.getElementById("textControls"),
   appliedFiltersPanel: document.getElementById("appliedFiltersPanel"),
   boostInput: document.getElementById("boostInput"),
@@ -4405,6 +4472,7 @@ const el = {
   btnBoostMode: document.getElementById("btnBoostMode"),
   btnSoftenMode: document.getElementById("btnSoftenMode"),
   btnPixelateMode: document.getElementById("btnPixelateMode"),
+  btnMuseumMatteMode: document.getElementById("btnMuseumMatteMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4493,6 +4561,7 @@ const filterControlPanels = [
   el.duotoneControls,
   el.softenControls,
   el.pixelateControls,
+  el.museumMatteControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -4713,6 +4782,13 @@ function lastPixelateFromFilters(filters) {
   }
   return { pixelSize: 20, blendMode: 9, fade: 0 };
 }
+function lastMuseumMatteFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseMuseumMatteFilter(filters[i]);
+    if (p) return p;
+  }
+  return { outerThickness: 100, outerColor: "#79b3db", innerThickness: 40, innerColor: "#fff47c" };
+}
 function lastLomoFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
     const p = parseLomoFilter(filters[i]);
@@ -4833,7 +4909,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6067,6 +6143,7 @@ function openFaceEditor(imageItem) {
   el.duotoneControls.classList.add("hidden");
   el.softenControls.classList.add("hidden");
   el.pixelateControls.classList.add("hidden");
+  el.museumMatteControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6089,6 +6166,7 @@ function openFaceEditor(imageItem) {
   el.btnDuoToneMode.textContent = "Duo-tone";
   el.btnSoftenMode.textContent = "Soften";
   el.btnPixelateMode.textContent = "Pixelate";
+  el.btnMuseumMatteMode.textContent = "Museum Matte";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6144,6 +6222,7 @@ function openFaceEditor(imageItem) {
   writeDuoToneControls(lastDuoToneFromFilters(faceEditor.filters));
   writeSoftenControls(lastSoftenFromFilters(faceEditor.filters));
   writePixelateControls(lastPixelateFromFilters(faceEditor.filters));
+  writeMuseumMatteControls(lastMuseumMatteFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8498,6 +8577,42 @@ function refreshPixelateDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readMuseumMatteParamsFromControls() {
+  return window.MuseumMatteFilter.normalizeMuseumMatteParams({
+    outerThickness: el.museumMatteOuterInput.value,
+    outerColor: el.museumMatteOuterColorInput.value,
+    innerThickness: el.museumMatteInnerInput.value,
+    innerColor: el.museumMatteInnerColorInput.value,
+  });
+}
+function writeMuseumMatteControls(params = {}) {
+  const normalized = window.MuseumMatteFilter.normalizeMuseumMatteParams(params);
+  el.museumMatteOuterInput.value = String(normalized.outerThickness);
+  el.museumMatteOuterValue.textContent = `${normalized.outerThickness} px`;
+  el.museumMatteOuterColorInput.value = normalized.outerColor;
+  el.museumMatteInnerInput.value = String(normalized.innerThickness);
+  el.museumMatteInnerValue.textContent = `${normalized.innerThickness} px`;
+  el.museumMatteInnerColorInput.value = normalized.innerColor;
+  return normalized;
+}
+function museumMatteToken(params = null) {
+  const normalized = window.MuseumMatteFilter.normalizeMuseumMatteParams(params || readMuseumMatteParamsFromControls());
+  const outerColor = `ff${normalized.outerColor.slice(1)}`;
+  const innerColor = `ff${normalized.innerColor.slice(1)}`;
+  return `museumMatte=1,${normalized.outerThickness},${outerColor},${normalized.innerThickness},${innerColor}`;
+}
+let museumMatteDraftTimer = 0;
+function refreshMuseumMatteDraft(options = {}) {
+  const params = writeMuseumMatteControls(readMuseumMatteParamsFromControls());
+  const draft = museumMatteToken(params);
+  if (options.defer) {
+    clearTimeout(museumMatteDraftTimer);
+    museumMatteDraftTimer = setTimeout(() => refreshEditorPreview((faceEditor.filters || []).concat([draft])), 120);
+  } else {
+    refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  }
+  return draft;
+}
 const refreshTintDraft = () => {
   const preserve = Number(el.faceTintPreserveInput.value || "0") || 0;
   const color = normalizeFilterHexColor(el.faceTintColorInput.value, "ffffffff");
@@ -8820,6 +8935,12 @@ el.btnApplyPixelateFilter.onclick = () => {
   el.btnPixelateMode.textContent = "Pixelate";
 };
 el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
+el.btnApplyMuseumMatteFilter.onclick = () => {
+  applyNoParamFilter(refreshMuseumMatteDraft());
+  el.museumMatteControls.classList.add("hidden");
+  el.btnMuseumMatteMode.textContent = "Museum Matte";
+};
+el.btnCancelMuseumMatteFilter.onclick = () => cancelDraftFilterControls(el.museumMatteControls, el.btnMuseumMatteMode, "Museum Matte");
 el.btnApplySixtiesControls.onclick = () => {
   applyNoParamFilter(refreshSixtiesDraft());
   el.sixtiesControls.classList.add("hidden");
@@ -8849,6 +8970,10 @@ el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
 el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
+el.museumMatteOuterInput.oninput = () => refreshMuseumMatteDraft({ defer: true });
+el.museumMatteOuterColorInput.oninput = () => refreshMuseumMatteDraft({ defer: true });
+el.museumMatteInnerInput.oninput = () => refreshMuseumMatteDraft({ defer: true });
+el.museumMatteInnerColorInput.oninput = () => refreshMuseumMatteDraft({ defer: true });
 el.btnApplyTintFilter.onclick = () => {
   applyNoParamFilter(refreshTintDraft());
   el.tintControls.classList.add("hidden");
@@ -9381,6 +9506,12 @@ el.btnPixelateMode.onclick = () => {
   el.pixelateControls.classList.toggle("hidden", !show);
   el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
   if (show) refreshPixelateDraft();
+};
+el.btnMuseumMatteMode.onclick = () => {
+  const show = el.museumMatteControls.classList.contains("hidden");
+  el.museumMatteControls.classList.toggle("hidden", !show);
+  el.btnMuseumMatteMode.textContent = show ? "Hide Museum Matte" : "Museum Matte";
+  if (show) refreshMuseumMatteDraft();
 };
 el.btnRedeyeMode.onclick = () => {
   const show = el.redeyeControls.classList.contains("hidden");
