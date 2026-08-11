@@ -24,6 +24,7 @@ Picasanous uses the CPU implementation as the reference path for every filter. W
 | Pixelate | `pixelate` | `pixelate-filter.js` | CPU only | A GPU path is feasible with a block-average prepass, but the CPU path currently guarantees exact source-pixel box averages and deterministic 8-bit blend-mode arithmetic. |
 | Museum Matte | `museumMatte` | `museum-matte-filter.js` | CPU only | Feasible as a raster shader/compositing pass; the CPU renderer currently guarantees exact border geometry and two calibrated analytic Gaussian-rectangle inset shadows. |
 | Vignette | `vignette` | `vignette-filter.js` | CPU only | Feasible as a single shader pass using the analytic rectangular Gaussian mask; the cached CPU implementation is currently the canonical path. |
+| Border | `border` | `border-filter.js` | CPU only | The deterministic CPU path expands the canvas and rasterizes two rounded masks; a GPU path would require matching anti-aliased clipping and dimension-changing composition. |
 | Red-eye | `redeye2` | Editor overlay/pixel path | CPU only | Feasible as a targeted shader pass, but current implementation is rectangle/area driven and not a general full-frame filter shader. |
 
 ## Implementation policy

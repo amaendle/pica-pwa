@@ -19,6 +19,7 @@
   <script src="./pixelate-filter.js"></script>
   <script src="./museum-matte-filter.js"></script>
   <script src="./vignette-filter.js"></script>
+  <script src="./border-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -370,6 +371,7 @@
             <button id="btnPixelateMode">Pixelate</button>
             <button id="btnMuseumMatteMode">Museum Matte</button>
             <button id="btnVignetteMode">Vignette</button>
+            <button id="btnBorderMode">Border</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -567,6 +569,27 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplyPixelateFilter">Apply Pixelate</button>
             <button id="btnCancelPixelateFilter" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="borderControls" class="hidden">
+          <div><b>Border</b></div>
+          <fieldset>
+            <legend>Outer border</legend>
+            <label>Thickness <span id="borderOuterValue" class="mono">20 px</span><input id="borderOuterInput" type="range" min="0" max="100" step="1" value="20"></label>
+            <label style="display:flex; gap:8px; align-items:center;">Color <input id="borderOuterColorPicker" type="color" value="#000000"></label>
+            <label>Color (00RRGGBB)<input id="borderOuterColorInput" type="text" value="00000000" maxlength="8"></label>
+          </fieldset>
+          <fieldset>
+            <legend>Inner border</legend>
+            <label>Thickness <span id="borderInnerValue" class="mono">5 px</span><input id="borderInnerInput" type="range" min="0" max="100" step="1" value="5"></label>
+            <label style="display:flex; gap:8px; align-items:center;">Color <input id="borderInnerColorPicker" type="color" value="#ffffff"></label>
+            <label>Color (00RRGGBB)<input id="borderInnerColorInput" type="text" value="00ffffff" maxlength="8"></label>
+          </fieldset>
+          <label>Corner radius <span id="borderRadiusValue" class="mono">0</span><input id="borderRadiusInput" type="range" min="0" max="100" step="1" value="0"></label>
+          <label>Caption height <span id="borderCaptionValue" class="mono">0</span><input id="borderCaptionInput" type="range" min="0" max="100" step="1" value="0"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyBorderFilter">Apply Border</button>
+            <button id="btnCancelBorderFilter" type="button">Cancel</button>
           </div>
         </div>
         <div id="vignetteControls" class="hidden">
@@ -2713,6 +2736,21 @@ function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = 
       view = { x: sx, y: sy, w: sw, h: sh };
       continue;
     }
+    m = parseBorderFilter(f);
+    if (m) {
+      const renderedWidth = Math.max(1, Math.round(view.w));
+      const renderedHeight = Math.max(1, Math.round(view.h));
+      const offset = m.outerThickness + m.innerThickness;
+      x = (x - view.x) * renderedWidth / Math.max(1, view.w) + offset;
+      y = (y - view.y) * renderedHeight / Math.max(1, view.h) + offset;
+      view = {
+        x: 0,
+        y: 0,
+        w: renderedWidth + 2 * offset,
+        h: renderedHeight + 2 * offset + Math.floor(renderedHeight * m.captionHeight / 600),
+      };
+      continue;
+    }
     m = String(f).match(/^filllight=1,([+-]?[0-9]*\.?[0-9]+)$/i);
     if (m) {
       continue;
@@ -3059,6 +3097,15 @@ function parsePixelateFilter(filterString = "") {
     blendMode: Math.max(0, Math.min(9, Math.round(Number(m[2]) || 0))),
     fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
   };
+}
+function parseBorderFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^border=1,([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  const params = {
+    outerThickness: Number(m[1]), innerThickness: Number(m[2]),
+    outerColor: m[3], innerColor: m[4], cornerRadius: Number(m[5]), captionHeight: Number(m[6])
+  };
+  return window.BorderFilter?.normalizeBorderParams?.(params) || params;
 }
 function parseVignetteFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^vignette=1,([^,]+),([^,]+),([^,]+)(?:,([^,]+))?$/i);
@@ -3938,6 +3985,28 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Vignette filter unavailable");
       continue;
     }
+    m = parseBorderFilter(f);
+    if (m) {
+      if (useWebglPreview) notifyFallback("border");
+      const cropX = Math.max(0, Math.round(view.x));
+      const cropY = Math.max(0, Math.round(view.y));
+      const cropWidth = Math.max(1, Math.round(view.w));
+      const cropHeight = Math.max(1, Math.round(view.h));
+      if (cropX || cropY || cropWidth !== canvas.width || cropHeight !== canvas.height) {
+        const sourceCanvas = ensureCanvas2D(canvas);
+        const cropped = document.createElement("canvas");
+        cropped.width = cropWidth; cropped.height = cropHeight;
+        cropped.getContext("2d").drawImage(sourceCanvas, cropX, cropY, cropWidth, cropHeight, 0, 0, cropWidth, cropHeight);
+        canvas = cropped;
+      }
+      view = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+      const fn = window.BorderFilter?.applyBorderToCanvas;
+      if (typeof fn === "function") {
+        canvas = fn(ensureCanvas2D(canvas), undefined, m, { sourceWidth: img.naturalWidth || canvas.width, sourceHeight: img.naturalHeight || canvas.height, previewScale: 1 });
+        view = { x: 0, y: 0, w: canvas.width, h: canvas.height };
+      } else notifyWebglFallback("Border filter unavailable");
+      continue;
+    }
     m = parseMuseumMatteFilter(f);
     if (m) {
       if (useWebglPreview) notifyFallback("museum matte");
@@ -4359,6 +4428,21 @@ const el = {
   pixelateFadeValue: document.getElementById("pixelateFadeValue"),
   btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
   btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
+  borderControls: document.getElementById("borderControls"),
+  borderOuterInput: document.getElementById("borderOuterInput"),
+  borderOuterValue: document.getElementById("borderOuterValue"),
+  borderOuterColorPicker: document.getElementById("borderOuterColorPicker"),
+  borderOuterColorInput: document.getElementById("borderOuterColorInput"),
+  borderInnerInput: document.getElementById("borderInnerInput"),
+  borderInnerValue: document.getElementById("borderInnerValue"),
+  borderInnerColorPicker: document.getElementById("borderInnerColorPicker"),
+  borderInnerColorInput: document.getElementById("borderInnerColorInput"),
+  borderRadiusInput: document.getElementById("borderRadiusInput"),
+  borderRadiusValue: document.getElementById("borderRadiusValue"),
+  borderCaptionInput: document.getElementById("borderCaptionInput"),
+  borderCaptionValue: document.getElementById("borderCaptionValue"),
+  btnApplyBorderFilter: document.getElementById("btnApplyBorderFilter"),
+  btnCancelBorderFilter: document.getElementById("btnCancelBorderFilter"),
   vignetteControls: document.getElementById("vignetteControls"),
   vignetteSizeInput: document.getElementById("vignetteSizeInput"),
   vignetteSizeValue: document.getElementById("vignetteSizeValue"),
@@ -4514,6 +4598,7 @@ const el = {
   btnPixelateMode: document.getElementById("btnPixelateMode"),
   btnMuseumMatteMode: document.getElementById("btnMuseumMatteMode"),
   btnVignetteMode: document.getElementById("btnVignetteMode"),
+  btnBorderMode: document.getElementById("btnBorderMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4604,6 +4689,7 @@ const filterControlPanels = [
   el.pixelateControls,
   el.museumMatteControls,
   el.vignetteControls,
+  el.borderControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -4824,6 +4910,13 @@ function lastPixelateFromFilters(filters) {
   }
   return { pixelSize: 20, blendMode: 9, fade: 0 };
 }
+function lastBorderFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseBorderFilter(filters[i]);
+    if (p) return p;
+  }
+  return { outerThickness: 20, innerThickness: 5, outerColor: "#000000", innerColor: "#ffffff", cornerRadius: 0, captionHeight: 0 };
+}
 function lastVignetteFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
     const p = parseVignetteFilter(filters[i]);
@@ -4958,7 +5051,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6194,6 +6287,7 @@ function openFaceEditor(imageItem) {
   el.pixelateControls.classList.add("hidden");
   el.museumMatteControls.classList.add("hidden");
   el.vignetteControls.classList.add("hidden");
+  el.borderControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6218,6 +6312,7 @@ function openFaceEditor(imageItem) {
   el.btnPixelateMode.textContent = "Pixelate";
   el.btnMuseumMatteMode.textContent = "Museum Matte";
   el.btnVignetteMode.textContent = "Vignette";
+  el.btnBorderMode.textContent = "Border";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6275,6 +6370,7 @@ function openFaceEditor(imageItem) {
   writePixelateControls(lastPixelateFromFilters(faceEditor.filters));
   writeMuseumMatteControls(lastMuseumMatteFromFilters(faceEditor.filters));
   writeVignetteControls(lastVignetteFromFilters(faceEditor.filters));
+  writeBorderControls(lastBorderFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8629,6 +8725,40 @@ function refreshPixelateDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readBorderParamsFromControls() {
+  return window.BorderFilter.normalizeBorderParams({
+    outerThickness: el.borderOuterInput.value,
+    innerThickness: el.borderInnerInput.value,
+    outerColor: el.borderOuterColorInput.value,
+    innerColor: el.borderInnerColorInput.value,
+    cornerRadius: el.borderRadiusInput.value,
+    captionHeight: el.borderCaptionInput.value,
+  });
+}
+function writeBorderControls(params = {}) {
+  const p = window.BorderFilter.normalizeBorderParams(params);
+  el.borderOuterInput.value = String(p.outerThickness); el.borderOuterValue.textContent = `${p.outerThickness} px`;
+  el.borderInnerInput.value = String(p.innerThickness); el.borderInnerValue.textContent = `${p.innerThickness} px`;
+  el.borderOuterColorPicker.value = p.outerColor; el.borderOuterColorInput.value = window.BorderFilter.borderColorToPicasa(p.outerColor);
+  el.borderInnerColorPicker.value = p.innerColor; el.borderInnerColorInput.value = window.BorderFilter.borderColorToPicasa(p.innerColor, "#ffffff");
+  el.borderRadiusInput.value = String(p.cornerRadius); el.borderRadiusValue.textContent = Number(p.cornerRadius).toFixed(2).replace(/\.00$/, "");
+  el.borderCaptionInput.value = String(p.captionHeight); el.borderCaptionValue.textContent = Number(p.captionHeight).toFixed(2).replace(/\.00$/, "");
+  return p;
+}
+function borderToken(params = null) {
+  const p = window.BorderFilter.normalizeBorderParams(params || readBorderParamsFromControls());
+  return `border=1,${p.outerThickness},${p.innerThickness},${window.BorderFilter.borderColorToPicasa(p.outerColor)},${window.BorderFilter.borderColorToPicasa(p.innerColor, "#ffffff")},${p.cornerRadius},${p.captionHeight}`;
+}
+let borderDraftTimer = 0;
+function refreshBorderDraft(options = {}) {
+  const p = writeBorderControls(readBorderParamsFromControls());
+  const draft = borderToken(p);
+  if (options.defer) {
+    clearTimeout(borderDraftTimer);
+    borderDraftTimer = setTimeout(() => refreshEditorPreview((faceEditor.filters || []).concat([draft])), 100);
+  } else refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  return draft;
+}
 function readVignetteParamsFromControls() {
   return window.VignetteFilter.normalizeVignetteParams({
     size: el.vignetteSizeInput.value,
@@ -9023,6 +9153,12 @@ el.btnApplyPixelateFilter.onclick = () => {
   el.btnPixelateMode.textContent = "Pixelate";
 };
 el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
+el.btnApplyBorderFilter.onclick = () => {
+  applyNoParamFilter(refreshBorderDraft());
+  el.borderControls.classList.add("hidden");
+  el.btnBorderMode.textContent = "Border";
+};
+el.btnCancelBorderFilter.onclick = () => cancelDraftFilterControls(el.borderControls, el.btnBorderMode, "Border");
 el.btnApplyVignetteFilter.onclick = () => {
   applyNoParamFilter(refreshVignetteDraft());
   el.vignetteControls.classList.add("hidden");
@@ -9064,6 +9200,27 @@ el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
 el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
+el.borderOuterInput.oninput = () => refreshBorderDraft({ defer: true });
+el.borderInnerInput.oninput = () => refreshBorderDraft({ defer: true });
+el.borderRadiusInput.oninput = () => refreshBorderDraft({ defer: true });
+el.borderCaptionInput.oninput = () => refreshBorderDraft({ defer: true });
+const syncBorderColor = (picker, text) => {
+  text.value = window.BorderFilter.borderColorToPicasa(picker.value);
+  refreshBorderDraft({ defer: true });
+};
+el.borderOuterColorPicker.oninput = () => syncBorderColor(el.borderOuterColorPicker, el.borderOuterColorInput);
+el.borderInnerColorPicker.oninput = () => syncBorderColor(el.borderInnerColorPicker, el.borderInnerColorInput);
+const readBorderColorText = (text, picker) => {
+  const raw = text.value.trim().replace(/^#/, "");
+  if (/^[0-9a-f]{8}$/i.test(raw) || /^[0-9a-f]{6}$/i.test(raw)) {
+    picker.value = window.BorderFilter.normalizeBorderColor(raw);
+    refreshBorderDraft({ defer: true });
+  }
+};
+el.borderOuterColorInput.oninput = () => readBorderColorText(el.borderOuterColorInput, el.borderOuterColorPicker);
+el.borderInnerColorInput.oninput = () => readBorderColorText(el.borderInnerColorInput, el.borderInnerColorPicker);
+el.borderOuterColorInput.onchange = () => refreshBorderDraft();
+el.borderInnerColorInput.onchange = () => refreshBorderDraft();
 el.vignetteSizeInput.oninput = () => refreshVignetteDraft({ defer: true });
 el.vignetteStrengthInput.oninput = () => refreshVignetteDraft({ defer: true });
 el.vignetteFadeInput.oninput = () => refreshVignetteDraft({ defer: true });
@@ -9616,6 +9773,12 @@ el.btnPixelateMode.onclick = () => {
   el.pixelateControls.classList.toggle("hidden", !show);
   el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
   if (show) refreshPixelateDraft();
+};
+el.btnBorderMode.onclick = () => {
+  const show = el.borderControls.classList.contains("hidden");
+  el.borderControls.classList.toggle("hidden", !show);
+  el.btnBorderMode.textContent = show ? "Hide Border" : "Border";
+  if (show) refreshBorderDraft();
 };
 el.btnVignetteMode.onclick = () => {
   const show = el.vignetteControls.classList.contains("hidden");
