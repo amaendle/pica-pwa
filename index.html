@@ -18,6 +18,7 @@
   <script src="./duotone-filter.js"></script>
   <script src="./pixelate-filter.js"></script>
   <script src="./museum-matte-filter.js"></script>
+  <script src="./vignette-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -368,6 +369,7 @@
             <button id="btnSoftenMode">Soften</button>
             <button id="btnPixelateMode">Pixelate</button>
             <button id="btnMuseumMatteMode">Museum Matte</button>
+            <button id="btnVignetteMode">Vignette</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -565,6 +567,17 @@
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
             <button id="btnApplyPixelateFilter">Apply Pixelate</button>
             <button id="btnCancelPixelateFilter" type="button">Cancel</button>
+          </div>
+        </div>
+        <div id="vignetteControls" class="hidden">
+          <div><b>Vignette</b></div>
+          <label>Size <span id="vignetteSizeValue" class="mono">35</span><input id="vignetteSizeInput" type="range" min="0" max="50" step="1" value="35"></label>
+          <label>Strength <span id="vignetteStrengthValue" class="mono">1.00</span><input id="vignetteStrengthInput" type="range" min="1" max="2" step="0.01" value="1"></label>
+          <label style="display:flex; gap:8px; align-items:center;">Vignette color <input id="vignetteColorPicker" type="color" value="#79b3db"></label>
+          <label>Vignette color (AARRGGBB)<input id="vignetteColorInput" type="text" value="ff79b3db" maxlength="8"></label>
+          <div style="display:flex; gap:8px; flex-wrap:wrap;">
+            <button id="btnApplyVignetteFilter">Apply Vignette</button>
+            <button id="btnCancelVignetteFilter" type="button">Cancel</button>
           </div>
         </div>
         <div id="museumMatteControls" class="hidden">
@@ -3046,6 +3059,12 @@ function parsePixelateFilter(filterString = "") {
     fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
   };
 }
+function parseVignetteFilter(filterString = "") {
+  const m = String(filterString || "").trim().match(/^vignette=1,([^,]+),([^,]+),([^,]+)$/i);
+  if (!m) return null;
+  const params = { size: Number(m[1]), strength: Number(m[2]), color: normalizeFilterHexColor(m[3], "ff79b3db") };
+  return window.VignetteFilter?.normalizeVignetteParams?.(params) || params;
+}
 function parseMuseumMatteFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^museumMatte=1,([^,]+),([^,]+),([^,]+),([^,]+)$/i);
   if (!m) return null;
@@ -3909,6 +3928,15 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Pixelate filter unavailable");
       continue;
     }
+    m = parseVignetteFilter(f);
+    if (m) {
+      if (m.size <= 0) continue;
+      if (useWebglPreview) notifyFallback("vignette");
+      const fn = window.VignetteFilter?.applyVignetteToCanvas;
+      if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, m);
+      else notifyWebglFallback("Vignette filter unavailable");
+      continue;
+    }
     m = parseMuseumMatteFilter(f);
     if (m) {
       if (useWebglPreview) notifyFallback("museum matte");
@@ -4330,6 +4358,15 @@ const el = {
   pixelateFadeValue: document.getElementById("pixelateFadeValue"),
   btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
   btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
+  vignetteControls: document.getElementById("vignetteControls"),
+  vignetteSizeInput: document.getElementById("vignetteSizeInput"),
+  vignetteSizeValue: document.getElementById("vignetteSizeValue"),
+  vignetteStrengthInput: document.getElementById("vignetteStrengthInput"),
+  vignetteStrengthValue: document.getElementById("vignetteStrengthValue"),
+  vignetteColorPicker: document.getElementById("vignetteColorPicker"),
+  vignetteColorInput: document.getElementById("vignetteColorInput"),
+  btnApplyVignetteFilter: document.getElementById("btnApplyVignetteFilter"),
+  btnCancelVignetteFilter: document.getElementById("btnCancelVignetteFilter"),
   museumMatteControls: document.getElementById("museumMatteControls"),
   museumMatteOuterInput: document.getElementById("museumMatteOuterInput"),
   museumMatteOuterValue: document.getElementById("museumMatteOuterValue"),
@@ -4473,6 +4510,7 @@ const el = {
   btnSoftenMode: document.getElementById("btnSoftenMode"),
   btnPixelateMode: document.getElementById("btnPixelateMode"),
   btnMuseumMatteMode: document.getElementById("btnMuseumMatteMode"),
+  btnVignetteMode: document.getElementById("btnVignetteMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4562,6 +4600,7 @@ const filterControlPanels = [
   el.softenControls,
   el.pixelateControls,
   el.museumMatteControls,
+  el.vignetteControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -4782,6 +4821,13 @@ function lastPixelateFromFilters(filters) {
   }
   return { pixelSize: 20, blendMode: 9, fade: 0 };
 }
+function lastVignetteFromFilters(filters) {
+  for (let i = (filters || []).length - 1; i >= 0; i--) {
+    const p = parseVignetteFilter(filters[i]);
+    if (p) return p;
+  }
+  return { size: 35, strength: 1, color: "ff79b3db" };
+}
 function lastMuseumMatteFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
     const p = parseMuseumMatteFilter(filters[i]);
@@ -4909,7 +4955,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6144,6 +6190,7 @@ function openFaceEditor(imageItem) {
   el.softenControls.classList.add("hidden");
   el.pixelateControls.classList.add("hidden");
   el.museumMatteControls.classList.add("hidden");
+  el.vignetteControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6167,6 +6214,7 @@ function openFaceEditor(imageItem) {
   el.btnSoftenMode.textContent = "Soften";
   el.btnPixelateMode.textContent = "Pixelate";
   el.btnMuseumMatteMode.textContent = "Museum Matte";
+  el.btnVignetteMode.textContent = "Vignette";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6223,6 +6271,7 @@ function openFaceEditor(imageItem) {
   writeSoftenControls(lastSoftenFromFilters(faceEditor.filters));
   writePixelateControls(lastPixelateFromFilters(faceEditor.filters));
   writeMuseumMatteControls(lastMuseumMatteFromFilters(faceEditor.filters));
+  writeVignetteControls(lastVignetteFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8577,6 +8626,39 @@ function refreshPixelateDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readVignetteParamsFromControls() {
+  return window.VignetteFilter.normalizeVignetteParams({
+    size: el.vignetteSizeInput.value,
+    strength: el.vignetteStrengthInput.value,
+    color: el.vignetteColorInput.value,
+  });
+}
+function writeVignetteControls(params = {}) {
+  const normalized = window.VignetteFilter.normalizeVignetteParams(params);
+  el.vignetteSizeInput.value = String(normalized.size);
+  el.vignetteSizeValue.textContent = String(normalized.size);
+  el.vignetteStrengthInput.value = String(normalized.strength);
+  el.vignetteStrengthValue.textContent = normalized.strength.toFixed(2);
+  el.vignetteColorInput.value = normalized.color;
+  el.vignetteColorPicker.value = `#${normalized.color.slice(2)}`;
+  return normalized;
+}
+function vignetteToken(params = null) {
+  const normalized = window.VignetteFilter.normalizeVignetteParams(params || readVignetteParamsFromControls());
+  return `vignette=1,${normalized.size},${normalized.strength},${normalized.color}`;
+}
+let vignetteDraftTimer = 0;
+function refreshVignetteDraft(options = {}) {
+  const params = writeVignetteControls(readVignetteParamsFromControls());
+  const draft = vignetteToken(params);
+  if (options.defer) {
+    clearTimeout(vignetteDraftTimer);
+    vignetteDraftTimer = setTimeout(() => refreshEditorPreview((faceEditor.filters || []).concat([draft])), 80);
+  } else {
+    refreshEditorPreview((faceEditor.filters || []).concat([draft]));
+  }
+  return draft;
+}
 function readMuseumMatteParamsFromControls() {
   return window.MuseumMatteFilter.normalizeMuseumMatteParams({
     outerThickness: el.museumMatteOuterInput.value,
@@ -8935,6 +9017,12 @@ el.btnApplyPixelateFilter.onclick = () => {
   el.btnPixelateMode.textContent = "Pixelate";
 };
 el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
+el.btnApplyVignetteFilter.onclick = () => {
+  applyNoParamFilter(refreshVignetteDraft());
+  el.vignetteControls.classList.add("hidden");
+  el.btnVignetteMode.textContent = "Vignette";
+};
+el.btnCancelVignetteFilter.onclick = () => cancelDraftFilterControls(el.vignetteControls, el.btnVignetteMode, "Vignette");
 el.btnApplyMuseumMatteFilter.onclick = () => {
   applyNoParamFilter(refreshMuseumMatteDraft());
   el.museumMatteControls.classList.add("hidden");
@@ -8970,6 +9058,21 @@ el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
 el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
+el.vignetteSizeInput.oninput = () => refreshVignetteDraft({ defer: true });
+el.vignetteStrengthInput.oninput = () => refreshVignetteDraft({ defer: true });
+el.vignetteColorPicker.oninput = () => {
+  const alpha = window.VignetteFilter.normalizeArgb(el.vignetteColorInput.value).slice(0, 2);
+  el.vignetteColorInput.value = `${alpha}${el.vignetteColorPicker.value.slice(1)}`;
+  refreshVignetteDraft({ defer: true });
+};
+el.vignetteColorInput.oninput = () => {
+  const color = window.VignetteFilter.normalizeArgb(el.vignetteColorInput.value);
+  if (/^[0-9a-f]{8}$/i.test(el.vignetteColorInput.value.trim().replace(/^#/, ""))) {
+    el.vignetteColorPicker.value = `#${color.slice(2)}`;
+    refreshVignetteDraft({ defer: true });
+  }
+};
+el.vignetteColorInput.onchange = () => refreshVignetteDraft();
 el.museumMatteOuterInput.oninput = () => refreshMuseumMatteDraft({ defer: true });
 el.museumMatteOuterColorInput.oninput = () => refreshMuseumMatteDraft({ defer: true });
 el.museumMatteInnerInput.oninput = () => refreshMuseumMatteDraft({ defer: true });
@@ -9506,6 +9609,12 @@ el.btnPixelateMode.onclick = () => {
   el.pixelateControls.classList.toggle("hidden", !show);
   el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
   if (show) refreshPixelateDraft();
+};
+el.btnVignetteMode.onclick = () => {
+  const show = el.vignetteControls.classList.contains("hidden");
+  el.vignetteControls.classList.toggle("hidden", !show);
+  el.btnVignetteMode.textContent = show ? "Hide Vignette" : "Vignette";
+  if (show) refreshVignetteDraft();
 };
 el.btnMuseumMatteMode.onclick = () => {
   const show = el.museumMatteControls.classList.contains("hidden");

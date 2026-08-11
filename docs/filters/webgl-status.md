@@ -23,6 +23,7 @@ Picasanous uses the CPU implementation as the reference path for every filter. W
 | Duo-tone | `duotone` | `duotone-filter.js` | CPU only | Feasible as a shader if the small edge-aware local-mean pass is provided as a prepass/texture; current implementation keeps the calibrated CPU model as the reference path. |
 | Pixelate | `pixelate` | `pixelate-filter.js` | CPU only | A GPU path is feasible with a block-average prepass, but the CPU path currently guarantees exact source-pixel box averages and deterministic 8-bit blend-mode arithmetic. |
 | Museum Matte | `museumMatte` | `museum-matte-filter.js` | CPU only | Feasible as a raster shader/compositing pass, but the CPU renderer currently guarantees exact source-pixel border geometry and centralized inset-shadow calibration. |
+| Vignette | `vignette` | `vignette-filter.js` | CPU only | Feasible as a single shader pass using the analytic rectangular Gaussian mask; the cached CPU implementation is currently the canonical path. |
 | Red-eye | `redeye2` | Editor overlay/pixel path | CPU only | Feasible as a targeted shader pass, but current implementation is rectangle/area driven and not a general full-frame filter shader. |
 
 ## Implementation policy
