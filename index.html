@@ -573,6 +573,7 @@
           <div><b>Vignette</b></div>
           <label>Size <span id="vignetteSizeValue" class="mono">35</span><input id="vignetteSizeInput" type="range" min="0" max="50" step="1" value="35"></label>
           <label>Strength <span id="vignetteStrengthValue" class="mono">1.00</span><input id="vignetteStrengthInput" type="range" min="1" max="2" step="0.01" value="1"></label>
+          <label>Fade <span id="vignetteFadeValue" class="mono">0</span><input id="vignetteFadeInput" type="range" min="0" max="100" step="1" value="0"></label>
           <label style="display:flex; gap:8px; align-items:center;">Vignette color <input id="vignetteColorPicker" type="color" value="#79b3db"></label>
           <label>Vignette color (AARRGGBB)<input id="vignetteColorInput" type="text" value="ff79b3db" maxlength="8"></label>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
@@ -3060,9 +3061,9 @@ function parsePixelateFilter(filterString = "") {
   };
 }
 function parseVignetteFilter(filterString = "") {
-  const m = String(filterString || "").trim().match(/^vignette=1,([^,]+),([^,]+),([^,]+)$/i);
+  const m = String(filterString || "").trim().match(/^vignette=1,([^,]+),([^,]+),([^,]+)(?:,([^,]+))?$/i);
   if (!m) return null;
-  const params = { size: Number(m[1]), strength: Number(m[2]), color: normalizeFilterHexColor(m[3], "ff79b3db") };
+  const params = { size: Number(m[1]), strength: Number(m[2]), color: normalizeFilterHexColor(m[3], "ff79b3db"), fade: Number(m[4] ?? 0) };
   return window.VignetteFilter?.normalizeVignetteParams?.(params) || params;
 }
 function parseMuseumMatteFilter(filterString = "") {
@@ -3930,7 +3931,7 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
     }
     m = parseVignetteFilter(f);
     if (m) {
-      if (m.size <= 0) continue;
+      if (m.size <= 0 || m.fade >= 100) continue;
       if (useWebglPreview) notifyFallback("vignette");
       const fn = window.VignetteFilter?.applyVignetteToCanvas;
       if (typeof fn === "function") canvas = fn(ensureCanvas2D(canvas), undefined, m);
@@ -4363,6 +4364,8 @@ const el = {
   vignetteSizeValue: document.getElementById("vignetteSizeValue"),
   vignetteStrengthInput: document.getElementById("vignetteStrengthInput"),
   vignetteStrengthValue: document.getElementById("vignetteStrengthValue"),
+  vignetteFadeInput: document.getElementById("vignetteFadeInput"),
+  vignetteFadeValue: document.getElementById("vignetteFadeValue"),
   vignetteColorPicker: document.getElementById("vignetteColorPicker"),
   vignetteColorInput: document.getElementById("vignetteColorInput"),
   btnApplyVignetteFilter: document.getElementById("btnApplyVignetteFilter"),
@@ -4826,7 +4829,7 @@ function lastVignetteFromFilters(filters) {
     const p = parseVignetteFilter(filters[i]);
     if (p) return p;
   }
-  return { size: 35, strength: 1, color: "ff79b3db" };
+  return { size: 35, strength: 1, color: "ff79b3db", fade: 0 };
 }
 function lastMuseumMatteFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
@@ -8631,6 +8634,7 @@ function readVignetteParamsFromControls() {
     size: el.vignetteSizeInput.value,
     strength: el.vignetteStrengthInput.value,
     color: el.vignetteColorInput.value,
+    fade: el.vignetteFadeInput.value,
   });
 }
 function writeVignetteControls(params = {}) {
@@ -8639,13 +8643,15 @@ function writeVignetteControls(params = {}) {
   el.vignetteSizeValue.textContent = String(normalized.size);
   el.vignetteStrengthInput.value = String(normalized.strength);
   el.vignetteStrengthValue.textContent = normalized.strength.toFixed(2);
+  el.vignetteFadeInput.value = String(normalized.fade);
+  el.vignetteFadeValue.textContent = String(normalized.fade);
   el.vignetteColorInput.value = normalized.color;
   el.vignetteColorPicker.value = `#${normalized.color.slice(2)}`;
   return normalized;
 }
 function vignetteToken(params = null) {
   const normalized = window.VignetteFilter.normalizeVignetteParams(params || readVignetteParamsFromControls());
-  return `vignette=1,${normalized.size},${normalized.strength},${normalized.color}`;
+  return `vignette=1,${normalized.size},${normalized.strength},${normalized.color},${normalized.fade}`;
 }
 let vignetteDraftTimer = 0;
 function refreshVignetteDraft(options = {}) {
@@ -9060,6 +9066,7 @@ el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
 el.vignetteSizeInput.oninput = () => refreshVignetteDraft({ defer: true });
 el.vignetteStrengthInput.oninput = () => refreshVignetteDraft({ defer: true });
+el.vignetteFadeInput.oninput = () => refreshVignetteDraft({ defer: true });
 el.vignetteColorPicker.oninput = () => {
   const alpha = window.VignetteFilter.normalizeArgb(el.vignetteColorInput.value).slice(0, 2);
   el.vignetteColorInput.value = `${alpha}${el.vignetteColorPicker.value.slice(1)}`;

@@ -2,7 +2,7 @@
   "use strict";
 
   const VIGNETTE_SIGMA_WIDTH_DIVISOR = 410;
-  const DEFAULT_VIGNETTE_PARAMS = Object.freeze({ size: 35, strength: 1, color: "ff79b3db" });
+  const DEFAULT_VIGNETTE_PARAMS = Object.freeze({ size: 35, strength: 1, color: "ff79b3db", fade: 0 });
   const clamp = (value, min = 0, max = 1) => Math.max(min, Math.min(max, value));
   let maskCache = null;
 
@@ -15,10 +15,12 @@
   function normalizeVignetteParams(params = {}) {
     const size = Number(params.size);
     const strength = Number(params.strength);
+    const fade = Number(params.fade);
     return {
       size: clamp(Math.round(Number.isFinite(size) ? size : DEFAULT_VIGNETTE_PARAMS.size), 0, 50),
       strength: clamp(Number.isFinite(strength) ? strength : DEFAULT_VIGNETTE_PARAMS.strength, 1, 2),
       color: normalizeArgb(params.color),
+      fade: clamp(Math.round(Number.isFinite(fade) ? fade : DEFAULT_VIGNETTE_PARAMS.fade), 0, 100),
     };
   }
 
@@ -79,21 +81,25 @@
     if (width <= 0 || height <= 0 || source.length < width * height * 4) throw new RangeError("invalid Vignette image dimensions");
     const normalized = normalizeVignetteParams(params);
     const output = new Uint8ClampedArray(width * height * 4);
-    if (normalized.size <= 0) {
+    if (normalized.size <= 0 || normalized.fade >= 100) {
       output.set(source.subarray(0, output.length));
       return output;
     }
     const mask = getVignetteMaskAxes(width, height, normalized.size);
     const color = colorChannels(normalized.color);
+    const fade = normalized.fade / 100;
     for (let y = 0; y < height; y++) {
       const insideY = mask.insideY[y];
       for (let x = 0; x < width; x++) {
         const i = (y * width + x) * 4;
         const baseAlpha = 1 - mask.insideX[x] * insideY;
         const alpha = clamp(baseAlpha * normalized.strength) * color.alpha;
-        output[i] = Math.round(source[i] * (1 - alpha) + color.red * alpha);
-        output[i + 1] = Math.round(source[i + 1] * (1 - alpha) + color.green * alpha);
-        output[i + 2] = Math.round(source[i + 2] * (1 - alpha) + color.blue * alpha);
+        const effectRed = source[i] * (1 - alpha) + color.red * alpha;
+        const effectGreen = source[i + 1] * (1 - alpha) + color.green * alpha;
+        const effectBlue = source[i + 2] * (1 - alpha) + color.blue * alpha;
+        output[i] = Math.round(effectRed + (source[i] - effectRed) * fade);
+        output[i + 1] = Math.round(effectGreen + (source[i + 1] - effectGreen) * fade);
+        output[i + 2] = Math.round(effectBlue + (source[i + 2] - effectBlue) * fade);
         output[i + 3] = source[i + 3];
       }
     }
