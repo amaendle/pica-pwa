@@ -20,6 +20,7 @@
   <script src="./museum-matte-filter.js"></script>
   <script src="./vignette-filter.js"></script>
   <script src="./border-filter.js"></script>
+  <script src="./drop-shadow-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -372,6 +373,7 @@
             <button id="btnMuseumMatteMode">Museum Matte</button>
             <button id="btnVignetteMode">Vignette</button>
             <button id="btnBorderMode">Border</button>
+            <button id="btnDropShadowMode">DropShadow</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -570,6 +572,17 @@
             <button id="btnApplyPixelateFilter">Apply Pixelate</button>
             <button id="btnCancelPixelateFilter" type="button">Cancel</button>
           </div>
+        </div>
+        <div id="dropShadowControls" class="hidden">
+          <div><b>DropShadow</b></div>
+          <label><input id="dropShadowEnabledInput" type="checkbox" checked> Enabled</label>
+          <label>Distance <span id="dropShadowDistanceValue" class="mono">4</span><input id="dropShadowDistanceInput" type="range" min="0" max="100" step="1" value="4"></label>
+          <label>Angle <span id="dropShadowAngleValue" class="mono">90°</span><input id="dropShadowAngleInput" type="range" min="0" max="360" step="1" value="90"></label>
+          <label>Size <span id="dropShadowSizeValue" class="mono">10</span><input id="dropShadowSizeInput" type="range" min="0" max="100" step="1" value="10"></label>
+          <label>Shadow color <input id="dropShadowColorPicker" type="color" value="#000000"><input id="dropShadowColorInput" type="text" value="00000000" maxlength="8"></label>
+          <label>Background color <input id="dropShadowBackgroundPicker" type="color" value="#ffffff"><input id="dropShadowBackgroundInput" type="text" value="00ffffff" maxlength="8"></label>
+          <label>Fade <span id="dropShadowFadeValue" class="mono">30</span><input id="dropShadowFadeInput" type="range" min="0" max="100" step="1" value="30"></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="btnApplyDropShadowFilter">Apply DropShadow</button><button id="btnCancelDropShadowFilter" type="button">Cancel</button></div>
         </div>
         <div id="borderControls" class="hidden">
           <div><b>Border</b></div>
@@ -2736,6 +2749,14 @@ function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = 
       view = { x: sx, y: sy, w: sw, h: sh };
       continue;
     }
+    m = parseDropShadowFilter(f);
+    if (m && m.enabled) {
+      const geometry = window.DropShadowFilter.getDropShadowGeometry(Math.max(1, Math.round(view.w)), Math.max(1, Math.round(view.h)), m);
+      x = x - view.x + geometry.imageX;
+      y = y - view.y + geometry.imageY;
+      view = { x: 0, y: 0, w: geometry.outputWidth, h: geometry.outputHeight };
+      continue;
+    }
     m = parseBorderFilter(f);
     if (m) {
       const renderedWidth = Math.max(1, Math.round(view.w));
@@ -3097,6 +3118,11 @@ function parsePixelateFilter(filterString = "") {
     blendMode: Math.max(0, Math.min(9, Math.round(Number(m[2]) || 0))),
     fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
   };
+}
+function parseDropShadowFilter(filterString = "") {
+  const m=String(filterString||"").trim().replace(/;$/,"").match(/^DropShadow=([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$/i);
+  if(!m)return null;
+  return window.DropShadowFilter.normalizeDropShadowParams({enabled:Number(m[1])!==0,distance:Number(m[2]),angle:Number(m[3]),size:Number(m[4]),shadowColor:m[5],backgroundColor:m[6],fade:Number(m[7])});
 }
 function parseBorderFilter(filterString = "") {
   const m = String(filterString || "").trim().match(/^border=1,([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$/i);
@@ -3985,6 +4011,18 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Vignette filter unavailable");
       continue;
     }
+    m = parseDropShadowFilter(f);
+    if(m){
+      if(!m.enabled)continue;
+      if(useWebglPreview)notifyFallback("drop shadow");
+      const cropX=Math.max(0,Math.round(view.x)),cropY=Math.max(0,Math.round(view.y)),cropWidth=Math.max(1,Math.round(view.w)),cropHeight=Math.max(1,Math.round(view.h));
+      if(cropX||cropY||cropWidth!==canvas.width||cropHeight!==canvas.height){const sourceCanvas=ensureCanvas2D(canvas),cropped=document.createElement("canvas");cropped.width=cropWidth;cropped.height=cropHeight;cropped.getContext("2d").drawImage(sourceCanvas,cropX,cropY,cropWidth,cropHeight,0,0,cropWidth,cropHeight);canvas=cropped;}
+      view={x:0,y:0,w:canvas.width,h:canvas.height};
+      const fn=window.DropShadowFilter?.applyDropShadowToCanvas;
+      if(typeof fn==="function"){canvas=fn(ensureCanvas2D(canvas),undefined,m,{previewScale:1});view={x:0,y:0,w:canvas.width,h:canvas.height};}
+      else notifyWebglFallback("DropShadow filter unavailable");
+      continue;
+    }
     m = parseBorderFilter(f);
     if (m) {
       if (useWebglPreview) notifyFallback("border");
@@ -4428,6 +4466,11 @@ const el = {
   pixelateFadeValue: document.getElementById("pixelateFadeValue"),
   btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
   btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
+  dropShadowControls: document.getElementById("dropShadowControls"),
+  dropShadowEnabledInput: document.getElementById("dropShadowEnabledInput"), dropShadowDistanceInput: document.getElementById("dropShadowDistanceInput"), dropShadowDistanceValue: document.getElementById("dropShadowDistanceValue"),
+  dropShadowAngleInput: document.getElementById("dropShadowAngleInput"), dropShadowAngleValue: document.getElementById("dropShadowAngleValue"), dropShadowSizeInput: document.getElementById("dropShadowSizeInput"), dropShadowSizeValue: document.getElementById("dropShadowSizeValue"),
+  dropShadowColorPicker: document.getElementById("dropShadowColorPicker"), dropShadowColorInput: document.getElementById("dropShadowColorInput"), dropShadowBackgroundPicker: document.getElementById("dropShadowBackgroundPicker"), dropShadowBackgroundInput: document.getElementById("dropShadowBackgroundInput"),
+  dropShadowFadeInput: document.getElementById("dropShadowFadeInput"), dropShadowFadeValue: document.getElementById("dropShadowFadeValue"), btnApplyDropShadowFilter: document.getElementById("btnApplyDropShadowFilter"), btnCancelDropShadowFilter: document.getElementById("btnCancelDropShadowFilter"),
   borderControls: document.getElementById("borderControls"),
   borderOuterInput: document.getElementById("borderOuterInput"),
   borderOuterValue: document.getElementById("borderOuterValue"),
@@ -4599,6 +4642,7 @@ const el = {
   btnMuseumMatteMode: document.getElementById("btnMuseumMatteMode"),
   btnVignetteMode: document.getElementById("btnVignetteMode"),
   btnBorderMode: document.getElementById("btnBorderMode"),
+  btnDropShadowMode: document.getElementById("btnDropShadowMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4690,6 +4734,7 @@ const filterControlPanels = [
   el.museumMatteControls,
   el.vignetteControls,
   el.borderControls,
+  el.dropShadowControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -4910,6 +4955,7 @@ function lastPixelateFromFilters(filters) {
   }
   return { pixelSize: 20, blendMode: 9, fade: 0 };
 }
+function lastDropShadowFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseDropShadowFilter(filters[i]);if(p)return p;}return window.DropShadowFilter.DROP_SHADOW_DEFAULTS;}
 function lastBorderFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
     const p = parseBorderFilter(filters[i]);
@@ -5051,7 +5097,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6288,6 +6334,7 @@ function openFaceEditor(imageItem) {
   el.museumMatteControls.classList.add("hidden");
   el.vignetteControls.classList.add("hidden");
   el.borderControls.classList.add("hidden");
+  el.dropShadowControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6313,6 +6360,7 @@ function openFaceEditor(imageItem) {
   el.btnMuseumMatteMode.textContent = "Museum Matte";
   el.btnVignetteMode.textContent = "Vignette";
   el.btnBorderMode.textContent = "Border";
+  el.btnDropShadowMode.textContent = "DropShadow";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6371,6 +6419,7 @@ function openFaceEditor(imageItem) {
   writeMuseumMatteControls(lastMuseumMatteFromFilters(faceEditor.filters));
   writeVignetteControls(lastVignetteFromFilters(faceEditor.filters));
   writeBorderControls(lastBorderFromFilters(faceEditor.filters));
+  writeDropShadowControls(lastDropShadowFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8725,6 +8774,10 @@ function refreshPixelateDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readDropShadowParamsFromControls(){return window.DropShadowFilter.normalizeDropShadowParams({enabled:el.dropShadowEnabledInput.checked,distance:el.dropShadowDistanceInput.value,angle:el.dropShadowAngleInput.value,size:el.dropShadowSizeInput.value,shadowColor:el.dropShadowColorInput.value,backgroundColor:el.dropShadowBackgroundInput.value,fade:el.dropShadowFadeInput.value});}
+function writeDropShadowControls(p={}){p=window.DropShadowFilter.normalizeDropShadowParams(p);el.dropShadowEnabledInput.checked=p.enabled;el.dropShadowDistanceInput.value=p.distance;el.dropShadowDistanceValue.textContent=p.distance;el.dropShadowAngleInput.value=p.angle;el.dropShadowAngleValue.textContent=`${p.angle}°`;el.dropShadowSizeInput.value=p.size;el.dropShadowSizeValue.textContent=p.size;el.dropShadowColorPicker.value=p.shadowColor;el.dropShadowColorInput.value=window.DropShadowFilter.dropShadowColorToPicasa(p.shadowColor);el.dropShadowBackgroundPicker.value=p.backgroundColor;el.dropShadowBackgroundInput.value=window.DropShadowFilter.dropShadowColorToPicasa(p.backgroundColor,"#ffffff");el.dropShadowFadeInput.value=p.fade;el.dropShadowFadeValue.textContent=p.fade;return p;}
+function dropShadowToken(p=null){p=window.DropShadowFilter.normalizeDropShadowParams(p||readDropShadowParamsFromControls());return `DropShadow=${p.enabled?1:0},${p.distance.toFixed(6)},${p.angle.toFixed(6)},${p.size.toFixed(6)},${window.DropShadowFilter.dropShadowColorToPicasa(p.shadowColor)},${window.DropShadowFilter.dropShadowColorToPicasa(p.backgroundColor,"#ffffff")},${p.fade.toFixed(6)}`;}
+let dropShadowDraftTimer=0;function refreshDropShadowDraft(o={}){const p=writeDropShadowControls(readDropShadowParamsFromControls()),d=dropShadowToken(p);if(o.defer){clearTimeout(dropShadowDraftTimer);dropShadowDraftTimer=setTimeout(()=>refreshEditorPreview((faceEditor.filters||[]).concat([d])),100);}else refreshEditorPreview((faceEditor.filters||[]).concat([d]));return d;}
 function readBorderParamsFromControls() {
   return window.BorderFilter.normalizeBorderParams({
     outerThickness: el.borderOuterInput.value,
@@ -9153,6 +9206,8 @@ el.btnApplyPixelateFilter.onclick = () => {
   el.btnPixelateMode.textContent = "Pixelate";
 };
 el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
+el.btnApplyDropShadowFilter.onclick=()=>{applyNoParamFilter(refreshDropShadowDraft());el.dropShadowControls.classList.add("hidden");el.btnDropShadowMode.textContent="DropShadow";};
+el.btnCancelDropShadowFilter.onclick=()=>cancelDraftFilterControls(el.dropShadowControls,el.btnDropShadowMode,"DropShadow");
 el.btnApplyBorderFilter.onclick = () => {
   applyNoParamFilter(refreshBorderDraft());
   el.borderControls.classList.add("hidden");
@@ -9200,6 +9255,9 @@ el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
 el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
+[el.dropShadowDistanceInput,el.dropShadowAngleInput,el.dropShadowSizeInput,el.dropShadowFadeInput].forEach(x=>x.oninput=()=>refreshDropShadowDraft({defer:true}));el.dropShadowEnabledInput.onchange=()=>refreshDropShadowDraft();
+const syncDSColor=(picker,text)=>{text.value=window.DropShadowFilter.dropShadowColorToPicasa(picker.value);refreshDropShadowDraft({defer:true});};el.dropShadowColorPicker.oninput=()=>syncDSColor(el.dropShadowColorPicker,el.dropShadowColorInput);el.dropShadowBackgroundPicker.oninput=()=>syncDSColor(el.dropShadowBackgroundPicker,el.dropShadowBackgroundInput);
+const readDSColor=(text,picker)=>{const v=text.value.trim().replace(/^#/,"");if(/^[0-9a-f]{6}$|^[0-9a-f]{8}$/i.test(v)){picker.value=window.DropShadowFilter.normalizeDropShadowColor(v);refreshDropShadowDraft({defer:true});}};el.dropShadowColorInput.oninput=()=>readDSColor(el.dropShadowColorInput,el.dropShadowColorPicker);el.dropShadowBackgroundInput.oninput=()=>readDSColor(el.dropShadowBackgroundInput,el.dropShadowBackgroundPicker);
 el.borderOuterInput.oninput = () => refreshBorderDraft({ defer: true });
 el.borderInnerInput.oninput = () => refreshBorderDraft({ defer: true });
 el.borderRadiusInput.oninput = () => refreshBorderDraft({ defer: true });
@@ -9774,6 +9832,7 @@ el.btnPixelateMode.onclick = () => {
   el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
   if (show) refreshPixelateDraft();
 };
+el.btnDropShadowMode.onclick=()=>{const show=el.dropShadowControls.classList.contains("hidden");el.dropShadowControls.classList.toggle("hidden",!show);el.btnDropShadowMode.textContent=show?"Hide DropShadow":"DropShadow";if(show)refreshDropShadowDraft();};
 el.btnBorderMode.onclick = () => {
   const show = el.borderControls.classList.contains("hidden");
   el.borderControls.classList.toggle("hidden", !show);
