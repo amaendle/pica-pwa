@@ -22,6 +22,7 @@
   <script src="./border-filter.js"></script>
   <script src="./drop-shadow-filter.js"></script>
   <script src="./polaroid-filter.js"></script>
+  <script src="./focal-zoom-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -376,6 +377,7 @@
             <button id="btnBorderMode">Border</button>
             <button id="btnDropShadowMode">DropShadow</button>
             <button id="btnPolaroidMode">Polaroid</button>
+            <button id="btnFocalZoomMode">Focal Zoom</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -574,6 +576,17 @@
             <button id="btnApplyPixelateFilter">Apply Pixelate</button>
             <button id="btnCancelPixelateFilter" type="button">Cancel</button>
           </div>
+        </div>
+        <div id="focalZoomControls" class="hidden">
+          <div><b>Focal Zoom</b></div>
+          <label><input id="focalZoomEnabledInput" type="checkbox" checked> Enabled</label>
+          <label>Center X <span id="focalZoomXValue" class="mono">0.500</span><input id="focalZoomXInput" type="range" min="0" max="1" step="0.001" value="0.5"></label>
+          <label>Center Y <span id="focalZoomYValue" class="mono">0.500</span><input id="focalZoomYInput" type="range" min="0" max="1" step="0.001" value="0.5"></label>
+          <label>Zoominess <span id="focalZoomZoominessValue" class="mono">50</span><input id="focalZoomZoominessInput" type="range" min="0" max="100" step="0.1" value="50"></label>
+          <label>Focal size <span id="focalZoomSizeValue" class="mono">50</span><input id="focalZoomSizeInput" type="range" min="0" max="100" step="0.1" value="50"></label>
+          <label>Edge hardness <span id="focalZoomHardnessValue" class="mono">100</span><input id="focalZoomHardnessInput" type="range" min="0" max="100" step="0.1" value="100"></label>
+          <label>Fade <span id="focalZoomFadeValue" class="mono">0</span><input id="focalZoomFadeInput" type="range" min="0" max="100" step="0.1" value="0"></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="btnApplyFocalZoomFilter">Apply Focal Zoom</button><button id="btnCancelFocalZoomFilter" type="button">Cancel</button></div>
         </div>
         <div id="polaroidControls" class="hidden">
           <div><b>Polaroid</b></div>
@@ -3139,6 +3152,11 @@ function parsePixelateFilter(filterString = "") {
     fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
   };
 }
+function parseFocalZoomFilter(filterString = "") {
+  const m=String(filterString||"").trim().replace(/;$/," ").trim().match(/^FocalZoom=([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$/i);
+  if(!m)return null;
+  return window.FocalZoomFilter.normalizeFocalZoomParams({enabled:Number(m[1])!==0,relX:Number(m[2]),relY:Number(m[3]),zoominess:Number(m[4]),focalSize:Number(m[5]),edgeHardness:Number(m[6]),fade:Number(m[7])});
+}
 function parsePolaroidFilter(filterString = "") {
   const m=String(filterString||"").trim().replace(/;$/," ").trim().match(/^Polaroid=([^,]+),([^,]+),([^,]+)$/i);
   if(!m)return null;
@@ -4027,6 +4045,18 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Pixelate filter unavailable");
       continue;
     }
+    m = parseFocalZoomFilter(f);
+    if(m){
+      if(!m.enabled||m.zoominess<=0||m.fade>=100)continue;
+      if(useWebglPreview)notifyFallback("focal zoom");
+      const fn=window.FocalZoomFilter?.applyFocalZoomToCanvas;
+      if(typeof fn==="function"){
+        const originalFullWidth=canvas.width,originalFullHeight=canvas.height,cropLeft=Math.max(0,Math.round(view.x)),cropTop=Math.max(0,Math.round(view.y)),cropWidth=Math.max(1,Math.round(view.w)),cropHeight=Math.max(1,Math.round(view.h));
+        if(cropLeft||cropTop||cropWidth!==canvas.width||cropHeight!==canvas.height){const sourceCanvas=ensureCanvas2D(canvas),cropped=document.createElement("canvas");cropped.width=cropWidth;cropped.height=cropHeight;cropped.getContext("2d").drawImage(sourceCanvas,cropLeft,cropTop,cropWidth,cropHeight,0,0,cropWidth,cropHeight);canvas=cropped;}
+        canvas=fn(ensureCanvas2D(canvas),undefined,m,{originalFullWidth,originalFullHeight,cropLeft,cropTop,cropWidth,cropHeight});view={x:0,y:0,w:canvas.width,h:canvas.height};
+      } else notifyWebglFallback("Focal Zoom filter unavailable");
+      continue;
+    }
     m = parseVignetteFilter(f);
     if (m) {
       if (m.size <= 0 || m.fade >= 100) continue;
@@ -4503,6 +4533,9 @@ const el = {
   pixelateFadeValue: document.getElementById("pixelateFadeValue"),
   btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
   btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
+  focalZoomControls: document.getElementById("focalZoomControls"),
+  focalZoomEnabledInput:document.getElementById("focalZoomEnabledInput"),focalZoomXInput:document.getElementById("focalZoomXInput"),focalZoomXValue:document.getElementById("focalZoomXValue"),focalZoomYInput:document.getElementById("focalZoomYInput"),focalZoomYValue:document.getElementById("focalZoomYValue"),
+  focalZoomZoominessInput:document.getElementById("focalZoomZoominessInput"),focalZoomZoominessValue:document.getElementById("focalZoomZoominessValue"),focalZoomSizeInput:document.getElementById("focalZoomSizeInput"),focalZoomSizeValue:document.getElementById("focalZoomSizeValue"),focalZoomHardnessInput:document.getElementById("focalZoomHardnessInput"),focalZoomHardnessValue:document.getElementById("focalZoomHardnessValue"),focalZoomFadeInput:document.getElementById("focalZoomFadeInput"),focalZoomFadeValue:document.getElementById("focalZoomFadeValue"),btnApplyFocalZoomFilter:document.getElementById("btnApplyFocalZoomFilter"),btnCancelFocalZoomFilter:document.getElementById("btnCancelFocalZoomFilter"),
   polaroidControls: document.getElementById("polaroidControls"),
   polaroidEnabledInput: document.getElementById("polaroidEnabledInput"), polaroidRotateInput: document.getElementById("polaroidRotateInput"), polaroidRotateValue: document.getElementById("polaroidRotateValue"),
   polaroidBackgroundPicker: document.getElementById("polaroidBackgroundPicker"), polaroidBackgroundInput: document.getElementById("polaroidBackgroundInput"), btnApplyPolaroidFilter: document.getElementById("btnApplyPolaroidFilter"), btnCancelPolaroidFilter: document.getElementById("btnCancelPolaroidFilter"),
@@ -4684,6 +4717,7 @@ const el = {
   btnBorderMode: document.getElementById("btnBorderMode"),
   btnDropShadowMode: document.getElementById("btnDropShadowMode"),
   btnPolaroidMode: document.getElementById("btnPolaroidMode"),
+  btnFocalZoomMode: document.getElementById("btnFocalZoomMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4777,6 +4811,7 @@ const filterControlPanels = [
   el.borderControls,
   el.dropShadowControls,
   el.polaroidControls,
+  el.focalZoomControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -4997,6 +5032,7 @@ function lastPixelateFromFilters(filters) {
   }
   return { pixelSize: 20, blendMode: 9, fade: 0 };
 }
+function lastFocalZoomFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseFocalZoomFilter(filters[i]);if(p)return p;}return window.FocalZoomFilter.FOCAL_ZOOM_DEFAULTS;}
 function lastPolaroidFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parsePolaroidFilter(filters[i]);if(p)return p;}return window.PolaroidFilter.POLAROID_DEFAULTS;}
 function lastDropShadowFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseDropShadowFilter(filters[i]);if(p)return p;}return window.DropShadowFilter.DROP_SHADOW_DEFAULTS;}
 function lastBorderFromFilters(filters) {
@@ -5140,7 +5176,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", polaroid: "Polaroid", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", polaroid: "Polaroid", focalzoom: "Focal Zoom", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6379,6 +6415,7 @@ function openFaceEditor(imageItem) {
   el.borderControls.classList.add("hidden");
   el.dropShadowControls.classList.add("hidden");
   el.polaroidControls.classList.add("hidden");
+  el.focalZoomControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6406,6 +6443,7 @@ function openFaceEditor(imageItem) {
   el.btnBorderMode.textContent = "Border";
   el.btnDropShadowMode.textContent = "DropShadow";
   el.btnPolaroidMode.textContent = "Polaroid";
+  el.btnFocalZoomMode.textContent = "Focal Zoom";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6466,6 +6504,7 @@ function openFaceEditor(imageItem) {
   writeBorderControls(lastBorderFromFilters(faceEditor.filters));
   writeDropShadowControls(lastDropShadowFromFilters(faceEditor.filters));
   writePolaroidControls(lastPolaroidFromFilters(faceEditor.filters));
+  writeFocalZoomControls(lastFocalZoomFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8820,6 +8859,10 @@ function refreshPixelateDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readFocalZoomParamsFromControls(){return window.FocalZoomFilter.normalizeFocalZoomParams({enabled:el.focalZoomEnabledInput.checked,relX:el.focalZoomXInput.value,relY:el.focalZoomYInput.value,zoominess:el.focalZoomZoominessInput.value,focalSize:el.focalZoomSizeInput.value,edgeHardness:el.focalZoomHardnessInput.value,fade:el.focalZoomFadeInput.value});}
+function writeFocalZoomControls(p={}){p=window.FocalZoomFilter.normalizeFocalZoomParams(p);for(const [input,value,label] of [[el.focalZoomXInput,p.relX,el.focalZoomXValue],[el.focalZoomYInput,p.relY,el.focalZoomYValue],[el.focalZoomZoominessInput,p.zoominess,el.focalZoomZoominessValue],[el.focalZoomSizeInput,p.focalSize,el.focalZoomSizeValue],[el.focalZoomHardnessInput,p.edgeHardness,el.focalZoomHardnessValue],[el.focalZoomFadeInput,p.fade,el.focalZoomFadeValue]]){input.value=value;label.textContent=Number(value).toFixed(input===el.focalZoomXInput||input===el.focalZoomYInput?3:1);}el.focalZoomEnabledInput.checked=p.enabled;return p;}
+function focalZoomToken(p=null){p=window.FocalZoomFilter.normalizeFocalZoomParams(p||readFocalZoomParamsFromControls());return `FocalZoom=${p.enabled?1:0},${p.relX.toFixed(6)},${p.relY.toFixed(6)},${p.zoominess.toFixed(6)},${p.focalSize.toFixed(6)},${p.edgeHardness.toFixed(6)},${p.fade.toFixed(6)}`;}
+let focalZoomDraftTimer=0;function refreshFocalZoomDraft(o={}){const p=writeFocalZoomControls(readFocalZoomParamsFromControls()),d=focalZoomToken(p);if(o.defer){clearTimeout(focalZoomDraftTimer);focalZoomDraftTimer=setTimeout(()=>refreshEditorPreview((faceEditor.filters||[]).concat([d])),100);}else refreshEditorPreview((faceEditor.filters||[]).concat([d]));return d;}
 function readPolaroidParamsFromControls(){return window.PolaroidFilter.normalizePolaroidParams({enabled:el.polaroidEnabledInput.checked,rotate:el.polaroidRotateInput.value,backgroundColor:el.polaroidBackgroundInput.value});}
 function writePolaroidControls(p={}){p=window.PolaroidFilter.normalizePolaroidParams(p);el.polaroidEnabledInput.checked=p.enabled;el.polaroidRotateInput.value=p.rotate;el.polaroidRotateValue.textContent=`${p.rotate}°`;el.polaroidBackgroundPicker.value=p.backgroundColor;el.polaroidBackgroundInput.value=window.PolaroidFilter.polaroidColorToPicasa(p.backgroundColor);return p;}
 function polaroidToken(p=null){p=window.PolaroidFilter.normalizePolaroidParams(p||readPolaroidParamsFromControls());return `Polaroid=${p.enabled?1:0},${p.rotate.toFixed(6)},${window.PolaroidFilter.polaroidColorToPicasa(p.backgroundColor)}`;}
@@ -9256,6 +9299,8 @@ el.btnApplyPixelateFilter.onclick = () => {
   el.btnPixelateMode.textContent = "Pixelate";
 };
 el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
+el.btnApplyFocalZoomFilter.onclick=()=>{applyNoParamFilter(refreshFocalZoomDraft());el.focalZoomControls.classList.add("hidden");el.btnFocalZoomMode.textContent="Focal Zoom";};
+el.btnCancelFocalZoomFilter.onclick=()=>cancelDraftFilterControls(el.focalZoomControls,el.btnFocalZoomMode,"Focal Zoom");
 el.btnApplyPolaroidFilter.onclick=()=>{applyNoParamFilter(refreshPolaroidDraft());el.polaroidControls.classList.add("hidden");el.btnPolaroidMode.textContent="Polaroid";};
 el.btnCancelPolaroidFilter.onclick=()=>cancelDraftFilterControls(el.polaroidControls,el.btnPolaroidMode,"Polaroid");
 el.btnApplyDropShadowFilter.onclick=()=>{applyNoParamFilter(refreshDropShadowDraft());el.dropShadowControls.classList.add("hidden");el.btnDropShadowMode.textContent="DropShadow";};
@@ -9307,6 +9352,7 @@ el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
 el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
+[el.focalZoomXInput,el.focalZoomYInput,el.focalZoomZoominessInput,el.focalZoomSizeInput,el.focalZoomHardnessInput,el.focalZoomFadeInput].forEach(input=>input.oninput=()=>refreshFocalZoomDraft({defer:true}));el.focalZoomEnabledInput.onchange=()=>refreshFocalZoomDraft();
 el.polaroidRotateInput.oninput=()=>refreshPolaroidDraft({defer:true});el.polaroidEnabledInput.onchange=()=>refreshPolaroidDraft();
 el.polaroidBackgroundPicker.oninput=()=>{el.polaroidBackgroundInput.value=window.PolaroidFilter.polaroidColorToPicasa(el.polaroidBackgroundPicker.value);refreshPolaroidDraft({defer:true});};
 el.polaroidBackgroundInput.oninput=()=>{const v=el.polaroidBackgroundInput.value.trim().replace(/^#/,"");if(/^[0-9a-f]{6}$|^[0-9a-f]{8}$/i.test(v)){el.polaroidBackgroundPicker.value=window.PolaroidFilter.normalizePolaroidColor(v);refreshPolaroidDraft({defer:true});}};
@@ -9887,6 +9933,7 @@ el.btnPixelateMode.onclick = () => {
   el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
   if (show) refreshPixelateDraft();
 };
+el.btnFocalZoomMode.onclick=()=>{const show=el.focalZoomControls.classList.contains("hidden");el.focalZoomControls.classList.toggle("hidden",!show);el.btnFocalZoomMode.textContent=show?"Hide Focal Zoom":"Focal Zoom";if(show)refreshFocalZoomDraft();};
 el.btnPolaroidMode.onclick=()=>{const show=el.polaroidControls.classList.contains("hidden");el.polaroidControls.classList.toggle("hidden",!show);el.btnPolaroidMode.textContent=show?"Hide Polaroid":"Polaroid";if(show)refreshPolaroidDraft();};
 el.btnDropShadowMode.onclick=()=>{const show=el.dropShadowControls.classList.contains("hidden");el.dropShadowControls.classList.toggle("hidden",!show);el.btnDropShadowMode.textContent=show?"Hide DropShadow":"DropShadow";if(show)refreshDropShadowDraft();};
 el.btnBorderMode.onclick = () => {
