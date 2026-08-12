@@ -21,6 +21,7 @@
   <script src="./vignette-filter.js"></script>
   <script src="./border-filter.js"></script>
   <script src="./drop-shadow-filter.js"></script>
+  <script src="./polaroid-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -374,6 +375,7 @@
             <button id="btnVignetteMode">Vignette</button>
             <button id="btnBorderMode">Border</button>
             <button id="btnDropShadowMode">DropShadow</button>
+            <button id="btnPolaroidMode">Polaroid</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -572,6 +574,13 @@
             <button id="btnApplyPixelateFilter">Apply Pixelate</button>
             <button id="btnCancelPixelateFilter" type="button">Cancel</button>
           </div>
+        </div>
+        <div id="polaroidControls" class="hidden">
+          <div><b>Polaroid</b></div>
+          <label><input id="polaroidEnabledInput" type="checkbox" checked> Enabled</label>
+          <label>Rotate <span id="polaroidRotateValue" class="mono">5°</span><input id="polaroidRotateInput" type="range" min="-10" max="10" step="0.1" value="5"></label>
+          <label>Background color <input id="polaroidBackgroundPicker" type="color" value="#e2e2e2"><input id="polaroidBackgroundInput" type="text" value="00e2e2e2" maxlength="8"></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="btnApplyPolaroidFilter">Apply Polaroid</button><button id="btnCancelPolaroidFilter" type="button">Cancel</button></div>
         </div>
         <div id="dropShadowControls" class="hidden">
           <div><b>DropShadow</b></div>
@@ -2749,6 +2758,17 @@ function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = 
       view = { x: sx, y: sy, w: sw, h: sh };
       continue;
     }
+    m = parsePolaroidFilter(f);
+    if (m && m.enabled) {
+      const renderedWidth=Math.max(1,Math.round(view.w)),renderedHeight=Math.max(1,Math.round(view.h));
+      const g=window.PolaroidFilter.getPolaroidGeometry(renderedWidth,renderedHeight,m.rotate);
+      const localX=x-view.x-g.cropRect.x,localY=y-view.y-g.cropRect.y;
+      const baseX=g.photoRect.x+localX,baseY=g.photoRect.y+localY;
+      const radians=m.rotate*Math.PI/180,cos=Math.cos(radians),sin=Math.sin(radians),rx=baseX-g.baseWidth/2,ry=baseY-g.baseHeight/2;
+      x=cos*rx-sin*ry+g.outputWidth/2;y=sin*rx+cos*ry+g.outputHeight/2;
+      view={x:0,y:0,w:g.outputWidth,h:g.outputHeight};
+      continue;
+    }
     m = parseDropShadowFilter(f);
     if (m && m.enabled) {
       const geometry = window.DropShadowFilter.getDropShadowGeometry(Math.max(1, Math.round(view.w)), Math.max(1, Math.round(view.h)), m);
@@ -3118,6 +3138,11 @@ function parsePixelateFilter(filterString = "") {
     blendMode: Math.max(0, Math.min(9, Math.round(Number(m[2]) || 0))),
     fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
   };
+}
+function parsePolaroidFilter(filterString = "") {
+  const m=String(filterString||"").trim().replace(/;$/," ").trim().match(/^Polaroid=([^,]+),([^,]+),([^,]+)$/i);
+  if(!m)return null;
+  return window.PolaroidFilter.normalizePolaroidParams({enabled:Number(m[1])!==0,rotate:Number(m[2]),backgroundColor:m[3]});
 }
 function parseDropShadowFilter(filterString = "") {
   const m=String(filterString||"").trim().replace(/;$/,"").match(/^DropShadow=([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$/i);
@@ -4011,6 +4036,18 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Vignette filter unavailable");
       continue;
     }
+    m = parsePolaroidFilter(f);
+    if(m){
+      if(!m.enabled)continue;
+      if(useWebglPreview)notifyFallback("polaroid");
+      const cropX=Math.max(0,Math.round(view.x)),cropY=Math.max(0,Math.round(view.y)),cropWidth=Math.max(1,Math.round(view.w)),cropHeight=Math.max(1,Math.round(view.h));
+      if(cropX||cropY||cropWidth!==canvas.width||cropHeight!==canvas.height){const sourceCanvas=ensureCanvas2D(canvas),cropped=document.createElement("canvas");cropped.width=cropWidth;cropped.height=cropHeight;cropped.getContext("2d").drawImage(sourceCanvas,cropX,cropY,cropWidth,cropHeight,0,0,cropWidth,cropHeight);canvas=cropped;}
+      view={x:0,y:0,w:canvas.width,h:canvas.height};
+      const fn=window.PolaroidFilter?.applyPolaroidToCanvas;
+      if(typeof fn==="function"){canvas=fn(ensureCanvas2D(canvas),undefined,m);view={x:0,y:0,w:canvas.width,h:canvas.height};}
+      else notifyWebglFallback("Polaroid filter unavailable");
+      continue;
+    }
     m = parseDropShadowFilter(f);
     if(m){
       if(!m.enabled)continue;
@@ -4466,6 +4503,9 @@ const el = {
   pixelateFadeValue: document.getElementById("pixelateFadeValue"),
   btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
   btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
+  polaroidControls: document.getElementById("polaroidControls"),
+  polaroidEnabledInput: document.getElementById("polaroidEnabledInput"), polaroidRotateInput: document.getElementById("polaroidRotateInput"), polaroidRotateValue: document.getElementById("polaroidRotateValue"),
+  polaroidBackgroundPicker: document.getElementById("polaroidBackgroundPicker"), polaroidBackgroundInput: document.getElementById("polaroidBackgroundInput"), btnApplyPolaroidFilter: document.getElementById("btnApplyPolaroidFilter"), btnCancelPolaroidFilter: document.getElementById("btnCancelPolaroidFilter"),
   dropShadowControls: document.getElementById("dropShadowControls"),
   dropShadowEnabledInput: document.getElementById("dropShadowEnabledInput"), dropShadowDistanceInput: document.getElementById("dropShadowDistanceInput"), dropShadowDistanceValue: document.getElementById("dropShadowDistanceValue"),
   dropShadowAngleInput: document.getElementById("dropShadowAngleInput"), dropShadowAngleValue: document.getElementById("dropShadowAngleValue"), dropShadowSizeInput: document.getElementById("dropShadowSizeInput"), dropShadowSizeValue: document.getElementById("dropShadowSizeValue"),
@@ -4643,6 +4683,7 @@ const el = {
   btnVignetteMode: document.getElementById("btnVignetteMode"),
   btnBorderMode: document.getElementById("btnBorderMode"),
   btnDropShadowMode: document.getElementById("btnDropShadowMode"),
+  btnPolaroidMode: document.getElementById("btnPolaroidMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4735,6 +4776,7 @@ const filterControlPanels = [
   el.vignetteControls,
   el.borderControls,
   el.dropShadowControls,
+  el.polaroidControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -4955,6 +4997,7 @@ function lastPixelateFromFilters(filters) {
   }
   return { pixelSize: 20, blendMode: 9, fade: 0 };
 }
+function lastPolaroidFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parsePolaroidFilter(filters[i]);if(p)return p;}return window.PolaroidFilter.POLAROID_DEFAULTS;}
 function lastDropShadowFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseDropShadowFilter(filters[i]);if(p)return p;}return window.DropShadowFilter.DROP_SHADOW_DEFAULTS;}
 function lastBorderFromFilters(filters) {
   for (let i = (filters || []).length - 1; i >= 0; i--) {
@@ -5097,7 +5140,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", polaroid: "Polaroid", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6335,6 +6378,7 @@ function openFaceEditor(imageItem) {
   el.vignetteControls.classList.add("hidden");
   el.borderControls.classList.add("hidden");
   el.dropShadowControls.classList.add("hidden");
+  el.polaroidControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6361,6 +6405,7 @@ function openFaceEditor(imageItem) {
   el.btnVignetteMode.textContent = "Vignette";
   el.btnBorderMode.textContent = "Border";
   el.btnDropShadowMode.textContent = "DropShadow";
+  el.btnPolaroidMode.textContent = "Polaroid";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6420,6 +6465,7 @@ function openFaceEditor(imageItem) {
   writeVignetteControls(lastVignetteFromFilters(faceEditor.filters));
   writeBorderControls(lastBorderFromFilters(faceEditor.filters));
   writeDropShadowControls(lastDropShadowFromFilters(faceEditor.filters));
+  writePolaroidControls(lastPolaroidFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8774,6 +8820,10 @@ function refreshPixelateDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readPolaroidParamsFromControls(){return window.PolaroidFilter.normalizePolaroidParams({enabled:el.polaroidEnabledInput.checked,rotate:el.polaroidRotateInput.value,backgroundColor:el.polaroidBackgroundInput.value});}
+function writePolaroidControls(p={}){p=window.PolaroidFilter.normalizePolaroidParams(p);el.polaroidEnabledInput.checked=p.enabled;el.polaroidRotateInput.value=p.rotate;el.polaroidRotateValue.textContent=`${p.rotate}°`;el.polaroidBackgroundPicker.value=p.backgroundColor;el.polaroidBackgroundInput.value=window.PolaroidFilter.polaroidColorToPicasa(p.backgroundColor);return p;}
+function polaroidToken(p=null){p=window.PolaroidFilter.normalizePolaroidParams(p||readPolaroidParamsFromControls());return `Polaroid=${p.enabled?1:0},${p.rotate.toFixed(6)},${window.PolaroidFilter.polaroidColorToPicasa(p.backgroundColor)}`;}
+let polaroidDraftTimer=0;function refreshPolaroidDraft(o={}){const p=writePolaroidControls(readPolaroidParamsFromControls()),d=polaroidToken(p);if(o.defer){clearTimeout(polaroidDraftTimer);polaroidDraftTimer=setTimeout(()=>refreshEditorPreview((faceEditor.filters||[]).concat([d])),100);}else refreshEditorPreview((faceEditor.filters||[]).concat([d]));return d;}
 function readDropShadowParamsFromControls(){return window.DropShadowFilter.normalizeDropShadowParams({enabled:el.dropShadowEnabledInput.checked,distance:el.dropShadowDistanceInput.value,angle:el.dropShadowAngleInput.value,size:el.dropShadowSizeInput.value,shadowColor:el.dropShadowColorInput.value,backgroundColor:el.dropShadowBackgroundInput.value,fade:el.dropShadowFadeInput.value});}
 function writeDropShadowControls(p={}){p=window.DropShadowFilter.normalizeDropShadowParams(p);el.dropShadowEnabledInput.checked=p.enabled;el.dropShadowDistanceInput.value=p.distance;el.dropShadowDistanceValue.textContent=p.distance;el.dropShadowAngleInput.value=p.angle;el.dropShadowAngleValue.textContent=`${p.angle}°`;el.dropShadowSizeInput.value=p.size;el.dropShadowSizeValue.textContent=p.size;el.dropShadowColorPicker.value=p.shadowColor;el.dropShadowColorInput.value=window.DropShadowFilter.dropShadowColorToPicasa(p.shadowColor);el.dropShadowBackgroundPicker.value=p.backgroundColor;el.dropShadowBackgroundInput.value=window.DropShadowFilter.dropShadowColorToPicasa(p.backgroundColor,"#ffffff");el.dropShadowFadeInput.value=p.fade;el.dropShadowFadeValue.textContent=p.fade;return p;}
 function dropShadowToken(p=null){p=window.DropShadowFilter.normalizeDropShadowParams(p||readDropShadowParamsFromControls());return `DropShadow=${p.enabled?1:0},${p.distance.toFixed(6)},${p.angle.toFixed(6)},${p.size.toFixed(6)},${window.DropShadowFilter.dropShadowColorToPicasa(p.shadowColor)},${window.DropShadowFilter.dropShadowColorToPicasa(p.backgroundColor,"#ffffff")},${p.fade.toFixed(6)}`;}
@@ -9206,6 +9256,8 @@ el.btnApplyPixelateFilter.onclick = () => {
   el.btnPixelateMode.textContent = "Pixelate";
 };
 el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
+el.btnApplyPolaroidFilter.onclick=()=>{applyNoParamFilter(refreshPolaroidDraft());el.polaroidControls.classList.add("hidden");el.btnPolaroidMode.textContent="Polaroid";};
+el.btnCancelPolaroidFilter.onclick=()=>cancelDraftFilterControls(el.polaroidControls,el.btnPolaroidMode,"Polaroid");
 el.btnApplyDropShadowFilter.onclick=()=>{applyNoParamFilter(refreshDropShadowDraft());el.dropShadowControls.classList.add("hidden");el.btnDropShadowMode.textContent="DropShadow";};
 el.btnCancelDropShadowFilter.onclick=()=>cancelDraftFilterControls(el.dropShadowControls,el.btnDropShadowMode,"DropShadow");
 el.btnApplyBorderFilter.onclick = () => {
@@ -9255,6 +9307,9 @@ el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
 el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
+el.polaroidRotateInput.oninput=()=>refreshPolaroidDraft({defer:true});el.polaroidEnabledInput.onchange=()=>refreshPolaroidDraft();
+el.polaroidBackgroundPicker.oninput=()=>{el.polaroidBackgroundInput.value=window.PolaroidFilter.polaroidColorToPicasa(el.polaroidBackgroundPicker.value);refreshPolaroidDraft({defer:true});};
+el.polaroidBackgroundInput.oninput=()=>{const v=el.polaroidBackgroundInput.value.trim().replace(/^#/,"");if(/^[0-9a-f]{6}$|^[0-9a-f]{8}$/i.test(v)){el.polaroidBackgroundPicker.value=window.PolaroidFilter.normalizePolaroidColor(v);refreshPolaroidDraft({defer:true});}};
 [el.dropShadowDistanceInput,el.dropShadowAngleInput,el.dropShadowSizeInput,el.dropShadowFadeInput].forEach(x=>x.oninput=()=>refreshDropShadowDraft({defer:true}));el.dropShadowEnabledInput.onchange=()=>refreshDropShadowDraft();
 const syncDSColor=(picker,text)=>{text.value=window.DropShadowFilter.dropShadowColorToPicasa(picker.value);refreshDropShadowDraft({defer:true});};el.dropShadowColorPicker.oninput=()=>syncDSColor(el.dropShadowColorPicker,el.dropShadowColorInput);el.dropShadowBackgroundPicker.oninput=()=>syncDSColor(el.dropShadowBackgroundPicker,el.dropShadowBackgroundInput);
 const readDSColor=(text,picker)=>{const v=text.value.trim().replace(/^#/,"");if(/^[0-9a-f]{6}$|^[0-9a-f]{8}$/i.test(v)){picker.value=window.DropShadowFilter.normalizeDropShadowColor(v);refreshDropShadowDraft({defer:true});}};el.dropShadowColorInput.oninput=()=>readDSColor(el.dropShadowColorInput,el.dropShadowColorPicker);el.dropShadowBackgroundInput.oninput=()=>readDSColor(el.dropShadowBackgroundInput,el.dropShadowBackgroundPicker);
@@ -9832,6 +9887,7 @@ el.btnPixelateMode.onclick = () => {
   el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
   if (show) refreshPixelateDraft();
 };
+el.btnPolaroidMode.onclick=()=>{const show=el.polaroidControls.classList.contains("hidden");el.polaroidControls.classList.toggle("hidden",!show);el.btnPolaroidMode.textContent=show?"Hide Polaroid":"Polaroid";if(show)refreshPolaroidDraft();};
 el.btnDropShadowMode.onclick=()=>{const show=el.dropShadowControls.classList.contains("hidden");el.dropShadowControls.classList.toggle("hidden",!show);el.btnDropShadowMode.textContent=show?"Hide DropShadow":"DropShadow";if(show)refreshDropShadowDraft();};
 el.btnBorderMode.onclick = () => {
   const show = el.borderControls.classList.contains("hidden");
