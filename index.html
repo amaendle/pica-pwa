@@ -24,6 +24,7 @@
   <script src="./polaroid-filter.js"></script>
   <script src="./focal-zoom-filter.js"></script>
   <script src="./neon-filter.js"></script>
+  <script src="./pencil-sketch-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -380,6 +381,7 @@
             <button id="btnPolaroidMode">Polaroid</button>
             <button id="btnFocalZoomMode">Focal Zoom</button>
             <button id="btnNeonMode">Neon</button>
+            <button id="btnPencilSketchMode">Pencil Sketch</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -578,6 +580,14 @@
             <button id="btnApplyPixelateFilter">Apply Pixelate</button>
             <button id="btnCancelPixelateFilter" type="button">Cancel</button>
           </div>
+        </div>
+        <div id="pencilSketchControls" class="hidden">
+          <div><b>Pencil Sketch</b></div>
+          <label><input id="pencilSketchEnabledInput" type="checkbox" checked> Enabled</label>
+          <label>Radius <span id="pencilSketchRadiusValue" class="mono">2.0</span><input id="pencilSketchRadiusInput" type="range" min="1.3" max="5" step="0.01" value="2"></label>
+          <label>Strength <span id="pencilSketchStrengthValue" class="mono">100</span><input id="pencilSketchStrengthInput" type="range" min="0" max="200" step="0.1" value="100"></label>
+          <label>Fade <span id="pencilSketchFadeValue" class="mono">0</span><input id="pencilSketchFadeInput" type="range" min="0" max="100" step="0.1" value="0"></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="btnApplyPencilSketchFilter">Apply Pencil Sketch</button><button id="btnCancelPencilSketchFilter" type="button">Cancel</button></div>
         </div>
         <div id="neonControls" class="hidden">
           <div><b>Neon</b></div>
@@ -3161,6 +3171,11 @@ function parsePixelateFilter(filterString = "") {
     fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
   };
 }
+function parsePencilSketchFilter(filterString = "") {
+  const m=String(filterString||"").trim().replace(/;$/," ").trim().match(/^PencilSketch=([^,]+),([^,]+),([^,]+),([^,]+)$/i);
+  if(!m)return null;
+  return window.PencilSketchFilter.normalizePencilSketchParams({enabled:Number(m[1])!==0,radius:Number(m[2]),strength:Number(m[3]),fade:Number(m[4])});
+}
 function parseNeonFilter(filterString = "") {
   const m=String(filterString||"").trim().replace(/;$/," ").trim().match(/^Neon=([^,]+),([^,]+),([^,]+)$/i);
   if(!m)return null;
@@ -4059,6 +4074,14 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Pixelate filter unavailable");
       continue;
     }
+    m = parsePencilSketchFilter(f);
+    if(m){
+      if(!m.enabled||m.fade>=100)continue;
+      if(useWebglPreview)notifyFallback("pencil sketch");
+      const fn=window.PencilSketchFilter?.applyPencilSketchToCanvas;
+      if(typeof fn==="function")canvas=fn(ensureCanvas2D(canvas),undefined,m);else notifyWebglFallback("Pencil Sketch filter unavailable");
+      continue;
+    }
     m = parseNeonFilter(f);
     if(m){
       if(!m.enabled||m.fade>=100)continue;
@@ -4555,6 +4578,7 @@ const el = {
   pixelateFadeValue: document.getElementById("pixelateFadeValue"),
   btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
   btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
+  pencilSketchControls:document.getElementById("pencilSketchControls"),pencilSketchEnabledInput:document.getElementById("pencilSketchEnabledInput"),pencilSketchRadiusInput:document.getElementById("pencilSketchRadiusInput"),pencilSketchRadiusValue:document.getElementById("pencilSketchRadiusValue"),pencilSketchStrengthInput:document.getElementById("pencilSketchStrengthInput"),pencilSketchStrengthValue:document.getElementById("pencilSketchStrengthValue"),pencilSketchFadeInput:document.getElementById("pencilSketchFadeInput"),pencilSketchFadeValue:document.getElementById("pencilSketchFadeValue"),btnApplyPencilSketchFilter:document.getElementById("btnApplyPencilSketchFilter"),btnCancelPencilSketchFilter:document.getElementById("btnCancelPencilSketchFilter"),
   neonControls:document.getElementById("neonControls"),neonEnabledInput:document.getElementById("neonEnabledInput"),neonFadeInput:document.getElementById("neonFadeInput"),neonFadeValue:document.getElementById("neonFadeValue"),neonColorPicker:document.getElementById("neonColorPicker"),neonColorInput:document.getElementById("neonColorInput"),btnApplyNeonFilter:document.getElementById("btnApplyNeonFilter"),btnCancelNeonFilter:document.getElementById("btnCancelNeonFilter"),
   focalZoomControls: document.getElementById("focalZoomControls"),
   focalZoomEnabledInput:document.getElementById("focalZoomEnabledInput"),focalZoomXInput:document.getElementById("focalZoomXInput"),focalZoomXValue:document.getElementById("focalZoomXValue"),focalZoomYInput:document.getElementById("focalZoomYInput"),focalZoomYValue:document.getElementById("focalZoomYValue"),
@@ -4742,6 +4766,7 @@ const el = {
   btnPolaroidMode: document.getElementById("btnPolaroidMode"),
   btnFocalZoomMode: document.getElementById("btnFocalZoomMode"),
   btnNeonMode: document.getElementById("btnNeonMode"),
+  btnPencilSketchMode: document.getElementById("btnPencilSketchMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4837,6 +4862,7 @@ const filterControlPanels = [
   el.polaroidControls,
   el.focalZoomControls,
   el.neonControls,
+  el.pencilSketchControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -5057,6 +5083,7 @@ function lastPixelateFromFilters(filters) {
   }
   return { pixelSize: 20, blendMode: 9, fade: 0 };
 }
+function lastPencilSketchFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parsePencilSketchFilter(filters[i]);if(p)return p;}return window.PencilSketchFilter.PENCIL_SKETCH_DEFAULTS;}
 function lastNeonFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseNeonFilter(filters[i]);if(p)return p;}return window.NeonFilter.NEON_DEFAULTS;}
 function lastFocalZoomFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseFocalZoomFilter(filters[i]);if(p)return p;}return window.FocalZoomFilter.FOCAL_ZOOM_DEFAULTS;}
 function lastPolaroidFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parsePolaroidFilter(filters[i]);if(p)return p;}return window.PolaroidFilter.POLAROID_DEFAULTS;}
@@ -5202,7 +5229,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", polaroid: "Polaroid", focalzoom: "Focal Zoom", neon: "Neon", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", polaroid: "Polaroid", focalzoom: "Focal Zoom", neon: "Neon", pencilsketch: "Pencil Sketch", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6443,6 +6470,7 @@ function openFaceEditor(imageItem) {
   el.polaroidControls.classList.add("hidden");
   el.focalZoomControls.classList.add("hidden");
   el.neonControls.classList.add("hidden");
+  el.pencilSketchControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6472,6 +6500,7 @@ function openFaceEditor(imageItem) {
   el.btnPolaroidMode.textContent = "Polaroid";
   el.btnFocalZoomMode.textContent = "Focal Zoom";
   el.btnNeonMode.textContent = "Neon";
+  el.btnPencilSketchMode.textContent = "Pencil Sketch";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6534,6 +6563,7 @@ function openFaceEditor(imageItem) {
   writePolaroidControls(lastPolaroidFromFilters(faceEditor.filters));
   writeFocalZoomControls(lastFocalZoomFromFilters(faceEditor.filters));
   writeNeonControls(lastNeonFromFilters(faceEditor.filters));
+  writePencilSketchControls(lastPencilSketchFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8888,6 +8918,10 @@ function refreshPixelateDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readPencilSketchParamsFromControls(){return window.PencilSketchFilter.normalizePencilSketchParams({enabled:el.pencilSketchEnabledInput.checked,radius:el.pencilSketchRadiusInput.value,strength:el.pencilSketchStrengthInput.value,fade:el.pencilSketchFadeInput.value});}
+function writePencilSketchControls(p={}){p=window.PencilSketchFilter.normalizePencilSketchParams(p);el.pencilSketchEnabledInput.checked=p.enabled;el.pencilSketchRadiusInput.value=p.radius;el.pencilSketchRadiusValue.textContent=p.radius.toFixed(2);el.pencilSketchStrengthInput.value=p.strength;el.pencilSketchStrengthValue.textContent=p.strength.toFixed(1);el.pencilSketchFadeInput.value=p.fade;el.pencilSketchFadeValue.textContent=p.fade.toFixed(1);return p;}
+function pencilSketchToken(p=null){p=window.PencilSketchFilter.normalizePencilSketchParams(p||readPencilSketchParamsFromControls());return `PencilSketch=${p.enabled?1:0},${p.radius.toFixed(6)},${p.strength.toFixed(6)},${p.fade.toFixed(6)}`;}
+let pencilSketchDraftTimer=0;function refreshPencilSketchDraft(o={}){const p=writePencilSketchControls(readPencilSketchParamsFromControls()),d=pencilSketchToken(p);if(o.defer){clearTimeout(pencilSketchDraftTimer);pencilSketchDraftTimer=setTimeout(()=>refreshEditorPreview((faceEditor.filters||[]).concat([d])),100);}else refreshEditorPreview((faceEditor.filters||[]).concat([d]));return d;}
 function readNeonParamsFromControls(){return window.NeonFilter.normalizeNeonParams({enabled:el.neonEnabledInput.checked,fade:el.neonFadeInput.value,color:el.neonColorInput.value});}
 function writeNeonControls(p={}){p=window.NeonFilter.normalizeNeonParams(p);el.neonEnabledInput.checked=p.enabled;el.neonFadeInput.value=p.fade;el.neonFadeValue.textContent=Number(p.fade).toFixed(1);el.neonColorPicker.value=p.color;el.neonColorInput.value=window.NeonFilter.neonColorToPicasa(p.color);return p;}
 function neonToken(p=null){p=window.NeonFilter.normalizeNeonParams(p||readNeonParamsFromControls());return `Neon=${p.enabled?1:0},${p.fade.toFixed(6)},${window.NeonFilter.neonColorToPicasa(p.color)}`;}
@@ -9332,6 +9366,8 @@ el.btnApplyPixelateFilter.onclick = () => {
   el.btnPixelateMode.textContent = "Pixelate";
 };
 el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
+el.btnApplyPencilSketchFilter.onclick=()=>{applyNoParamFilter(refreshPencilSketchDraft());el.pencilSketchControls.classList.add("hidden");el.btnPencilSketchMode.textContent="Pencil Sketch";};
+el.btnCancelPencilSketchFilter.onclick=()=>cancelDraftFilterControls(el.pencilSketchControls,el.btnPencilSketchMode,"Pencil Sketch");
 el.btnApplyNeonFilter.onclick=()=>{applyNoParamFilter(refreshNeonDraft());el.neonControls.classList.add("hidden");el.btnNeonMode.textContent="Neon";};
 el.btnCancelNeonFilter.onclick=()=>cancelDraftFilterControls(el.neonControls,el.btnNeonMode,"Neon");
 el.btnApplyFocalZoomFilter.onclick=()=>{applyNoParamFilter(refreshFocalZoomDraft());el.focalZoomControls.classList.add("hidden");el.btnFocalZoomMode.textContent="Focal Zoom";};
@@ -9387,6 +9423,7 @@ el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
 el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
+[el.pencilSketchRadiusInput,el.pencilSketchStrengthInput,el.pencilSketchFadeInput].forEach(input=>input.oninput=()=>refreshPencilSketchDraft({defer:true}));el.pencilSketchEnabledInput.onchange=()=>refreshPencilSketchDraft();
 el.neonFadeInput.oninput=()=>refreshNeonDraft({defer:true});el.neonEnabledInput.onchange=()=>refreshNeonDraft();
 el.neonColorPicker.oninput=()=>{el.neonColorInput.value=window.NeonFilter.neonColorToPicasa(el.neonColorPicker.value);refreshNeonDraft({defer:true});};
 el.neonColorInput.oninput=()=>{const v=el.neonColorInput.value.trim().replace(/^#/,"");if(/^[0-9a-f]{6}$|^[0-9a-f]{8}$/i.test(v)){el.neonColorPicker.value=window.NeonFilter.normalizeNeonColor(v);refreshNeonDraft({defer:true});}};
@@ -9971,6 +10008,7 @@ el.btnPixelateMode.onclick = () => {
   el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
   if (show) refreshPixelateDraft();
 };
+el.btnPencilSketchMode.onclick=()=>{const show=el.pencilSketchControls.classList.contains("hidden");el.pencilSketchControls.classList.toggle("hidden",!show);el.btnPencilSketchMode.textContent=show?"Hide Pencil Sketch":"Pencil Sketch";if(show)refreshPencilSketchDraft();};
 el.btnNeonMode.onclick=()=>{const show=el.neonControls.classList.contains("hidden");el.neonControls.classList.toggle("hidden",!show);el.btnNeonMode.textContent=show?"Hide Neon":"Neon";if(show)refreshNeonDraft();};
 el.btnFocalZoomMode.onclick=()=>{const show=el.focalZoomControls.classList.contains("hidden");el.focalZoomControls.classList.toggle("hidden",!show);el.btnFocalZoomMode.textContent=show?"Hide Focal Zoom":"Focal Zoom";if(show)refreshFocalZoomDraft();};
 el.btnPolaroidMode.onclick=()=>{const show=el.polaroidControls.classList.contains("hidden");el.polaroidControls.classList.toggle("hidden",!show);el.btnPolaroidMode.textContent=show?"Hide Polaroid":"Polaroid";if(show)refreshPolaroidDraft();};
