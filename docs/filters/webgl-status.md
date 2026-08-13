@@ -28,6 +28,7 @@ Picasanous uses the CPU implementation as the reference path for every filter. W
 | DropShadow | `DropShadow` | `drop-shadow-filter.js` | CPU only | Uses calibrated dimension-expanding geometry and an analytic Gaussian rectangular mask; GPU parity would require matching output bounds and source-space blur scaling. |
 | Polaroid | `Polaroid` | `polaroid-filter.js` | CPU only | Uses a native square crop, calibrated paper composition, and deterministic raster rotation; GPU parity would require matching floor-rounded output bounds. |
 | Focal Zoom | `FocalZoom` | `focal-zoom-filter.js` | CPU only | Deterministic radial multi-sampling with explicit original-to-crop focal-coordinate mapping; a GPU path could perform the same ray sampling. |
+| Neon | `Neon` | `neon-filter.js` | CPU only | Color-vector Scharr edges plus a separable Gaussian glow; GPU parity would need matching core and blur passes. |
 | Red-eye | `redeye2` | Editor overlay/pixel path | CPU only | Feasible as a targeted shader pass, but current implementation is rectangle/area driven and not a general full-frame filter shader. |
 
 ## Implementation policy

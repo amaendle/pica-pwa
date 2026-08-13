@@ -23,6 +23,7 @@
   <script src="./drop-shadow-filter.js"></script>
   <script src="./polaroid-filter.js"></script>
   <script src="./focal-zoom-filter.js"></script>
+  <script src="./neon-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -378,6 +379,7 @@
             <button id="btnDropShadowMode">DropShadow</button>
             <button id="btnPolaroidMode">Polaroid</button>
             <button id="btnFocalZoomMode">Focal Zoom</button>
+            <button id="btnNeonMode">Neon</button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -576,6 +578,13 @@
             <button id="btnApplyPixelateFilter">Apply Pixelate</button>
             <button id="btnCancelPixelateFilter" type="button">Cancel</button>
           </div>
+        </div>
+        <div id="neonControls" class="hidden">
+          <div><b>Neon</b></div>
+          <label><input id="neonEnabledInput" type="checkbox" checked> Enabled</label>
+          <label>Fade <span id="neonFadeValue" class="mono">0</span><input id="neonFadeInput" type="range" min="0" max="100" step="0.1" value="0"></label>
+          <label>Color <input id="neonColorPicker" type="color" value="#ff0000"><input id="neonColorInput" type="text" value="00ff0000" maxlength="8"></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="btnApplyNeonFilter">Apply Neon</button><button id="btnCancelNeonFilter" type="button">Cancel</button></div>
         </div>
         <div id="focalZoomControls" class="hidden">
           <div><b>Focal Zoom</b></div>
@@ -3152,6 +3161,11 @@ function parsePixelateFilter(filterString = "") {
     fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
   };
 }
+function parseNeonFilter(filterString = "") {
+  const m=String(filterString||"").trim().replace(/;$/," ").trim().match(/^Neon=([^,]+),([^,]+),([^,]+)$/i);
+  if(!m)return null;
+  return window.NeonFilter.normalizeNeonParams({enabled:Number(m[1])!==0,fade:Number(m[2]),color:m[3]});
+}
 function parseFocalZoomFilter(filterString = "") {
   const m=String(filterString||"").trim().replace(/;$/," ").trim().match(/^FocalZoom=([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+),([^,]+)$/i);
   if(!m)return null;
@@ -4045,6 +4059,14 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Pixelate filter unavailable");
       continue;
     }
+    m = parseNeonFilter(f);
+    if(m){
+      if(!m.enabled||m.fade>=100)continue;
+      if(useWebglPreview)notifyFallback("neon");
+      const fn=window.NeonFilter?.applyNeonToCanvas;
+      if(typeof fn==="function")canvas=fn(ensureCanvas2D(canvas),undefined,m);else notifyWebglFallback("Neon filter unavailable");
+      continue;
+    }
     m = parseFocalZoomFilter(f);
     if(m){
       if(!m.enabled||m.zoominess<=0||m.fade>=100)continue;
@@ -4533,6 +4555,7 @@ const el = {
   pixelateFadeValue: document.getElementById("pixelateFadeValue"),
   btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
   btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
+  neonControls:document.getElementById("neonControls"),neonEnabledInput:document.getElementById("neonEnabledInput"),neonFadeInput:document.getElementById("neonFadeInput"),neonFadeValue:document.getElementById("neonFadeValue"),neonColorPicker:document.getElementById("neonColorPicker"),neonColorInput:document.getElementById("neonColorInput"),btnApplyNeonFilter:document.getElementById("btnApplyNeonFilter"),btnCancelNeonFilter:document.getElementById("btnCancelNeonFilter"),
   focalZoomControls: document.getElementById("focalZoomControls"),
   focalZoomEnabledInput:document.getElementById("focalZoomEnabledInput"),focalZoomXInput:document.getElementById("focalZoomXInput"),focalZoomXValue:document.getElementById("focalZoomXValue"),focalZoomYInput:document.getElementById("focalZoomYInput"),focalZoomYValue:document.getElementById("focalZoomYValue"),
   focalZoomZoominessInput:document.getElementById("focalZoomZoominessInput"),focalZoomZoominessValue:document.getElementById("focalZoomZoominessValue"),focalZoomSizeInput:document.getElementById("focalZoomSizeInput"),focalZoomSizeValue:document.getElementById("focalZoomSizeValue"),focalZoomHardnessInput:document.getElementById("focalZoomHardnessInput"),focalZoomHardnessValue:document.getElementById("focalZoomHardnessValue"),focalZoomFadeInput:document.getElementById("focalZoomFadeInput"),focalZoomFadeValue:document.getElementById("focalZoomFadeValue"),btnApplyFocalZoomFilter:document.getElementById("btnApplyFocalZoomFilter"),btnCancelFocalZoomFilter:document.getElementById("btnCancelFocalZoomFilter"),
@@ -4718,6 +4741,7 @@ const el = {
   btnDropShadowMode: document.getElementById("btnDropShadowMode"),
   btnPolaroidMode: document.getElementById("btnPolaroidMode"),
   btnFocalZoomMode: document.getElementById("btnFocalZoomMode"),
+  btnNeonMode: document.getElementById("btnNeonMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4812,6 +4836,7 @@ const filterControlPanels = [
   el.dropShadowControls,
   el.polaroidControls,
   el.focalZoomControls,
+  el.neonControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -5032,6 +5057,7 @@ function lastPixelateFromFilters(filters) {
   }
   return { pixelSize: 20, blendMode: 9, fade: 0 };
 }
+function lastNeonFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseNeonFilter(filters[i]);if(p)return p;}return window.NeonFilter.NEON_DEFAULTS;}
 function lastFocalZoomFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseFocalZoomFilter(filters[i]);if(p)return p;}return window.FocalZoomFilter.FOCAL_ZOOM_DEFAULTS;}
 function lastPolaroidFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parsePolaroidFilter(filters[i]);if(p)return p;}return window.PolaroidFilter.POLAROID_DEFAULTS;}
 function lastDropShadowFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseDropShadowFilter(filters[i]);if(p)return p;}return window.DropShadowFilter.DROP_SHADOW_DEFAULTS;}
@@ -5176,7 +5202,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", polaroid: "Polaroid", focalzoom: "Focal Zoom", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", polaroid: "Polaroid", focalzoom: "Focal Zoom", neon: "Neon", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6416,6 +6442,7 @@ function openFaceEditor(imageItem) {
   el.dropShadowControls.classList.add("hidden");
   el.polaroidControls.classList.add("hidden");
   el.focalZoomControls.classList.add("hidden");
+  el.neonControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6444,6 +6471,7 @@ function openFaceEditor(imageItem) {
   el.btnDropShadowMode.textContent = "DropShadow";
   el.btnPolaroidMode.textContent = "Polaroid";
   el.btnFocalZoomMode.textContent = "Focal Zoom";
+  el.btnNeonMode.textContent = "Neon";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6505,6 +6533,7 @@ function openFaceEditor(imageItem) {
   writeDropShadowControls(lastDropShadowFromFilters(faceEditor.filters));
   writePolaroidControls(lastPolaroidFromFilters(faceEditor.filters));
   writeFocalZoomControls(lastFocalZoomFromFilters(faceEditor.filters));
+  writeNeonControls(lastNeonFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8859,6 +8888,10 @@ function refreshPixelateDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readNeonParamsFromControls(){return window.NeonFilter.normalizeNeonParams({enabled:el.neonEnabledInput.checked,fade:el.neonFadeInput.value,color:el.neonColorInput.value});}
+function writeNeonControls(p={}){p=window.NeonFilter.normalizeNeonParams(p);el.neonEnabledInput.checked=p.enabled;el.neonFadeInput.value=p.fade;el.neonFadeValue.textContent=Number(p.fade).toFixed(1);el.neonColorPicker.value=p.color;el.neonColorInput.value=window.NeonFilter.neonColorToPicasa(p.color);return p;}
+function neonToken(p=null){p=window.NeonFilter.normalizeNeonParams(p||readNeonParamsFromControls());return `Neon=${p.enabled?1:0},${p.fade.toFixed(6)},${window.NeonFilter.neonColorToPicasa(p.color)}`;}
+let neonDraftTimer=0;function refreshNeonDraft(o={}){const p=writeNeonControls(readNeonParamsFromControls()),d=neonToken(p);if(o.defer){clearTimeout(neonDraftTimer);neonDraftTimer=setTimeout(()=>refreshEditorPreview((faceEditor.filters||[]).concat([d])),100);}else refreshEditorPreview((faceEditor.filters||[]).concat([d]));return d;}
 function readFocalZoomParamsFromControls(){return window.FocalZoomFilter.normalizeFocalZoomParams({enabled:el.focalZoomEnabledInput.checked,relX:el.focalZoomXInput.value,relY:el.focalZoomYInput.value,zoominess:el.focalZoomZoominessInput.value,focalSize:el.focalZoomSizeInput.value,edgeHardness:el.focalZoomHardnessInput.value,fade:el.focalZoomFadeInput.value});}
 function writeFocalZoomControls(p={}){p=window.FocalZoomFilter.normalizeFocalZoomParams(p);for(const [input,value,label] of [[el.focalZoomXInput,p.relX,el.focalZoomXValue],[el.focalZoomYInput,p.relY,el.focalZoomYValue],[el.focalZoomZoominessInput,p.zoominess,el.focalZoomZoominessValue],[el.focalZoomSizeInput,p.focalSize,el.focalZoomSizeValue],[el.focalZoomHardnessInput,p.edgeHardness,el.focalZoomHardnessValue],[el.focalZoomFadeInput,p.fade,el.focalZoomFadeValue]]){input.value=value;label.textContent=Number(value).toFixed(input===el.focalZoomXInput||input===el.focalZoomYInput?3:1);}el.focalZoomEnabledInput.checked=p.enabled;return p;}
 function focalZoomToken(p=null){p=window.FocalZoomFilter.normalizeFocalZoomParams(p||readFocalZoomParamsFromControls());return `FocalZoom=${p.enabled?1:0},${p.relX.toFixed(6)},${p.relY.toFixed(6)},${p.zoominess.toFixed(6)},${p.focalSize.toFixed(6)},${p.edgeHardness.toFixed(6)},${p.fade.toFixed(6)}`;}
@@ -9299,6 +9332,8 @@ el.btnApplyPixelateFilter.onclick = () => {
   el.btnPixelateMode.textContent = "Pixelate";
 };
 el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
+el.btnApplyNeonFilter.onclick=()=>{applyNoParamFilter(refreshNeonDraft());el.neonControls.classList.add("hidden");el.btnNeonMode.textContent="Neon";};
+el.btnCancelNeonFilter.onclick=()=>cancelDraftFilterControls(el.neonControls,el.btnNeonMode,"Neon");
 el.btnApplyFocalZoomFilter.onclick=()=>{applyNoParamFilter(refreshFocalZoomDraft());el.focalZoomControls.classList.add("hidden");el.btnFocalZoomMode.textContent="Focal Zoom";};
 el.btnCancelFocalZoomFilter.onclick=()=>cancelDraftFilterControls(el.focalZoomControls,el.btnFocalZoomMode,"Focal Zoom");
 el.btnApplyPolaroidFilter.onclick=()=>{applyNoParamFilter(refreshPolaroidDraft());el.polaroidControls.classList.add("hidden");el.btnPolaroidMode.textContent="Polaroid";};
@@ -9352,6 +9387,9 @@ el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
 el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
+el.neonFadeInput.oninput=()=>refreshNeonDraft({defer:true});el.neonEnabledInput.onchange=()=>refreshNeonDraft();
+el.neonColorPicker.oninput=()=>{el.neonColorInput.value=window.NeonFilter.neonColorToPicasa(el.neonColorPicker.value);refreshNeonDraft({defer:true});};
+el.neonColorInput.oninput=()=>{const v=el.neonColorInput.value.trim().replace(/^#/,"");if(/^[0-9a-f]{6}$|^[0-9a-f]{8}$/i.test(v)){el.neonColorPicker.value=window.NeonFilter.normalizeNeonColor(v);refreshNeonDraft({defer:true});}};
 [el.focalZoomXInput,el.focalZoomYInput,el.focalZoomZoominessInput,el.focalZoomSizeInput,el.focalZoomHardnessInput,el.focalZoomFadeInput].forEach(input=>input.oninput=()=>refreshFocalZoomDraft({defer:true}));el.focalZoomEnabledInput.onchange=()=>refreshFocalZoomDraft();
 el.polaroidRotateInput.oninput=()=>refreshPolaroidDraft({defer:true});el.polaroidEnabledInput.onchange=()=>refreshPolaroidDraft();
 el.polaroidBackgroundPicker.oninput=()=>{el.polaroidBackgroundInput.value=window.PolaroidFilter.polaroidColorToPicasa(el.polaroidBackgroundPicker.value);refreshPolaroidDraft({defer:true});};
@@ -9933,6 +9971,7 @@ el.btnPixelateMode.onclick = () => {
   el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
   if (show) refreshPixelateDraft();
 };
+el.btnNeonMode.onclick=()=>{const show=el.neonControls.classList.contains("hidden");el.neonControls.classList.toggle("hidden",!show);el.btnNeonMode.textContent=show?"Hide Neon":"Neon";if(show)refreshNeonDraft();};
 el.btnFocalZoomMode.onclick=()=>{const show=el.focalZoomControls.classList.contains("hidden");el.focalZoomControls.classList.toggle("hidden",!show);el.btnFocalZoomMode.textContent=show?"Hide Focal Zoom":"Focal Zoom";if(show)refreshFocalZoomDraft();};
 el.btnPolaroidMode.onclick=()=>{const show=el.polaroidControls.classList.contains("hidden");el.polaroidControls.classList.toggle("hidden",!show);el.btnPolaroidMode.textContent=show?"Hide Polaroid":"Polaroid";if(show)refreshPolaroidDraft();};
 el.btnDropShadowMode.onclick=()=>{const show=el.dropShadowControls.classList.contains("hidden");el.dropShadowControls.classList.toggle("hidden",!show);el.btnDropShadowMode.textContent=show?"Hide DropShadow":"DropShadow";if(show)refreshDropShadowDraft();};
