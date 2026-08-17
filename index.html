@@ -25,6 +25,7 @@
   <script src="./focal-zoom-filter.js"></script>
   <script src="./neon-filter.js"></script>
   <script src="./pencil-sketch-filter.js"></script>
+  <script src="./comicize-filter.js"></script>
   <style>
     :root { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
     html, body { height: 100%; }
@@ -382,6 +383,7 @@
             <button id="btnFocalZoomMode">Focal Zoom</button>
             <button id="btnNeonMode">Neon</button>
             <button id="btnPencilSketchMode">Pencil Sketch</button>
+            <button id="btnComicizeMode">Comic Book <small>(experimental)</small></button>
           </div>
         </div>
         <label id="faceCropRow" class="hidden">Crop rect64<input id="faceCropInput" type="text" readonly></label>
@@ -580,6 +582,14 @@
             <button id="btnApplyPixelateFilter">Apply Pixelate</button>
             <button id="btnCancelPixelateFilter" type="button">Cancel</button>
           </div>
+        </div>
+        <div id="comicizeControls" class="hidden">
+          <div><b>Comic Book / Comicize <small>(experimental)</small></b></div>
+          <label><input id="comicizeEnabledInput" type="checkbox" checked> Enabled</label>
+          <label title="Reserved for later calibration">Color Brush <span class="mono">Not implemented</span><input id="comicizeColorBrushInput" type="range" min="0" max="100" step="0.1" value="0" disabled></label>
+          <label>Dot Density <span id="comicizeDensityValue" class="mono">50</span><input id="comicizeDensityInput" type="range" min="0" max="100" step="0.1" value="50"></label>
+          <label>Dot Fade <span id="comicizeFadeValue" class="mono">0</span><input id="comicizeFadeInput" type="range" min="0" max="100" step="0.1" value="0"></label>
+          <div style="display:flex;gap:8px;flex-wrap:wrap"><button id="btnApplyComicizeFilter">Apply Comic Book</button><button id="btnCancelComicizeFilter" type="button">Cancel</button></div>
         </div>
         <div id="pencilSketchControls" class="hidden">
           <div><b>Pencil Sketch</b></div>
@@ -3171,6 +3181,11 @@ function parsePixelateFilter(filterString = "") {
     fade: Math.max(0, Math.min(100, Math.round(Number(m[3]) || 0))),
   };
 }
+function parseComicizeFilter(filterString = "") {
+  const m=String(filterString||"").trim().replace(/;$/," ").trim().match(/^Comicize=([^,]+),([^,]+),([^,]+),([^,]+)$/i);
+  if(!m)return null;
+  return window.ComicizeFilter.normalizeComicizeParams({enabled:Number(m[1])!==0,colorBrush:Number(m[2]),dotDensity:Number(m[3]),dotFade:Number(m[4])});
+}
 function parsePencilSketchFilter(filterString = "") {
   const m=String(filterString||"").trim().replace(/;$/," ").trim().match(/^PencilSketch=([^,]+),([^,]+),([^,]+),([^,]+)$/i);
   if(!m)return null;
@@ -4074,6 +4089,16 @@ async function makeFilteredPreviewURL(file, filters = [], size = 2048, fallbackC
       else notifyWebglFallback("Pixelate filter unavailable");
       continue;
     }
+    m = parseComicizeFilter(f);
+    if(m){
+      if(!m.enabled||m.dotFade>=100)continue;
+      if(useWebglPreview)notifyFallback("comicize");
+      const cropX=Math.max(0,Math.round(view.x)),cropY=Math.max(0,Math.round(view.y)),cropWidth=Math.max(1,Math.round(view.w)),cropHeight=Math.max(1,Math.round(view.h));
+      if(cropX||cropY||cropWidth!==canvas.width||cropHeight!==canvas.height){const sourceCanvas=ensureCanvas2D(canvas),cropped=document.createElement("canvas");cropped.width=cropWidth;cropped.height=cropHeight;cropped.getContext("2d").drawImage(sourceCanvas,cropX,cropY,cropWidth,cropHeight,0,0,cropWidth,cropHeight);canvas=cropped;view={x:0,y:0,w:cropWidth,h:cropHeight};}
+      const fn=window.ComicizeFilter?.applyComicizeToCanvas;
+      if(typeof fn==="function")canvas=fn(ensureCanvas2D(canvas),undefined,m);else notifyWebglFallback("Comicize filter unavailable");
+      continue;
+    }
     m = parsePencilSketchFilter(f);
     if(m){
       if(!m.enabled||m.fade>=100)continue;
@@ -4578,6 +4603,7 @@ const el = {
   pixelateFadeValue: document.getElementById("pixelateFadeValue"),
   btnApplyPixelateFilter: document.getElementById("btnApplyPixelateFilter"),
   btnCancelPixelateFilter: document.getElementById("btnCancelPixelateFilter"),
+  comicizeControls:document.getElementById("comicizeControls"),comicizeEnabledInput:document.getElementById("comicizeEnabledInput"),comicizeColorBrushInput:document.getElementById("comicizeColorBrushInput"),comicizeDensityInput:document.getElementById("comicizeDensityInput"),comicizeDensityValue:document.getElementById("comicizeDensityValue"),comicizeFadeInput:document.getElementById("comicizeFadeInput"),comicizeFadeValue:document.getElementById("comicizeFadeValue"),btnApplyComicizeFilter:document.getElementById("btnApplyComicizeFilter"),btnCancelComicizeFilter:document.getElementById("btnCancelComicizeFilter"),
   pencilSketchControls:document.getElementById("pencilSketchControls"),pencilSketchEnabledInput:document.getElementById("pencilSketchEnabledInput"),pencilSketchRadiusInput:document.getElementById("pencilSketchRadiusInput"),pencilSketchRadiusValue:document.getElementById("pencilSketchRadiusValue"),pencilSketchStrengthInput:document.getElementById("pencilSketchStrengthInput"),pencilSketchStrengthValue:document.getElementById("pencilSketchStrengthValue"),pencilSketchFadeInput:document.getElementById("pencilSketchFadeInput"),pencilSketchFadeValue:document.getElementById("pencilSketchFadeValue"),btnApplyPencilSketchFilter:document.getElementById("btnApplyPencilSketchFilter"),btnCancelPencilSketchFilter:document.getElementById("btnCancelPencilSketchFilter"),
   neonControls:document.getElementById("neonControls"),neonEnabledInput:document.getElementById("neonEnabledInput"),neonFadeInput:document.getElementById("neonFadeInput"),neonFadeValue:document.getElementById("neonFadeValue"),neonColorPicker:document.getElementById("neonColorPicker"),neonColorInput:document.getElementById("neonColorInput"),btnApplyNeonFilter:document.getElementById("btnApplyNeonFilter"),btnCancelNeonFilter:document.getElementById("btnCancelNeonFilter"),
   focalZoomControls: document.getElementById("focalZoomControls"),
@@ -4767,6 +4793,7 @@ const el = {
   btnFocalZoomMode: document.getElementById("btnFocalZoomMode"),
   btnNeonMode: document.getElementById("btnNeonMode"),
   btnPencilSketchMode: document.getElementById("btnPencilSketchMode"),
+  btnComicizeMode: document.getElementById("btnComicizeMode"),
   btnRedeyeMode: document.getElementById("btnRedeyeMode"),
   btnApplySepiaFilter: document.getElementById("btnApplySepiaFilter"),
   btnApplyBwFilter: document.getElementById("btnApplyBwFilter"),
@@ -4863,6 +4890,7 @@ const filterControlPanels = [
   el.focalZoomControls,
   el.neonControls,
   el.pencilSketchControls,
+  el.comicizeControls,
   el.textControls,
   el.redeyeControls
 ].filter(Boolean);
@@ -5083,6 +5111,7 @@ function lastPixelateFromFilters(filters) {
   }
   return { pixelSize: 20, blendMode: 9, fade: 0 };
 }
+function lastComicizeFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseComicizeFilter(filters[i]);if(p)return p;}return window.ComicizeFilter.COMICIZE_DEFAULTS;}
 function lastPencilSketchFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parsePencilSketchFilter(filters[i]);if(p)return p;}return window.PencilSketchFilter.PENCIL_SKETCH_DEFAULTS;}
 function lastNeonFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseNeonFilter(filters[i]);if(p)return p;}return window.NeonFilter.NEON_DEFAULTS;}
 function lastFocalZoomFromFilters(filters){for(let i=(filters||[]).length-1;i>=0;i--){const p=parseFocalZoomFilter(filters[i]);if(p)return p;}return window.FocalZoomFilter.FOCAL_ZOOM_DEFAULTS;}
@@ -5229,7 +5258,7 @@ function normalizeFilterOrder(filters) {
 function filterDisplayType(filterToken = "") {
   const key = String(filterToken || "").split("=")[0].toLowerCase();
   const names = {
-    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", polaroid: "Polaroid", focalzoom: "Focal Zoom", neon: "Neon", pencilsketch: "Pencil Sketch", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
+    crop64: "Crop", tilt: "Tilt", filllight: "Fill Light", finetune2: "Fine Tune 2", tint: "Tint", sat: "Saturation", ansel: "Ansel", radblur: "Radial Blur", glow2: "Glow", radsat: "Radial Sat", dir_tint: "Directional Tint", redeye2: "Red-eye", rotate: "Rotate", "filtered-bw": "Filtered B&W", boost: "Boost", soften: "Soften", pixelate: "Pixelate", museummatte: "Museum Matte", vignette: "Vignette", border: "Border", dropshadow: "DropShadow", polaroid: "Polaroid", focalzoom: "Focal Zoom", neon: "Neon", pencilsketch: "Pencil Sketch", comicize: "Comic Book", heatmap: "Heatmap", sixties: "1960s", lomoish: "Lomo-ish", holgaish: "Holga-ish", ortonish: "Orton-ish", duotone: "Duo-tone", infraredmono: "Infrared Mono", invert: "Invert", crossprocess: "Cross-process", sepia: "Sepia", bw: "B/W", warm: "Warm", grain2: "Grain2"
   };
   return names[key] || (key ? key.replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase()) : "Filter");
 }
@@ -6471,6 +6500,7 @@ function openFaceEditor(imageItem) {
   el.focalZoomControls.classList.add("hidden");
   el.neonControls.classList.add("hidden");
   el.pencilSketchControls.classList.add("hidden");
+  el.comicizeControls.classList.add("hidden");
   el.redeyeControls.classList.add("hidden");
   el.btnCropMode.textContent = "Crop";
   el.btnTiltMode.textContent = "Tilt";
@@ -6501,6 +6531,7 @@ function openFaceEditor(imageItem) {
   el.btnFocalZoomMode.textContent = "Focal Zoom";
   el.btnNeonMode.textContent = "Neon";
   el.btnPencilSketchMode.textContent = "Pencil Sketch";
+  el.btnComicizeMode.innerHTML = "Comic Book <small>(experimental)</small>";
   el.btnRedeyeMode.textContent = "Red-eye";
   el.faceKeywordsInput.value = (imageItem.keywords || []).join(", ");
   faceEditor.star = !!imageItem.star;
@@ -6564,6 +6595,7 @@ function openFaceEditor(imageItem) {
   writeFocalZoomControls(lastFocalZoomFromFilters(faceEditor.filters));
   writeNeonControls(lastNeonFromFilters(faceEditor.filters));
   writePencilSketchControls(lastPencilSketchFromFilters(faceEditor.filters));
+  writeComicizeControls(lastComicizeFromFilters(faceEditor.filters));
   const ansel = lastAnselFromFilters(faceEditor.filters);
   el.faceAnselColorInput.value = ansel.color || "ffffffff";
   syncArgbPickerControls(el.faceAnselColorInput, el.faceAnselColorPicker, el.faceAnselAlphaInput, el.faceAnselAlphaValue, "ffffffff");
@@ -8918,6 +8950,10 @@ function refreshPixelateDraft() {
   refreshEditorPreview((faceEditor.filters || []).concat([draft]));
   return draft;
 }
+function readComicizeParamsFromControls(){return window.ComicizeFilter.normalizeComicizeParams({enabled:el.comicizeEnabledInput.checked,colorBrush:el.comicizeColorBrushInput.value,dotDensity:el.comicizeDensityInput.value,dotFade:el.comicizeFadeInput.value});}
+function writeComicizeControls(p={}){p=window.ComicizeFilter.normalizeComicizeParams(p);el.comicizeEnabledInput.checked=p.enabled;el.comicizeColorBrushInput.value=p.colorBrush;el.comicizeDensityInput.value=p.dotDensity;el.comicizeDensityValue.textContent=p.dotDensity.toFixed(1);el.comicizeFadeInput.value=p.dotFade;el.comicizeFadeValue.textContent=p.dotFade.toFixed(1);return p;}
+function comicizeToken(p=null){p=window.ComicizeFilter.normalizeComicizeParams(p||readComicizeParamsFromControls());return `Comicize=${p.enabled?1:0},${p.colorBrush.toFixed(6)},${p.dotDensity.toFixed(6)},${p.dotFade.toFixed(6)}`;}
+let comicizeDraftTimer=0;function refreshComicizeDraft(o={}){const p=writeComicizeControls(readComicizeParamsFromControls()),d=comicizeToken(p);if(o.defer){clearTimeout(comicizeDraftTimer);comicizeDraftTimer=setTimeout(()=>refreshEditorPreview((faceEditor.filters||[]).concat([d])),100);}else refreshEditorPreview((faceEditor.filters||[]).concat([d]));return d;}
 function readPencilSketchParamsFromControls(){return window.PencilSketchFilter.normalizePencilSketchParams({enabled:el.pencilSketchEnabledInput.checked,radius:el.pencilSketchRadiusInput.value,strength:el.pencilSketchStrengthInput.value,fade:el.pencilSketchFadeInput.value});}
 function writePencilSketchControls(p={}){p=window.PencilSketchFilter.normalizePencilSketchParams(p);el.pencilSketchEnabledInput.checked=p.enabled;el.pencilSketchRadiusInput.value=p.radius;el.pencilSketchRadiusValue.textContent=p.radius.toFixed(2);el.pencilSketchStrengthInput.value=p.strength;el.pencilSketchStrengthValue.textContent=p.strength.toFixed(1);el.pencilSketchFadeInput.value=p.fade;el.pencilSketchFadeValue.textContent=p.fade.toFixed(1);return p;}
 function pencilSketchToken(p=null){p=window.PencilSketchFilter.normalizePencilSketchParams(p||readPencilSketchParamsFromControls());return `PencilSketch=${p.enabled?1:0},${p.radius.toFixed(6)},${p.strength.toFixed(6)},${p.fade.toFixed(6)}`;}
@@ -9366,6 +9402,8 @@ el.btnApplyPixelateFilter.onclick = () => {
   el.btnPixelateMode.textContent = "Pixelate";
 };
 el.btnCancelPixelateFilter.onclick = () => cancelDraftFilterControls(el.pixelateControls, el.btnPixelateMode, "Pixelate");
+el.btnApplyComicizeFilter.onclick=()=>{applyNoParamFilter(refreshComicizeDraft());el.comicizeControls.classList.add("hidden");el.btnComicizeMode.innerHTML="Comic Book <small>(experimental)</small>";};
+el.btnCancelComicizeFilter.onclick=()=>cancelDraftFilterControls(el.comicizeControls,el.btnComicizeMode,"Comic Book");
 el.btnApplyPencilSketchFilter.onclick=()=>{applyNoParamFilter(refreshPencilSketchDraft());el.pencilSketchControls.classList.add("hidden");el.btnPencilSketchMode.textContent="Pencil Sketch";};
 el.btnCancelPencilSketchFilter.onclick=()=>cancelDraftFilterControls(el.pencilSketchControls,el.btnPencilSketchMode,"Pencil Sketch");
 el.btnApplyNeonFilter.onclick=()=>{applyNoParamFilter(refreshNeonDraft());el.neonControls.classList.add("hidden");el.btnNeonMode.textContent="Neon";};
@@ -9423,6 +9461,7 @@ el.softenFadeInput.oninput = () => refreshSoftenDraft();
 el.pixelateSizeInput.oninput = () => refreshPixelateDraft();
 el.pixelateBlendInput.oninput = () => refreshPixelateDraft();
 el.pixelateFadeInput.oninput = () => refreshPixelateDraft();
+[el.comicizeDensityInput,el.comicizeFadeInput].forEach(input=>input.oninput=()=>refreshComicizeDraft({defer:true}));el.comicizeEnabledInput.onchange=()=>refreshComicizeDraft();
 [el.pencilSketchRadiusInput,el.pencilSketchStrengthInput,el.pencilSketchFadeInput].forEach(input=>input.oninput=()=>refreshPencilSketchDraft({defer:true}));el.pencilSketchEnabledInput.onchange=()=>refreshPencilSketchDraft();
 el.neonFadeInput.oninput=()=>refreshNeonDraft({defer:true});el.neonEnabledInput.onchange=()=>refreshNeonDraft();
 el.neonColorPicker.oninput=()=>{el.neonColorInput.value=window.NeonFilter.neonColorToPicasa(el.neonColorPicker.value);refreshNeonDraft({defer:true});};
@@ -10008,6 +10047,7 @@ el.btnPixelateMode.onclick = () => {
   el.btnPixelateMode.textContent = show ? "Hide Pixelate" : "Pixelate";
   if (show) refreshPixelateDraft();
 };
+el.btnComicizeMode.onclick=()=>{const show=el.comicizeControls.classList.contains("hidden");el.comicizeControls.classList.toggle("hidden",!show);el.btnComicizeMode.textContent=show?"Hide Comic Book":"Comic Book (experimental)";if(show)refreshComicizeDraft();};
 el.btnPencilSketchMode.onclick=()=>{const show=el.pencilSketchControls.classList.contains("hidden");el.pencilSketchControls.classList.toggle("hidden",!show);el.btnPencilSketchMode.textContent=show?"Hide Pencil Sketch":"Pencil Sketch";if(show)refreshPencilSketchDraft();};
 el.btnNeonMode.onclick=()=>{const show=el.neonControls.classList.contains("hidden");el.neonControls.classList.toggle("hidden",!show);el.btnNeonMode.textContent=show?"Hide Neon":"Neon";if(show)refreshNeonDraft();};
 el.btnFocalZoomMode.onclick=()=>{const show=el.focalZoomControls.classList.contains("hidden");el.focalZoomControls.classList.toggle("hidden",!show);el.btnFocalZoomMode.textContent=show?"Hide Focal Zoom":"Focal Zoom";if(show)refreshFocalZoomDraft();};
