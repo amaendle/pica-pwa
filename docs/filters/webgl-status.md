@@ -31,6 +31,7 @@ Picasanous uses the CPU implementation as the reference path for every filter. W
 | Neon | `Neon` | `neon-filter.js` | CPU only | Color-vector Scharr edges plus a separable Gaussian glow; GPU parity would need matching core and blur passes. |
 | Pencil Sketch | `PencilSketch` | `pencil-sketch-filter.js` | CPU only | Rec.601 local-detail renderer with deterministic radius quantization and separable blur; GPU parity would need matching response curves. |
 | Comicize | `Comicize` | `comicize-filter.js` | CPU only | Experimental tile-average halftone with independently clipped center/corner discs and centralized calibration constants. |
+| Posterize | `Posterize` | `posterize-filter.js` | CPU only | Model-driven bilateral preprocessing and deterministic classic fixed-bit RGB octree assignment with exact palette output. |
 | Red-eye | `redeye2` | Editor overlay/pixel path | CPU only | Feasible as a targeted shader pass, but current implementation is rectangle/area driven and not a general full-frame filter shader. |
 
 ## Implementation policy
