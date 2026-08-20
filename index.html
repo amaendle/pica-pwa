@@ -6,6 +6,7 @@
   <title>Pixasa Web Prototype (Frontend-only, PMP + Folder Picker)</title>
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.js"></script>
+  <script src="./metadata-utils.js"></script>
   <script src="./sixties-filter.js"></script>
   <script src="./infrared-filter.js"></script>
   <script src="./creative-filters.js"></script>
@@ -251,12 +252,9 @@
           <button id="btnToggleText">Text: On</button>
           <button id="btnToggleFinetune2">FineTune2: On</button>
           <button id="btnToggleSlideWebgl">WebGL: On</button>
-          <button id="btnToggleSlideMap" class="hidden">Map</button>
-          <button id="btnSlideEdit">Edit</button>
           <label class="pill" style="display:flex; align-items:center; gap:6px;">Zoom <span id="slideZoomValue" class="mono">1.00×</span><input id="slideZoomSlider" type="range" min="1" max="6" step="0.01" value="1" style="width:120px;"></label>
           <button id="btnSlideZoomReset">Reset view</button>
           <button id="btnShowSlideImagedata">Metadata</button>
-          <button id="btnClose">Close (Esc)</button>
         </div>
       </div>
       <div class="overlayBar">
@@ -264,6 +262,9 @@
         <button id="btnPlay">▶ Play</button>
         <button id="btnNext">Next ▶</button>
         <button id="btnToggleStar" title="Toggle star">☆</button>
+        <button id="btnToggleSlideMap" class="hidden" title="Toggle map" aria-label="Toggle map">🗺</button>
+        <button id="btnSlideEdit" title="Edit image" aria-label="Edit image">✎</button>
+        <button id="btnClose" title="Close slideshow (Esc)" aria-label="Close slideshow">✕</button>
       </div>
     </div>
   </div>
@@ -5421,6 +5422,7 @@ function serializePicasaInfo(picasa) {
     if (meta.cropRect64) lines.push(`crop=rect64(${meta.cropRect64})`);
     if ((meta.keywords || []).length) lines.push(`keywords=${meta.keywords.join(",")}`);
     if (meta.geotag && Number.isFinite(meta.geotag.lat) && Number.isFinite(meta.geotag.lng)) lines.push(`geotag=${Number(meta.geotag.lat).toFixed(6)},${Number(meta.geotag.lng).toFixed(6)}`);
+    else if (meta.geotagCleared) lines.push(`geotagCleared=yes`);
     if ((meta.faces || []).length) {
       const parts = meta.faces.map((f) => `rect64(${f.rect64 || "0"}),${f.contactId || buildContactIdFromLabel(f.label || "unknown")}`);
       lines.push(`faces=${parts.join(";")}`);
@@ -5462,7 +5464,7 @@ async function savePicasaInfoForImage(imageItem, caption, faceEntries, albumToke
     ? textOverlays.filter((x) => x && String(x.caption || "").trim())
     : (oldMeta.textOverlays || []);
   const normalizedRedoFilters = Array.isArray(redoFilters) ? redoFilters.map((f) => String(f || "")).filter(Boolean) : (Array.isArray(oldMeta.redoFilters) ? oldMeta.redoFilters.slice() : []);
-  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: (Array.isArray(filters) ? filters.slice() : []), redoFilters: normalizedRedoFilters, geotag: (geotag && Number.isFinite(geotag.lat) && Number.isFinite(geotag.lng)) ? { lat: geotag.lat, lng: geotag.lng } : null });
+  picasa.imageMeta.set(imageItem.name, { caption, faces, cropRect64: String(cropRect64 || ""), keywords: keywords.map((x)=>String(x).trim()).filter(Boolean), textOverlay: normalizedTextOverlays[0] || null, textOverlays: normalizedTextOverlays, star: !!star, filters: (Array.isArray(filters) ? filters.slice() : []), redoFilters: normalizedRedoFilters, geotag: (geotag && Number.isFinite(geotag.lat) && Number.isFinite(geotag.lng)) ? { lat: geotag.lat, lng: geotag.lng } : null, geotagCleared: !(geotag && Number.isFinite(geotag.lat) && Number.isFinite(geotag.lng)) });
   for (const members of picasa.membersByToken.values()) members.delete(imageItem.name);
   for (const token of albumTokens) {
     if (!picasa.membersByToken.has(token)) picasa.membersByToken.set(token, new Set());
@@ -6123,10 +6125,7 @@ function geoStyleFor(kind) {
   return "https://tiles.openfreemap.org/styles/liberty";
 }
 function getFaceGeotagFromInputs() {
-  const lat = Number(el.faceGeoLatInput.value);
-  const lng = Number(el.faceGeoLngInput.value);
-  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
-  return { lat: Math.max(-90, Math.min(90, lat)), lng: Math.max(-180, Math.min(180, lng)) };
+  return window.MetadataUtils.parseOptionalGeotag(el.faceGeoLatInput.value, el.faceGeoLngInput.value);
 }
 function applyFaceGeotagToInputs(geo) {
   el.faceGeoLatInput.value = geo && Number.isFinite(geo.lat) ? Number(geo.lat).toFixed(6) : "";
@@ -6668,7 +6667,7 @@ function openFaceEditor(imageItem) {
   faceEditor.redeyeDetectionDebug = [];
   faceEditor.geotag = imageItem.geotag && Number.isFinite(imageItem.geotag.lat) && Number.isFinite(imageItem.geotag.lng)
     ? { lat: imageItem.geotag.lat, lng: imageItem.geotag.lng }
-    : (imageItem.exifGps && Number.isFinite(imageItem.exifGps.lat) && Number.isFinite(imageItem.exifGps.lng) ? { lat: imageItem.exifGps.lat, lng: imageItem.exifGps.lng } : null);
+    : (!imageItem.geotagCleared && imageItem.exifGps && Number.isFinite(imageItem.exifGps.lat) && Number.isFinite(imageItem.exifGps.lng) ? { lat: imageItem.exifGps.lat, lng: imageItem.exifGps.lng } : null);
   faceEditor.pmpLookAt = null;
   applyFaceGeotagToInputs(faceEditor.geotag);
   if (el.faceRedeyeCount) el.faceRedeyeCount.textContent = String(faceEditor.redeyeAreas.length);
@@ -6744,7 +6743,7 @@ function openFaceEditor(imageItem) {
   void resolvePmpGeoForImage(imageItem).then((pmpGeo) => {
     if (faceEditor.imageItem !== imageItem || !pmpGeo) return;
     if (pmpGeo.lookAt) faceEditor.pmpLookAt = pmpGeo.lookAt;
-    if (!faceEditor.geotag && Number.isFinite(pmpGeo.lat) && Number.isFinite(pmpGeo.lng)) {
+    if (!faceEditor.geotag && !imageItem.geotagCleared && Number.isFinite(pmpGeo.lat) && Number.isFinite(pmpGeo.lng)) {
       faceEditor.geotag = { lat: Number(pmpGeo.lat.toFixed(6)), lng: Number(pmpGeo.lng.toFixed(6)) };
       applyFaceGeotagToInputs(faceEditor.geotag);
       syncFaceGeoMarker();
@@ -7044,7 +7043,7 @@ function parsePicasaIni(content) {
       if (token) albumNamesByToken.set(token, name || token);
       continue;
     }
-    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [], redoFilters: [], geotag: null };
+    const meta = { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [], redoFilters: [], geotag: null, geotagCleared: false };
     for (const line of lines) {
       const idx = line.indexOf("=");
       if (idx <= 0) continue;
@@ -7073,8 +7072,11 @@ function parsePicasaIni(content) {
       } else if (key === "keywords" || key === "iptc") {
         meta.keywords = String(val || "").split(",").map((x)=>x.trim()).filter(Boolean);
       } else if (key === "geotag" || key === "location") {
-        const parts = String(val || "").split(",").map((x) => Number(x.trim()));
-        if (Number.isFinite(parts[0]) && Number.isFinite(parts[1])) meta.geotag = { lat: Math.max(-90, Math.min(90, parts[0])), lng: Math.max(-180, Math.min(180, parts[1])) };
+        const parts = String(val || "").split(",").map((x) => window.MetadataUtils.parseOptionalFiniteNumber(x.trim()));
+        if (parts[0] !== null && parts[1] !== null) { meta.geotag = { lat: Math.max(-90, Math.min(90, parts[0])), lng: Math.max(-180, Math.min(180, parts[1])) }; meta.geotagCleared = false; }
+      } else if (key === "geotagcleared") {
+        meta.geotagCleared = /^(yes|1|true)$/i.test(val);
+        if (meta.geotagCleared) meta.geotag = null;
       }
     }
     if (!meta.cropRect64) {
@@ -7231,7 +7233,7 @@ async function listImagesForAlbumRefs(imageRefs = []) {
       const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [], geotag: null };
       const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
       const iptcKeywords = await extractIptcKeywordsFromFile(file);
-      const exifGps = meta.geotag ? null : await extractExifGpsFromFile(file);
+      const exifGps = (meta.geotag || meta.geotagCleared) ? null : await extractExifGpsFromFile(file);
       const mergedKeywords = Array.from(new Set([...iniKeywords, ...iptcKeywords]));
       out.push({
         id: `${pathRel}/${name}::${file.lastModified}`,
@@ -7242,7 +7244,7 @@ async function listImagesForAlbumRefs(imageRefs = []) {
         textOverlay: meta.textOverlay || null,
         textOverlays: meta.textOverlays || (meta.textOverlay ? [meta.textOverlay] : []),
         albumTokens: Array.from(picasa.membersByToken.keys()).filter((tok) => (picasa.membersByToken.get(tok) || new Set()).has(name)),
-        albumNames: [], keywords: mergedKeywords, iniKeywords, iptcKeywords, star: !!meta.star, filters: meta.filters || [], redoFilters: meta.redoFilters || [], geotag: meta.geotag || exifGps || null, exifGps: exifGps || null
+        albumNames: [], keywords: mergedKeywords, iniKeywords, iptcKeywords, star: !!meta.star, filters: meta.filters || [], redoFilters: meta.redoFilters || [], geotag: meta.geotag || exifGps || null, geotagCleared: !!meta.geotagCleared, exifGps: exifGps || null
       });
     }
   }
@@ -7326,13 +7328,13 @@ async function resolvePmpGeoForImage(imageItem) {
     const entries = Array.isArray(col?.entries) ? col.entries : [];
     valueByColumn.set(String(col.column || "").toLowerCase(), rowIndex < entries.length ? entries[rowIndex] : undefined);
   }
-  const latVal = Number(valueByColumn.get("latitude"));
-  const lngVal = Number(valueByColumn.get("longitude"));
+  const latVal = window.MetadataUtils.parseOptionalFiniteNumber(valueByColumn.get("latitude"));
+  const lngVal = window.MetadataUtils.parseOptionalFiniteNumber(valueByColumn.get("longitude"));
   const geoviewRaw = valueByColumn.get("geoview");
   const lookAt = parseLookAtGeoviewXml(geoviewRaw);
   return {
-    lat: Number.isFinite(latVal) ? latVal : (lookAt ? lookAt.latitude : NaN),
-    lng: Number.isFinite(lngVal) ? lngVal : (lookAt ? lookAt.longitude : NaN),
+    lat: latVal !== null ? latVal : (lookAt ? lookAt.latitude : NaN),
+    lng: lngVal !== null ? lngVal : (lookAt ? lookAt.longitude : NaN),
     geoviewRaw: typeof geoviewRaw === "string" ? geoviewRaw : "",
     lookAt
   };
@@ -7368,10 +7370,9 @@ async function updatePmpGeoColumnsForImage(imageItem, geotag, mapState = null) {
   const lngCol = ensureColumn("longitude");
   latCol.entries[rowIndex] = geotag && Number.isFinite(geotag.lat) ? Number(geotag.lat.toFixed(6)) : "";
   lngCol.entries[rowIndex] = geotag && Number.isFinite(geotag.lng) ? Number(geotag.lng.toFixed(6)) : "";
-  if (mapState) {
-    const geoCol = ensureColumn("geoview");
-    geoCol.entries[rowIndex] = `<LookAt><longitude>${Number(mapState.longitude || 0).toFixed(6)}</longitude><latitude>${Number(mapState.latitude || 0).toFixed(6)}</latitude><range>${Number(mapState.range || 50).toFixed(6)}</range><tilt>${Number(mapState.tilt || 0).toFixed(6)}</tilt><heading>${Number(mapState.heading || 0).toFixed(6)}</heading></LookAt>`;
-  }
+  const geoCol = ensureColumn("geoview");
+  if (geotag && mapState) geoCol.entries[rowIndex] = `<LookAt><longitude>${Number(mapState.longitude || 0).toFixed(6)}</longitude><latitude>${Number(mapState.latitude || 0).toFixed(6)}</latitude><range>${Number(mapState.range || 50).toFixed(6)}</range><tilt>${Number(mapState.tilt || 0).toFixed(6)}</tilt><heading>${Number(mapState.heading || 0).toFixed(6)}</heading></LookAt>`;
+  else if (!geotag) geoCol.entries[rowIndex] = "";
   state.pmpColumnsCache = columns.slice();
   await savePmpColumnsSnapshot(state.libraryId, columns);
   return true;
@@ -7463,8 +7464,36 @@ function imageFileMetadataLines(imageItem) {
     `datetimeModified: ${formatFileMetadataDate(file?.lastModified)}`
   ];
 }
+async function ensureImagePixelDimensions(imageItem) {
+  let width = Number(imageItem?.naturalW), height = Number(imageItem?.naturalH);
+  if (width > 0 && height > 0) return { width:Math.round(width), height:Math.round(height) };
+  if (!imageItem?.file) return { width:0, height:0 };
+  try {
+    if (typeof createImageBitmap === "function") {
+      const bitmap = await createImageBitmap(imageItem.file);
+      width = bitmap.width; height = bitmap.height; bitmap.close?.();
+    } else {
+      const url = URL.createObjectURL(imageItem.file);
+      try { const image = new Image(); image.src=url; await image.decode(); width=image.naturalWidth; height=image.naturalHeight; }
+      finally { URL.revokeObjectURL(url); }
+    }
+  } catch {
+    return { width:0, height:0 };
+  }
+  imageItem.naturalW=width; imageItem.naturalH=height;
+  return { width:Math.round(width), height:Math.round(height) };
+}
+async function imagePixelMetadataLines(imageItem) {
+  const dimensions=await ensureImagePixelDimensions(imageItem);
+  if (!(dimensions.width>0&&dimensions.height>0)) return ["pixelDimensionsOriginal: (missing)"];
+  const calculated=window.MetadataUtils.getImagePixelDimensions(dimensions.width,dimensions.height,imageItem?.filters||[],imageItem?.cropRect64||"");
+  const lines=[`pixelDimensionsOriginal: ${calculated.originalWidth} × ${calculated.originalHeight}`];
+  if (calculated.hasCrop) lines.push(`pixelDimensionsCropped: ${calculated.croppedWidth} × ${calculated.croppedHeight}`);
+  return lines;
+}
 
 async function buildImagedataDumpForImage(imageItem) {
+  const pixelDimensionLines = await imagePixelMetadataLines(imageItem);
   const buildFallbackDump = async (reason) => {
     const exifGps = imageItem?.exifGps || (imageItem?.file ? await extractExifGpsFromFile(imageItem.file) : null);
     const iniGeo = imageItem?.geotag || null;
@@ -7478,6 +7507,7 @@ async function buildImagedataDumpForImage(imageItem) {
         "== Image ==",
         `path: ${String(imageItem?.relPath || imageItem?.name || "")}`,
         ...imageFileMetadataLines(imageItem),
+        ...pixelDimensionLines,
         `caption: ${String(imageItem?.caption || "(none)")}`,
         `star: ${imageItem?.star ? "yes" : "no"}`,
         "",
@@ -7521,8 +7551,8 @@ async function buildImagedataDumpForImage(imageItem) {
   const facerectdataValue = valueByColumn.get("facerectdata");
   const crop64Value = valueByColumn.get("crop64");
   const avgcolorValue = valueByColumn.get("avgcolor");
-  const pmpLatitude = Number(valueByColumn.get("latitude"));
-  const pmpLongitude = Number(valueByColumn.get("longitude"));
+  const pmpLatitude = window.MetadataUtils.parseOptionalFiniteNumber(valueByColumn.get("latitude"));
+  const pmpLongitude = window.MetadataUtils.parseOptionalFiniteNumber(valueByColumn.get("longitude"));
   const pmpGeoviewRaw = valueByColumn.get("geoview");
   const pmpLookAt = parseLookAtGeoviewXml(pmpGeoviewRaw);
   const exifGps = imageItem?.exifGps || (imageItem?.file ? await extractExifGpsFromFile(imageItem.file) : null);
@@ -7537,6 +7567,7 @@ async function buildImagedataDumpForImage(imageItem) {
     "== Image ==",
     `path: ${String(imageItem?.relPath || imageItem?.name || "")}`,
     ...imageFileMetadataLines(imageItem),
+    ...pixelDimensionLines,
     `caption: ${String(imageItem?.caption || "(none)")}`,
     `star: ${imageItem?.star ? "yes" : "no"}`,
     "",
@@ -7573,7 +7604,7 @@ async function buildImagedataDumpForImage(imageItem) {
     `facerectDecoded: ${formatRect64Decoded(facerectValue)}`,
     `facerectdataDecoded: ${interpretFacerectdata(facerectdataValue, filetypeValue, facequalityValue)}`,
     `avgcolor: ${formatPmpDumpValue(avgcolorValue)}`,
-    `pmpLatitudeLongitude: ${Number.isFinite(pmpLatitude) && Number.isFinite(pmpLongitude) ? `${pmpLatitude}, ${pmpLongitude}` : "(missing)"}`,
+    `pmpLatitudeLongitude: ${pmpLatitude !== null && pmpLongitude !== null ? `${pmpLatitude}, ${pmpLongitude}` : "(missing)"}`,
     `pmpGeoview: ${pmpLookAt ? `${pmpLookAt.latitude}, ${pmpLookAt.longitude} range=${pmpLookAt.range}` : (pmpGeoviewRaw ? String(pmpGeoviewRaw) : "(missing)")}`,
     ""
   ];
@@ -7916,7 +7947,7 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
       const meta = picasa.imageMeta.get(name) || { caption: "", faces: [], cropRect64: "", textOverlay: null, textOverlays: [], keywords: [], star: false, filters: [] };
       const iniKeywords = Array.isArray(meta.keywords) ? meta.keywords : [];
       const iptcKeywords = await extractIptcKeywordsFromFile(file);
-      const exifGps = meta.geotag ? null : await extractExifGpsFromFile(file);
+      const exifGps = (meta.geotag || meta.geotagCleared) ? null : await extractExifGpsFromFile(file);
       const mergedKeywords = Array.from(new Set([...iniKeywords, ...iptcKeywords]));
       const albumTokens = [];
       const albumNames = [];
@@ -7947,6 +7978,7 @@ async function listImagesInDirectory(dirHandle, relDir, options = {}) {
         filters: meta.filters || [],
         redoFilters: meta.redoFilters || [],
         geotag: meta.geotag || exifGps || null,
+        geotagCleared: !!meta.geotagCleared,
         exifGps: exifGps || null
       });
     }
@@ -8209,7 +8241,9 @@ function updateSlideMapForItem(it) {
   const geo = slideGeoForItem(it);
   if (el.btnToggleSlideMap) {
     el.btnToggleSlideMap.classList.toggle("hidden", !geo);
-    el.btnToggleSlideMap.textContent = state.slideshow.mapVisible ? "Hide map" : "Map";
+    el.btnToggleSlideMap.textContent = state.slideshow.mapVisible ? "🗺×" : "🗺";
+    el.btnToggleSlideMap.title = state.slideshow.mapVisible ? "Hide map" : "Show map";
+    el.btnToggleSlideMap.setAttribute("aria-label", el.btnToggleSlideMap.title);
     el.btnToggleSlideMap.disabled = !geo;
   }
   if (!geo) state.slideshow.mapVisible = false;
@@ -10628,19 +10662,15 @@ el.btnFaceSave.onclick = async () => {
     const albumNameByToken = Object.fromEntries(Array.from(faceEditor.albumTokenToName.entries()));
     await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays, albumNameByToken, faceEditor.geotag, faceEditor.redoFilters);
     faceEditor.imageItem.geotag = faceEditor.geotag ? { ...faceEditor.geotag } : null;
-    if (faceEditor.geoMap) {
-      const c = faceEditor.geoMap.getCenter();
-      const z = faceEditor.geoMap.getZoom();
+    faceEditor.imageItem.geotagCleared = !faceEditor.geotag;
+    if (!faceEditor.geotag) faceEditor.imageItem.exifGps = null;
+    let mapState = null;
+    if (faceEditor.geotag && faceEditor.geoMap) {
+      const c = faceEditor.geoMap.getCenter(), z = faceEditor.geoMap.getZoom();
       const metersPerPixel = 156543.03392 * Math.cos((c.lat * Math.PI) / 180) / Math.pow(2, z);
-      const mapState = {
-        longitude: c.lng,
-        latitude: c.lat,
-        range: Math.max(1, metersPerPixel * Math.max(256, el.faceGeoMap.clientWidth || 512)),
-        tilt: faceEditor.geoMap.getPitch(),
-        heading: faceEditor.geoMap.getBearing()
-      };
-      await updatePmpGeoColumnsForImage(faceEditor.imageItem, faceEditor.geotag, mapState);
+      mapState = { longitude:c.lng, latitude:c.lat, range:Math.max(1,metersPerPixel*Math.max(256,el.faceGeoMap.clientWidth||512)), tilt:faceEditor.geoMap.getPitch(), heading:faceEditor.geoMap.getBearing() };
     }
+    await updatePmpGeoColumnsForImage(faceEditor.imageItem, faceEditor.geotag, mapState);
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
     setStatus('Saved caption/faces/crop/albums/tags to .picasa.info', 'ok');
