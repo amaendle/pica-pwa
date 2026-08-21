@@ -247,7 +247,7 @@
       <div id="slideCaptionPill" class="slideCaptionPill pill hidden"></div>
       <div id="slideMapPanel" class="slideMapPanel hidden" aria-hidden="true"><div id="slideMap" class="slideMapBox"></div></div>
       <div class="overlayTop">
-        <div><div id="slideMeta" class="mono"></div><div id="slideAlbums" style="margin-top:4px"></div></div>
+        <div><div id="slideMeta" class="mono"></div><div id="slideAlbums" style="margin-top:4px"></div><a id="linkShowSlideImagedata" href="#" class="mono">Show more metadata…</a></div>
         <div style="display:flex; gap:8px;">
           <button id="btnToggleFaces">Faces: Off</button>
           <button id="btnToggleCrop">Crop: On</button>
@@ -255,8 +255,6 @@
           <button id="btnToggleFinetune2">FineTune2: On</button>
           <button id="btnToggleSlideWebgl">WebGL: On</button>
           <label class="pill" style="display:flex; align-items:center; gap:6px;">Zoom <span id="slideZoomValue" class="mono">1.00×</span><input id="slideZoomSlider" type="range" min="1" max="6" step="0.01" value="1" style="width:120px;"></label>
-          <button id="btnSlideZoomReset">Reset view</button>
-          <button id="btnShowSlideImagedata">Metadata</button>
         </div>
       </div>
       <div class="overlayBar">
@@ -752,10 +750,10 @@
           <div><b>Applied filters</b></div>
           <select id="faceFilterList" class="mono" multiple size="2" style="width:100%;"></select>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button id="btnUndoFilter" title="Undo filter">↶ Undo filter</button>
-            <button id="btnRedoFilter" title="Redo filter" disabled>↷ Redo</button>
-            <button id="btnToggleSelectedFilters" title="Enable or disable selected filters">◉ Enable/disable selected filter(s)</button>
-            <button id="btnRemoveSelectedFilters" title="Remove selected filters">✕ Remove selected filter(s)</button>
+            <button id="btnUndoFilter" title="Undo filter" aria-label="Undo filter">↶</button>
+            <button id="btnRedoFilter" title="Redo filter" aria-label="Redo filter" disabled>↷</button>
+            <button id="btnToggleSelectedFilters" title="Enable or disable selected filters" aria-label="Enable or disable selected filters">◉</button>
+            <button id="btnRemoveSelectedFilters" title="Remove selected filters" aria-label="Remove selected filters">✕</button>
           </div>
         </div>
         </div>
@@ -1835,6 +1833,13 @@ function releaseThumbUrl(source, idx) {
   ent.lastUsed = Date.now();
 }
 
+function invalidateThumbUrl(source, idx) {
+  const cache = state.thumbUrlCache[source];
+  const ent = cache?.get(idx);
+  if (ent?.url && String(ent.url).startsWith("blob:")) URL.revokeObjectURL(ent.url);
+  cache?.delete(idx);
+}
+
 function bindThumbImage(imgNode, source, idx) {
   if (!imgNode) return;
   unbindThumbImage(imgNode);
@@ -2311,7 +2316,7 @@ async function upsertIndexedImages(imageItems = []) {
   }
 }
 
-async function putIndexedThumbForSource(source, idx, blob, mappedName = "") {
+async function putIndexedThumbForSource(source, idx, blob, mappedName = "", generated = true) {
   if (!THUMB_DB_SOURCES.includes(source) || !Number.isFinite(idx) || idx < 0 || !(blob instanceof Blob)) return;
   const db = await openLibraryDB();
   const libraryId = String(state.libraryId || "default");
@@ -2326,7 +2331,7 @@ async function putIndexedThumbForSource(source, idx, blob, mappedName = "") {
       idx,
       mappedName: String(mappedName || "").trim().toLowerCase(),
       blob,
-      generated: true,
+      generated: !!generated,
       importedAt: Date.now()
     });
     await txDone(tx);
@@ -2335,35 +2340,45 @@ async function putIndexedThumbForSource(source, idx, blob, mappedName = "") {
   }
 }
 
-async function generateAndPersistThumbForImageItem(imageItem, source) {
-  if (!imageItem?.file || !THUMB_DB_SOURCES.includes(source) || state.prefs.persistGeneratedThumbs === false) return -1;
+async function generateAndPersistThumbForImageItem(imageItem, source, options = {}) {
+  const force = !!options.force;
+  const shouldPersist = state.prefs.persistGeneratedThumbs !== false;
+  if (!imageItem?.file || !THUMB_DB_SOURCES.includes(source) || (!shouldPersist && !force)) return -1;
   const mappedName = primaryThumbKeyForImageItem(imageItem);
   if (!mappedName) return -1;
   const nameMap = state.thumbNameToIdx[source];
+  let existingIdx = -1;
   if (nameMap instanceof Map) {
     const existing = findThumbIdxForImageItem(imageItem, nameMap);
-    if (Number.isFinite(existing) && existing >= 0) return existing;
+    if (Number.isFinite(existing) && existing >= 0) {
+      if (!force) return existing;
+      existingIdx = existing;
+    }
   }
   const rows = Array.isArray(state.thumbIndexedRows[source]) ? state.thumbIndexedRows[source] : (state.thumbIndexedRows[source] = []);
+  const previousRow = existingIdx >= 0 ? rows[existingIdx] : null;
+  const generated = existingIdx >= 0 ? !!rows[existingIdx]?.generated : true;
   const displayName = String(imageItem.relPath || imageItem.name || mappedName);
   setStatus(`Updating thumbnail for ${displayName}…`, "warn");
-  const idx = nextThumbIdxForSource(source);
-  rows[idx] = { idx, generated: true, pending: true };
+  const idx = existingIdx >= 0 ? existingIdx : nextThumbIdxForSource(source);
+  if (existingIdx >= 0) invalidateThumbUrl(source, existingIdx);
+  rows[idx] = { idx, generated, pending: true };
   const chain = buildEffectiveFilterChain(imageItem.filters || [], imageItem.cropRect64 || "");
   const url = await makeFilteredPreviewURL(imageItem.file, chain, generatedThumbSizeForSource(source), "", { useWebglPreview: !!state.preview.useWebglPreview });
   try {
     const blob = await (await fetch(url)).blob();
-    rows[idx] = { idx, blob, generated: true };
+    rows[idx] = { idx, blob, generated };
     if (!(state.thumbNameToIdx[source] instanceof Map)) state.thumbNameToIdx[source] = new Map();
     state.thumbNameToIdx[source].set(mappedName, idx);
     for (const key of thumbKeyVariantsForImageItem(imageItem)) {
       if (key && !state.thumbNameToIdx[source].has(key)) state.thumbNameToIdx[source].set(key, idx);
     }
-    await putIndexedThumbForSource(source, idx, blob, mappedName);
+    if (shouldPersist) await putIndexedThumbForSource(source, idx, blob, mappedName, generated);
     setStatus(`Updated thumbnail for ${displayName}.`, "ok");
     return idx;
   } catch (e) {
-    if (rows[idx]?.pending) delete rows[idx];
+    if (previousRow) rows[idx] = previousRow;
+    else if (rows[idx]?.pending) delete rows[idx];
     setStatus(`Failed to update thumbnail for ${displayName}: ${String(e?.message || e)}`, "err");
     throw e;
   } finally {
@@ -4539,8 +4554,7 @@ const el = {
   btnSlideEdit: document.getElementById("btnSlideEdit"),
   slideZoomSlider: document.getElementById("slideZoomSlider"),
   slideZoomValue: document.getElementById("slideZoomValue"),
-  btnSlideZoomReset: document.getElementById("btnSlideZoomReset"),
-  btnShowSlideImagedata: document.getElementById("btnShowSlideImagedata"),
+  linkShowSlideImagedata: document.getElementById("linkShowSlideImagedata"),
   btnToggleStar: document.getElementById("btnToggleStar"),
   slideFaceLayer: document.getElementById("slideFaceLayer"),
   slideTextOverlay: document.getElementById("slideTextOverlay"),
@@ -5322,7 +5336,9 @@ function updateRedoFilterButton() {
   const redo = Array.isArray(faceEditor.redoFilters) ? faceEditor.redoFilters : [];
   const next = redo.length ? redo[redo.length - 1] : "";
   el.btnRedoFilter.disabled = !next;
-  el.btnRedoFilter.textContent = next ? `↷ Redo ${filterDisplayType(next)}` : "↷ Redo";
+  el.btnRedoFilter.textContent = "↷";
+  el.btnRedoFilter.title = next ? `Redo ${filterDisplayType(next)}` : "Redo filter";
+  el.btnRedoFilter.setAttribute("aria-label", el.btnRedoFilter.title);
 }
 
 function renderFilterList() {
@@ -9956,15 +9972,10 @@ el.btnSlideEdit.onclick = () => {
   const it = state.currentImages[state.slideshow.index];
   if (it) openFaceEditor(it);
 };
-el.btnShowSlideImagedata.onclick = () => { void showSlideImagedataOverlay(); };
+el.linkShowSlideImagedata.onclick = (ev) => { ev.preventDefault(); void showSlideImagedataOverlay(); };
 el.slideZoomSlider.oninput = () => {
   setSlideZoomCentered(Math.max(1, Math.min(6, Number(el.slideZoomSlider.value || "1") || 1)));
   applySlideTransform();
-  const it = state.currentImages[state.slideshow.index];
-  if (it) { renderSlideFaceRects(it); renderSlideTextOverlays(it); }
-};
-el.btnSlideZoomReset.onclick = () => {
-  resetSlideTransform();
   const it = state.currentImages[state.slideshow.index];
   if (it) { renderSlideFaceRects(it); renderSlideTextOverlays(it); }
 };
@@ -10310,7 +10321,7 @@ el.faceTiltSlider.oninput = () => {
 el.faceZoomSlider.oninput = () => {
   const minZoom = Math.max(0.05, Number(faceEditor.zoomMin) || 1);
   const maxZoom = Math.max(minZoom, minZoom * getEditorMaxZoomMultiplier());
-  faceEditor.zoom = Math.max(minZoom, Math.min(maxZoom, Number(el.faceZoomSlider.value || String(minZoom)) || minZoom));
+  setFaceZoomCentered(Math.max(minZoom, Math.min(maxZoom, Number(el.faceZoomSlider.value || String(minZoom)) || minZoom)));
   updateFaceCanvasTransform();
   renderFaceRects();
 };
@@ -10495,12 +10506,14 @@ function setFaceZoomCentered(nextZoom) {
   const zoom = Math.max(minZoom, Math.min(maxZoom, Number(nextZoom) || minZoom));
   if (Math.abs(zoom - prevZoom) < 0.0001) {
     faceEditor.zoom = zoom;
+    if (zoom <= minZoom * 1.001) { faceEditor.panX = 0; faceEditor.panY = 0; }
     return;
   }
   const ratio = zoom / prevZoom;
   faceEditor.zoom = zoom;
   faceEditor.panX = (Number(faceEditor.panX) || 0) * ratio;
   faceEditor.panY = (Number(faceEditor.panY) || 0) * ratio;
+  if (zoom <= minZoom * 1.001) { faceEditor.panX = 0; faceEditor.panY = 0; }
 }
 el.faceCanvasWrap.addEventListener("pointerdown", (ev) => {
   const viewportPointer = ev.target === el.faceCanvasImg || ev.target === el.faceCanvasWrap;
@@ -10689,6 +10702,15 @@ el.faceCanvasWrap.addEventListener('pointermove', (ev) => {
   if (faceEditor.dragTarget === "redeye") refreshRedeyeDraft();
   renderFaceRects();
 });
+el.faceCanvasWrap.addEventListener("wheel", (ev) => {
+  if (!faceEditor.imageItem) return;
+  const minZoom = Math.max(0.05, Number(faceEditor.zoomMin) || 1);
+  const direction = ev.deltaY < 0 ? 1 : -1;
+  setFaceZoomCentered((Number(faceEditor.zoom) || minZoom) + direction * minZoom * 0.1);
+  updateFaceCanvasTransform();
+  renderFaceRects();
+  ev.preventDefault();
+}, { passive: false });
 window.addEventListener('pointerup', (ev) => {
   if (ev?.pointerId != null) facePinch.pointers.delete(ev.pointerId);
   if (facePinch.pointers.size < 2) facePinch.startDistance = 0;
@@ -10734,6 +10756,14 @@ el.btnFaceSave.onclick = async () => {
     const textOverlays = faceEditor.textOverlays.filter((t) => t && String(t.caption || "").trim());
     const albumNameByToken = Object.fromEntries(Array.from(faceEditor.albumTokenToName.entries()));
     await savePicasaInfoForImage(faceEditor.imageItem, caption, faceEntries, albumTokens, faceEditor.cropRect64.trim(), keywords, faceEditor.star, faceEditor.filters, textOverlays, albumNameByToken, faceEditor.geotag, faceEditor.redoFilters);
+    faceEditor.imageItem.caption = caption;
+    faceEditor.imageItem.faces = faceEntries.map((face) => ({ ...face }));
+    faceEditor.imageItem.cropRect64 = faceEditor.cropRect64.trim();
+    faceEditor.imageItem.keywords = keywords.slice();
+    faceEditor.imageItem.star = faceEditor.star;
+    faceEditor.imageItem.filters = faceEditor.filters.slice();
+    faceEditor.imageItem.redoFilters = faceEditor.redoFilters.slice();
+    faceEditor.imageItem.textOverlays = textOverlays.map((overlay) => ({ ...overlay }));
     faceEditor.imageItem.geotag = faceEditor.geotag ? { ...faceEditor.geotag } : null;
     faceEditor.imageItem.geotagCleared = !faceEditor.geotag;
     if (!faceEditor.geotag) faceEditor.imageItem.exifGps = null;
@@ -10744,6 +10774,11 @@ el.btnFaceSave.onclick = async () => {
       mapState = { longitude:c.lng, latitude:c.lat, range:Math.max(1,metersPerPixel*Math.max(256,el.faceGeoMap.clientWidth||512)), tilt:faceEditor.geoMap.getPitch(), heading:faceEditor.geoMap.getBearing() };
     }
     await updatePmpGeoColumnsForImage(faceEditor.imageItem, faceEditor.geotag, mapState);
+    const thumbSource = String(state.prefs.thumbSource || "generated");
+    if (THUMB_DB_SOURCES.includes(thumbSource)) {
+      await ensureThumbSourceLoaded(thumbSource);
+      await generateAndPersistThumbForImageItem(faceEditor.imageItem, thumbSource, { force: true });
+    }
     await showImagesForResolvedPath(folderOfRelPath(faceEditor.imageItem.relPath), state.currentViewMode === "albums" ? el.resolvePill.textContent : `Folder: ${folderOfRelPath(faceEditor.imageItem.relPath) || "/"}`, state.currentViewMode === "albums" && state.activeListIndex >= 0 ? { album: state.albums[state.activeListIndex] } : {});
     closeFaceEditor();
     setStatus('Saved caption/faces/crop/albums/tags to .picasa.info', 'ok');

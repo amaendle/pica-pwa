@@ -14,10 +14,10 @@ assert.strictEqual(utils.toggleFilterEnabled("malformed-filter"), "malformed-fil
 assert.strictEqual(utils.setFilterEnabled("Neon=0,0,00ff0000;", true), "Neon=1,0,00ff0000;");
 
 const html = fs.readFileSync("index.html", "utf8");
-assert.ok(html.includes('id="btnUndoFilter" title="Undo filter">↶ Undo filter'));
-assert.ok(html.includes('id="btnRedoFilter" title="Redo filter" disabled>↷ Redo'));
+assert.ok(html.includes('id="btnUndoFilter" title="Undo filter" aria-label="Undo filter">↶</button>'));
+assert.ok(html.includes('id="btnRedoFilter" title="Redo filter" aria-label="Redo filter" disabled>↷</button>'));
 assert.ok(html.includes('id="btnToggleSelectedFilters"'));
-assert.ok(html.includes('id="btnRemoveSelectedFilters" title="Remove selected filters">✕'));
+assert.ok(html.includes('id="btnRemoveSelectedFilters" title="Remove selected filters" aria-label="Remove selected filters">✕</button>'));
 assert.ok(html.includes('faceFaceSelect.addEventListener("input", syncActiveFaceFromNativeSelection)'));
 assert.ok(html.includes('faceFaceSelect.addEventListener("change", syncActiveFaceFromNativeSelection)'));
 assert.ok(html.includes('btnRenameFace.classList.toggle("hidden", !hasFace)'));
