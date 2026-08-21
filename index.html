@@ -7,6 +7,7 @@
   <link rel="stylesheet" href="https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.css" />
   <script src="https://unpkg.com/maplibre-gl@5.21.0/dist/maplibre-gl.js"></script>
   <script src="./metadata-utils.js"></script>
+  <script src="./filter-state-utils.js"></script>
   <script src="./sixties-filter.js"></script>
   <script src="./infrared-filter.js"></script>
   <script src="./creative-filters.js"></script>
@@ -751,9 +752,10 @@
           <div><b>Applied filters</b></div>
           <select id="faceFilterList" class="mono" multiple size="2" style="width:100%;"></select>
           <div style="display:flex; gap:8px; flex-wrap:wrap;">
-            <button id="btnUndoFilter">Undo filter</button>
-            <button id="btnRedoFilter" disabled>Redo</button>
-            <button id="btnRemoveSelectedFilters">Remove selected filter(s)</button>
+            <button id="btnUndoFilter" title="Undo filter">↶ Undo filter</button>
+            <button id="btnRedoFilter" title="Redo filter" disabled>↷ Redo</button>
+            <button id="btnToggleSelectedFilters" title="Enable or disable selected filters">◉ Enable/disable selected filter(s)</button>
+            <button id="btnRemoveSelectedFilters" title="Remove selected filters">✕ Remove selected filter(s)</button>
           </div>
         </div>
         </div>
@@ -4887,6 +4889,7 @@ const el = {
   btnCancelRedeyeFilter: document.getElementById("btnCancelRedeyeFilter"),
   btnUndoFilter: document.getElementById("btnUndoFilter"),
   btnRedoFilter: document.getElementById("btnRedoFilter"),
+  btnToggleSelectedFilters: document.getElementById("btnToggleSelectedFilters"),
   btnFaceSave: document.getElementById("btnFaceSave"),
   btnFaceCancel: document.getElementById("btnFaceCancel"),
   settingsOverlay: document.getElementById("settingsOverlay"),
@@ -5319,7 +5322,7 @@ function updateRedoFilterButton() {
   const redo = Array.isArray(faceEditor.redoFilters) ? faceEditor.redoFilters : [];
   const next = redo.length ? redo[redo.length - 1] : "";
   el.btnRedoFilter.disabled = !next;
-  el.btnRedoFilter.textContent = next ? `Redo ${filterDisplayType(next)}` : "Redo";
+  el.btnRedoFilter.textContent = next ? `↷ Redo ${filterDisplayType(next)}` : "↷ Redo";
 }
 
 function renderFilterList() {
@@ -5338,7 +5341,8 @@ function renderFilterList() {
   faceEditor.filters.forEach((flt, idx) => {
     const opt = document.createElement("option");
     opt.value = String(idx);
-    opt.textContent = `${idx + 1}. ${flt}`;
+    const enabled = window.FilterStateUtils.getFilterEnabled(flt);
+    opt.textContent = `${idx + 1}. ${enabled === false ? "[disabled] " : ""}${flt}`;
     el.faceFilterList.appendChild(opt);
   });
   updateRedoFilterButton();
@@ -10310,7 +10314,17 @@ el.faceZoomSlider.oninput = () => {
   updateFaceCanvasTransform();
   renderFaceRects();
 };
+function syncActiveFaceFromNativeSelection() {
+  const selectedIndex = Number(el.faceFaceSelect.selectedIndex);
+  faceEditor.activeFaceIdx = selectedIndex >= 0 && faceEditor.faces[selectedIndex] ? selectedIndex : -1;
+  faceEditor.faceRenameMode = false;
+  syncFaceSelectFromState();
+  renderFaceRects();
+}
+let faceSelectLastTouchAt = 0;
+el.faceFaceSelect.addEventListener("touchstart", () => { faceSelectLastTouchAt = Date.now(); }, { passive: true });
 el.faceFaceSelect.onmousedown = (ev) => {
+  if (Date.now() - faceSelectLastTouchAt < 800 || ev.sourceCapabilities?.firesTouchEvents) return;
   const opt = ev.target.closest("option");
   if (!opt) {
     faceEditor.activeFaceIdx = -1;
@@ -10325,6 +10339,8 @@ el.faceFaceSelect.onmousedown = (ev) => {
   syncFaceSelectFromState();
   renderFaceRects();
 };
+el.faceFaceSelect.addEventListener("input", syncActiveFaceFromNativeSelection);
+el.faceFaceSelect.addEventListener("change", syncActiveFaceFromNativeSelection);
 el.faceFaceLabelInput.onkeydown = (ev) => {
   if (ev.key !== "Enter") return;
   const label = String(el.faceFaceLabelInput.value || "").trim();
@@ -10379,8 +10395,28 @@ el.faceFaceLabelInput.oninput = () => {
   updateTextOverlayFromInputs();
   renderFaceRects();
 }));
+function selectedFilterIndexes() {
+  return Array.from(el.faceFilterList.selectedOptions || []).map((option) => Number(option.value)).filter((index) => Number.isInteger(index));
+}
+el.btnToggleSelectedFilters.onclick = () => {
+  const selected = selectedFilterIndexes();
+  let changed = 0;
+  for (const index of selected) {
+    if (index < 0 || index >= faceEditor.filters.length) continue;
+    const current = faceEditor.filters[index];
+    const toggled = window.FilterStateUtils.toggleFilterEnabled(current);
+    if (toggled !== current) { faceEditor.filters[index] = toggled; changed++; }
+  }
+  if (changed) {
+    faceEditor.redoFilters = [];
+    updateRedoFilterButton();
+  }
+  renderFilterList();
+  refreshEditorPreview();
+  el.faceEditorStatus.textContent = changed ? `Toggled ${changed} selected filter${changed === 1 ? "" : "s"}` : "No toggleable filter selected";
+};
 el.btnRemoveSelectedFilters.onclick = () => {
-  const selected = Array.from(el.faceFilterList.selectedOptions || []).map((o)=>Number(o.value)).filter((n)=>Number.isFinite(n)).sort((a,b)=>b-a);
+  const selected = selectedFilterIndexes().sort((a,b)=>b-a);
   for (const idx of selected) { if (idx >= 0 && idx < faceEditor.filters.length) faceEditor.filters.splice(idx, 1); }
   if (selected.length) {
     faceEditor.redoFilters = [];
