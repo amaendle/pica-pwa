@@ -2769,12 +2769,24 @@ function maybeStripFinetune2Filters(filters = [], enabled = true) {
 }
 
 
+function starredRefKey(ref) {
+  return `${String(ref?.pathRel || "").toLowerCase()}::${String(ref?.imageName || "").toLowerCase()}`;
+}
 function ensureSpecialAlbums() {
   const existingStar = state.albums.find((a) => a.token === "]star");
   const existingScreen = state.albums.find((a) => a.token === "]screensaver");
-  const starRefs = (state.currentImages || [])
-    .filter((it) => !!it.star)
-    .map((it) => ({ pathRel: folderOfRelPath(it.relPath), imageName: it.name }));
+  const starRefsByKey = new Map();
+  const baseStarRefs = state.starredRefsLoaded ? state.starredImageRefs : (existingStar?.imageRefs || []);
+  for (const ref of baseStarRefs) {
+    if (ref?.imageName) starRefsByKey.set(starredRefKey(ref), { pathRel: String(ref.pathRel || ""), imageName: String(ref.imageName) });
+  }
+  for (const it of (state.currentImages || [])) {
+    const ref = { pathRel: folderOfRelPath(it.relPath), imageName: it.name };
+    if (it.star) starRefsByKey.set(starredRefKey(ref), ref);
+    else starRefsByKey.delete(starredRefKey(ref));
+  }
+  const starRefs = Array.from(starRefsByKey.values()).sort((a,b)=>`${a.pathRel}/${a.imageName}`.localeCompare(`${b.pathRel}/${b.imageName}`, undefined, { sensitivity:"base", numeric:true }));
+  if (state.starredRefsLoaded) state.starredImageRefs = starRefs.slice();
   const seenScreen = new Set();
   const screenRefs = [];
   const addScreenRef = (ref) => {
@@ -2816,6 +2828,28 @@ function ensureSpecialAlbums() {
     imageRefs: screenRefs
   };
   state.albums = [starAlbum, screenAlbum, ...state.albums.filter((a) => !["]star", "]screensaver"].includes(a.token))];
+}
+async function refreshGlobalStarredImageRefs() {
+  const refsByKey = new Map();
+  const folders = Array.from(state.dirIndex?.entries?.() || []);
+  let scanned = 0;
+  for (const [pathRel, dirHandle] of folders) {
+    const picasa = await getPicasaMetaForFolder(pathRel, dirHandle);
+    for (const [imageName, meta] of picasa.imageMeta.entries()) {
+      if (!meta?.star || !isImageName(imageName)) continue;
+      const ref = { pathRel: String(pathRel || ""), imageName: String(imageName) };
+      refsByKey.set(starredRefKey(ref), ref);
+    }
+    scanned++;
+    if (scanned % 20 === 0) {
+      setStatus(`Finding starred images… ${scanned}/${folders.length} folders`, "warn");
+      await yieldToBrowser();
+    }
+  }
+  state.starredImageRefs = Array.from(refsByKey.values());
+  state.starredRefsLoaded = true;
+  ensureSpecialAlbums();
+  return state.starredImageRefs.slice();
 }
 function mapPointThroughFilterChain(xNorm, yNorm, naturalW, naturalH, filters = [], fallbackCropRect64 = "") {
   const baseW = Math.max(1, Number(naturalW) || 1);
@@ -4445,6 +4479,8 @@ const state = {
   folderBrowserPath: "",      // Current relative path when in folder view
   picasaByFolder: new Map(),  // Map<pathRel, parsed .picasa.ini metadata>
   iniAlbumsByToken: new Map(),
+  starredImageRefs: [],       // Library-wide refs for the ]star system album
+  starredRefsLoaded: false,
   currentImages: [],          // ImageItem[]
   currentTitle: "",
   currentResolved: "",
@@ -7851,8 +7887,20 @@ function escapeHtml(s) {
  *  =========================== */
 async function selectAlbum(idx) {
   const navRequestId = beginNavRequest();
-  const album = state.albums[idx];
+  let album = state.albums[idx];
   if (!album) return;
+  if (album.token === "]star") {
+    if (!state.starredRefsLoaded) {
+      setStatus("Finding all starred images in the library…", "warn");
+      await refreshGlobalStarredImageRefs();
+    } else {
+      ensureSpecialAlbums();
+    }
+    if (!isNavRequestActive(navRequestId)) return;
+    idx = state.albums.findIndex((candidate) => candidate.token === "]star");
+    album = state.albums[idx];
+    if (!album) return;
+  }
   console.log("[selectAlbum]", { idx, source: album.source || "pmp", token: album.token, pathRel: album.pathRel, hasRefs: Array.isArray(album.imageRefs) ? album.imageRefs.length : null });
   state.currentViewMode = "albums";
   state.activeListIndex = idx;
@@ -8534,6 +8582,7 @@ el.btnPick.onclick = async () => {
     const dir = await window.showDirectoryPicker({ mode: "readwrite" });
     state.libraryRoot = dir;
     state.activeListIndex = -1;
+    clearGrid();
     setAsideState("Library folder selected", "ok");
     setStatus("Indexing directories… (first time can take a bit)", "warn");
     state.dirIndex = await buildDirectoryIndex(state.libraryRoot, ({ count, lastPath }) => {
@@ -8541,11 +8590,15 @@ el.btnPick.onclick = async () => {
       setStatus(`Indexing directories… ${count} folders${suffix}`, "warn");
     });
     state.picasaByFolder.clear();
+    state.starredImageRefs = [];
+    state.starredRefsLoaded = false;
     const hasPmp = !!state.pmpRoot;
     if (hasPmp) {
       el.btnReload.disabled = false;
       setStatus(`Indexed ${state.dirIndex.size} folders. Loading albums…`, "warn");
       state.picasaByFolder.clear();
+      state.starredImageRefs = [];
+      state.starredRefsLoaded = false;
       state.pmpColumnsCache = [];
       await loadAlbumsFromPMP();
       setPmpState("Picasa DB: loaded", "ok");
@@ -8566,6 +8619,8 @@ el.btnPickPmp.onclick = async () => {
     setPmpState("Picasa DB: connected", "warn");
     state.activeListIndex = -1;
     state.picasaByFolder.clear();
+    state.starredImageRefs = [];
+    state.starredRefsLoaded = false;
     state.pmpColumnsCache = [];
     if (!state.libraryRoot || !state.dirIndex) {
       setStatus("Importing PMP thumbnails and columns…", "warn");
@@ -8599,6 +8654,8 @@ el.btnReload.onclick = async () => {
       setStatus(`Rebuilding directory index… ${count} folders${suffix}`, "warn");
     });
     state.picasaByFolder.clear();
+    state.starredImageRefs = [];
+    state.starredRefsLoaded = false;
 	    state.pmpColumnsCache = [];
 	    setStatus("Reloading PMP…", "warn");
 	    await loadAlbumsFromPMP();
